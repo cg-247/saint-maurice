@@ -10,15 +10,17 @@ publiées par Hydro-Québec.
 
 → **https://cg-247.github.io/saint-maurice/**
 
-L'animation s'ouvre sur la vue **Jour** la plus récente. La barre de contrôle en bas
+L'animation s'ouvre sur la vue **Heure** du mois courant. La barre de contrôle en bas
 permet de naviguer dans le temps :
 
-- **Sélecteur de pas** — bascule entre **Heure** (~600 frames), **Jour** (~25 frames,
-  heure de pointe de chaque jour) et **Semaine** (plage dim → sam, heure de pointe).
+- **Sélecteur de pas** — bascule entre **Heure** (mois courant, plus historique chargé à la demande),
+  **Jour** (heure de pointe de chaque jour, tout l'historique), **Semaine** (plage dim → sam, heure de
+  pointe) et **Mois** (mois calendaire, heure de pointe).
 - **▶ Play / ⏸ Pause** — lecture automatique.
 - **◀ ▶▶** — frame précédente / suivante.
 - **⏮ Début / ⏭ Maintenant** — saut direct à la première ou dernière frame.
-- **Slider** — position libre dans la fenêtre de temps.
+- **Slider** — position libre dans la fenêtre de temps. En vue Heure, glisser vers la gauche charge
+  automatiquement le mois précédent en arrière-plan.
 - **Vitesse** — Lent / Normal / Rapide / Très rapide pour la lecture auto.
 - **Clic sur le sparkline** d'une centrale — ouvre un graphique grand format
   avec curseur cliquable pour repositionner la frame.

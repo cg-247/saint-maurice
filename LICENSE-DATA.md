@@ -1,8 +1,9 @@
 ﻿# Licence des données et de l'image
 
-Les **données hydrométriques et hydrométéorologiques** ainsi que **l'image
-`gestion-reservoir.jpg`** (intégrée en base64 dans `index.html`) sont
-publiées par **Hydro-Québec** sous la licence
+Les **données hydrométriques et hydrométéorologiques** (dans `index.html`,
+`data/sommaire.json` et les fichiers mensuels `data/AAAA-MM-horaire.json`) ainsi que
+**l'image `gestion-reservoir.jpg`** (servie comme fichier séparé et également intégrée
+en base64 dans `index.html`) sont publiées par **Hydro-Québec** sous la licence
 [**Creative Commons Attribution 4.0 International (CC BY 4.0)**](https://creativecommons.org/licenses/by/4.0/deed.fr).
 
 ## Vous êtes libre de :
