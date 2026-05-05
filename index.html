@@ -153,6 +153,11 @@ let N = 0;        // nombre de frames de la vue active
 let frame = 0, playing = false, timer = null;
 let modalIdx = -1;  // declaration anticipee : utilise par go()
 
+// Mode etendu par centrale : compactMode[id] = true => etendue, sinon compacte (defaut).
+// Compact = nom + debit total seulement. Etendu = toutes les lignes + sparkline.
+const compactMode = {};
+function isExpanded(c) { return compactMode[c.id] === true; }
+
 // Pour une serie [v0, null, null, v3, null] -> renvoie { eff: [v0,v0,v0,v3,v3], stale: [false,true,true,false,true] }.
 // Si une valeur est null sans valeur connue avant, eff[i] reste null et stale[i] reste false (rien a afficher).
 function computeLastKnown(arr) {
@@ -446,12 +451,17 @@ function draw(i) {
     const ix = c.iconX * sx, iy = c.iconY * sy;
     const lx = c.labelX * sx, ly = c.labelY * sy;
 
-    // Ligne de rappel icon -> etiquette (pointillee)
-    const lcx = lx + lw/2, lcy = ly + lh/2;
+    // Hauteur effective : reduite a 36 % en mode compact (nom + debit total uniquement).
+    const expanded = isExpanded(c);
+    const lhEff = expanded ? lh : lh * 0.36;
+
+    // Ligne de rappel icon -> etiquette (pointillee). Calcul base sur lhEff
+    // pour que la ligne s'arrete sur le bord visible du rectangle.
+    const lcx = lx + lw/2, lcy = ly + lhEff/2;
     const dx = ix - lcx,   dy  = iy - lcy;
     let ex = lcx, ey = lcy;
-    if (Math.abs(dx) > Math.abs(dy) * (lw/lh)) { ex = dx>0 ? lx+lw : lx; }
-    else                                         { ey = dy>0 ? ly+lh : ly; }
+    if (Math.abs(dx) > Math.abs(dy) * (lw/lhEff)) { ex = dx>0 ? lx+lw : lx; }
+    else                                            { ey = dy>0 ? ly+lhEff : ly; }
     ctx.save();
     ctx.setLineDash([6*sx, 6*sx]);
     ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ix,iy);
@@ -479,15 +489,15 @@ function draw(i) {
       ctx.fillText('(' + c.cap_mw + ' MW)', capX, capY);
     }
 
-    // Fond etiquette
+    // Fond etiquette : utilise lhEff pour vraiment liberer de l'espace en mode compact.
     ctx.fillStyle='rgba(242,242,242,.95)';
-    ctx.fillRect(lx,ly,lw,lh);
+    ctx.fillRect(lx,ly,lw,lhEff);
     // Barre coloree gauche (elargie pour bien voir le statut)
     const barW = 12 * sx;
-    ctx.fillStyle=col.f; ctx.fillRect(lx,ly,barW,lh);
+    ctx.fillStyle=col.f; ctx.fillRect(lx,ly,barW,lhEff);
     // Bordure
     ctx.strokeStyle='rgba(80,80,80,.6)'; ctx.lineWidth=.9*sx;
-    ctx.strokeRect(lx,ly,lw,lh);
+    ctx.strokeRect(lx,ly,lw,lhEff);
 
     const leftX = lx + barW + 6 * sx;
     const fsName      = Math.max(11, Math.round(17 * sx));
@@ -507,6 +517,14 @@ function draw(i) {
 
     // Ligne 0 : nom de la centrale en gras, suivi d'un trait de separation
     drawLeftSegments(ctx, [{ text: c.nom, color: '#111' }], leftX, ly + lh*0.084, fontName);
+
+    // Indicateur pliage : fleche dans le coin haut-droit, plus grosse que le nom.
+    // Compact : ▾ (cliquer pour etendre). Etendu : ▴ (cliquer pour replier).
+    const fsArrow = Math.max(18, Math.round(28 * sx));
+    ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
+    ctx.fillStyle = '#1a1a2e';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(expanded ? '▴' : '▾', lx + lw - 6*sx, ly + lh*0.084);
     const sepY = ly + lh*0.19;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
@@ -528,98 +546,158 @@ function draw(i) {
       ctx.restore();
     }
 
-    // Ligne 2 : detail (engrenage vert + valeur) + (verre + valeur), icones PNG
-    const turbEff = c.turbsEff[i];
-    const devEff  = c.devsEff[i];
-    const turbStale = c.turbsStale[i];
-    const devStale  = c.devsStale[i];
-    if (turbEff !== null || devEff !== null) {
-      const grayCol = 'rgba(110,110,110,.95)';
-      ctx.save();
-      // Si les deux valeurs presentes sont stales (ou la seule presente l'est), pâlir la ligne entiere.
-      const lineStale = (turbEff !== null && devEff !== null) ? (turbStale && devStale)
-                       : (turbEff !== null ? turbStale : devStale);
-      if (lineStale) ctx.globalAlpha = 0.45;
-      drawLeftSegments(ctx, [
-        { icon: 'turbine-vert', size: fsIcon },
-        { text: (turbEff !== null ? turbEff : '-') + '   ', color: grayCol },
-        { icon: 'deverse', size: fsIconDev },
-        { text: (devEff  !== null ? devEff  : '-'), color: grayCol }
-      ], leftX, ly + lh*0.421, fontDetail);
-      ctx.restore();
-    }
-
-    // Ligne 3 : MW calcule avec eclair (icone PNG) — "MW" reduit, chiffre + % en valeur
-    const mwEff = c.mwsEff[i];
-    if (mwEff !== null) {
-      const fsMwUnit = Math.max(8, Math.round(fsMw / 2));
-      const fontMwUnit = fsMwUnit + 'px "Segoe UI",Arial,sans-serif';
-      const segs = [
-        { icon: 'eclair', size: fsIcon },
-        { text: mwEff + ' ',  color: valCol },
-        { text: 'MW ',        color: valCol, font: fontMwUnit }
-      ];
-      if (c.cap_mw !== null) {
-        const mwR = Math.round(mwEff / c.cap_mw * 100);
-        segs.push({ text: '(' + mwR + ' %)', color: valCol });
+    // Lignes 2-4 + sparkline : visibles seulement quand la centrale est etendue.
+    if (isExpanded(c)) {
+      // Ligne 2 : detail (engrenage vert + valeur) + (verre + valeur), icones PNG
+      const turbEff = c.turbsEff[i];
+      const devEff  = c.devsEff[i];
+      const turbStale = c.turbsStale[i];
+      const devStale  = c.devsStale[i];
+      if (turbEff !== null || devEff !== null) {
+        const grayCol = 'rgba(110,110,110,.95)';
+        ctx.save();
+        const lineStale = (turbEff !== null && devEff !== null) ? (turbStale && devStale)
+                         : (turbEff !== null ? turbStale : devStale);
+        if (lineStale) ctx.globalAlpha = 0.45;
+        drawLeftSegments(ctx, [
+          { icon: 'turbine-vert', size: fsIcon },
+          { text: (turbEff !== null ? turbEff : '-') + '   ', color: grayCol },
+          { icon: 'deverse', size: fsIconDev },
+          { text: (devEff  !== null ? devEff  : '-'), color: grayCol }
+        ], leftX, ly + lh*0.40, fontDetail);
+        ctx.restore();
       }
-      ctx.save();
-      if (c.mwsStale[i]) ctx.globalAlpha = 0.45;
-      drawLeftSegments(ctx, segs, leftX, ly + lh*0.582, fontMw);
-      ctx.restore();
-    }
 
-    // Ligne 4 : tendance (icone PNG : haut/bas/stable). Unite : D.trendUnit ('6h'/'1j'/'1sem')
-    const tr = c.trends[i];
-    const fontTrend = fsTrend+'px "Segoe UI",Arial,sans-serif';
-    const trUnit = D.trendUnit || '6h';
-    if (tr === null) {
-      drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.751, fontTrend);
-    } else {
-      const sign = tr >= 0 ? '+' : '';
-      if (tr > 50) {
-        drawLeftSegments(ctx, [
-          { text: sign + tr + ' m³/s en ' + trUnit, color: '#a01818' }
-        ], leftX, ly + lh*0.751, fontTrend);
-      } else if (tr < -50) {
-        drawLeftSegments(ctx, [
-          { text: sign + tr + ' m³/s en ' + trUnit, color: '#1a6e1a' }
-        ], leftX, ly + lh*0.751, fontTrend);
+      // Ligne 3 : MW calcule avec eclair (icone PNG)
+      const mwEff = c.mwsEff[i];
+      if (mwEff !== null) {
+        const fsMwUnit = Math.max(8, Math.round(fsMw / 2));
+        const fontMwUnit = fsMwUnit + 'px "Segoe UI",Arial,sans-serif';
+        const segs = [
+          { icon: 'eclair', size: fsIcon },
+          { text: mwEff + ' ',  color: valCol },
+          { text: 'MW ',        color: valCol, font: fontMwUnit }
+        ];
+        if (c.cap_mw !== null) {
+          const mwR = Math.round(mwEff / c.cap_mw * 100);
+          segs.push({ text: '(' + mwR + ' %)', color: valCol });
+        }
+        ctx.save();
+        if (c.mwsStale[i]) ctx.globalAlpha = 0.45;
+        drawLeftSegments(ctx, segs, leftX, ly + lh*0.55, fontMw);
+        ctx.restore();
+      }
+
+      // Ligne 4 : tendance
+      const tr = c.trends[i];
+      const fontTrend = fsTrend+'px "Segoe UI",Arial,sans-serif';
+      const trUnit = D.trendUnit || '6h';
+      if (tr === null) {
+        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.68, fontTrend);
       } else {
-        const sh = c.stables ? c.stables[i] : null;
-        const stTxt = (sh === null || sh === undefined) ? 'stable'
-                    : (typeof sh === 'string' ? 'stable depuis ' + sh
-                                              : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
-        drawLeftSegments(ctx, [
-          { text: stTxt, color: '#3a3a3a' }
-        ], leftX, ly + lh*0.751, fontTrend);
+        const sign = tr >= 0 ? '+' : '';
+        if (tr > 50) {
+          drawLeftSegments(ctx, [
+            { text: sign + tr + ' m³/s en ' + trUnit, color: '#a01818' }
+          ], leftX, ly + lh*0.68, fontTrend);
+        } else if (tr < -50) {
+          drawLeftSegments(ctx, [
+            { text: sign + tr + ' m³/s en ' + trUnit, color: '#1a6e1a' }
+          ], leftX, ly + lh*0.68, fontTrend);
+        } else {
+          const sh = c.stables ? c.stables[i] : null;
+          const stTxt = (sh === null || sh === undefined) ? 'stable'
+                      : (typeof sh === 'string' ? 'stable depuis ' + sh
+                                                : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
+          drawLeftSegments(ctx, [
+            { text: stTxt, color: '#3a3a3a' }
+          ], leftX, ly + lh*0.68, fontTrend);
+        }
       }
-    }
 
-    // Sparkline 20 px en bas de l'etiquette : courbe debit total + bande "futur" grisee
-    const sparkY = ly + lh - 22 * sy;       // top du sparkline
-    const sparkH = 20 * sy;
-    const sparkX = lx + barW + 4 * sx;
-    const sparkW = lw - barW - 8 * sx;
-    if (sparkH > 4 && sparkW > 10 && c.maxTotal && c.maxTotal > 0) {
-      // Bande "futur" (i+1 a N-1) en gris pale (style boursier)
-      const xFuture = sparkX + ((i + 1) / (N - 1)) * sparkW;
-      if (xFuture < sparkX + sparkW) {
-        ctx.fillStyle = 'rgba(150,150,160,.18)';
-        ctx.fillRect(xFuture, sparkY, sparkX + sparkW - xFuture, sparkH);
+      // Sparkline minimaliste avec axes X (temps) et Y (debit min/max).
+      // Reserve de la place pour les labels : 3 caracteres a droite (axe Y), 1 ligne en bas (axe X).
+      const sparkH = 45 * sy;
+      const sparkBottomMargin = 4 * sy;
+      // Espaces reserves pour les labels (en pixels CANVAS, donc deja scales).
+      const fsAxis = Math.max(8, Math.round(10 * sx));
+      const yLabelW = fsAxis * 2.6;     // largeur reservee a droite pour les chiffres min/max
+      const xLabelH = fsAxis * 1.4;     // hauteur reservee en bas pour la date
+      // Zone reelle de tracage de la courbe (apres soustraction des marges axes).
+      const plotX = lx + barW + 4 * sx;
+      const plotY = ly + lh - sparkH - sparkBottomMargin;
+      const plotW = lw - barW - 8 * sx - yLabelW;
+      const plotH = sparkH - xLabelH;
+      if (plotH > 6 && plotW > 10 && c.maxTotal && c.maxTotal > 0 && c.minTotal !== null) {
+        const range = c.maxTotal - c.minTotal;
+        const yOf = v => plotY + plotH - ((v - c.minTotal) / Math.max(range, 1)) * plotH;
+        // Bande "futur" en gris pale.
+        const xFuture = plotX + ((i + 1) / (N - 1)) * plotW;
+        if (xFuture < plotX + plotW) {
+          ctx.fillStyle = 'rgba(150,150,160,.12)';
+          ctx.fillRect(xFuture, plotY, plotX + plotW - xFuture, plotH);
+        }
+        // Axes : trait Y a gauche, trait X en bas.
+        ctx.strokeStyle = 'rgba(80,80,90,.6)';
+        ctx.lineWidth = 0.8 * sx;
+        ctx.beginPath();
+        ctx.moveTo(plotX, plotY);
+        ctx.lineTo(plotX, plotY + plotH);
+        ctx.lineTo(plotX + plotW, plotY + plotH);
+        ctx.stroke();
+        // Labels axe Y (max en haut, min en bas), aligne a droite, juste apres la zone de plot.
+        ctx.font = fsAxis + 'px "Segoe UI",Arial,sans-serif';
+        ctx.fillStyle = 'rgba(60,60,70,.85)';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(Math.round(c.maxTotal), plotX + plotW + 3 * sx, plotY);
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(Math.round(c.minTotal), plotX + plotW + 3 * sx, plotY + plotH);
+        // Labels axe X : date debut a gauche, date fin a droite (sous l'axe).
+        ctx.fillStyle = 'rgba(60,60,70,.75)';
+        ctx.textBaseline = 'top';
+        const xAxisY = plotY + plotH + 2 * sy;
+        const tsFirst = D.timestamps[0] || '';
+        const tsLast  = D.timestamps[D.timestamps.length - 1] || '';
+        // Format compact : pour Heure '04-04 06:00' -> '04-04' ; pour Jour '2026-04-04' -> '04-04' ;
+        // pour Semaine '2026-04-04 -> ...' -> '04-04' ; pour Mois '2026-04' -> '04'.
+        const compactX = (s) => {
+          if (!s) return '';
+          if (D.periode === 'mensuel') return s.split('-')[1] || s;
+          // Sinon prend la date 'AAAA-MM-JJ' et garde 'MM-JJ'.
+          const datePart = s.split(' ')[0];
+          const m = datePart.match(/^\d{4}-(\d{2})-(\d{2})/);
+          return m ? (m[1] + '-' + m[2]) : datePart;
+        };
+        ctx.textAlign = 'left';
+        ctx.fillText(compactX(tsFirst), plotX + 1 * sx, xAxisY);
+        ctx.textAlign = 'right';
+        ctx.fillText(compactX(tsLast), plotX + plotW - 1 * sx, xAxisY);
+        // Construire les points (en sautant les nulls).
+        const pts = [];
+        for (let k = 0; k < N; k++) {
+          const v = c.debits[k];
+          if (v === null) { pts.push(null); }
+          else { pts.push({ x: plotX + (k / (N - 1)) * plotW, y: yOf(v) }); }
+        }
+        // Courbe (couleur du statut, trait epais).
+        ctx.beginPath();
+        ctx.strokeStyle = col.s;
+        ctx.lineWidth = 1.5 * sx;
+        let started = false;
+        for (const p of pts) {
+          if (p === null) { started = false; continue; }
+          if (!started) { ctx.moveTo(p.x, p.y); started = true; } else { ctx.lineTo(p.x, p.y); }
+        }
+        ctx.stroke();
+        // Point sur la valeur courante (halo blanc + remplissage couleur).
+        const cur = pts[i];
+        if (cur) {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath(); ctx.arc(cur.x, cur.y, 3.5 * sx, 0, 2 * Math.PI); ctx.fill();
+          ctx.fillStyle = col.s;
+          ctx.beginPath(); ctx.arc(cur.x, cur.y, 2.5 * sx, 0, 2 * Math.PI); ctx.fill();
+        }
       }
-      // Courbe (couleur du statut courant)
-      ctx.beginPath();
-      ctx.strokeStyle = col.s;
-      ctx.lineWidth = 1.0 * sx;
-      let started = false;
-      for (let k = 0; k < N; k++) {
-        const v = c.debits[k]; if (v === null) { started = false; continue; }
-        const xx = sparkX + (k / (N - 1)) * sparkW;
-        const yy = sparkY + (1 - v / c.maxTotal) * sparkH;
-        if (!started) { ctx.moveTo(xx, yy); started = true; } else { ctx.lineTo(xx, yy); }
-      }
-      ctx.stroke();
     }
   }
 
@@ -804,30 +882,62 @@ function imgCoordsFromEv(ev) {
   };
 }
 // Renvoie l'index centrale dont le rectangle sparkline contient (xImg, yImg), sinon -1.
-// Le sparkline est en bas de l'etiquette : 22 px de haut, largeur lw - barW - 8.
+// Sparkline = 45 px de haut, 4 px de marge en bas (cf. draw()).
 function hitTestSparkline(xImg, yImg) {
   const lw = D.labelW, lh = D.labelH;
   const barW = 12;
-  const sparkTop = 22;        // px depuis le bas de l'etiquette (cf. draw())
+  const sparkH = 45;
+  const sparkBottomMargin = 4;
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
     const x0 = c.labelX + barW + 4;
     const x1 = c.labelX + lw - 4;
-    const y0 = c.labelY + lh - sparkTop;
-    const y1 = c.labelY + lh;
+    const y0 = c.labelY + lh - sparkH - sparkBottomMargin;
+    const y1 = c.labelY + lh - sparkBottomMargin;
     if (xImg >= x0 && xImg <= x1 && yImg >= y0 && yImg <= y1) return k;
   }
   return -1;
 }
+// Zone cliquable pour basculer compact/etendu : haut du label (nom + debit total).
+function hitTestLabelHeader(xImg, yImg) {
+  const lw = D.labelW, lh = D.labelH;
+  for (let k = 0; k < D.centrales.length; k++) {
+    const c = D.centrales[k];
+    if (xImg >= c.labelX && xImg <= c.labelX + lw &&
+        yImg >= c.labelY && yImg <= c.labelY + lh * 0.36) {
+      return k;
+    }
+  }
+  return -1;
+}
 hoverLayer.addEventListener('mousemove', (ev)=>{
+  if (!D) { hoverLayer.style.cursor = 'default'; return; }
   const { x, y } = imgCoordsFromEv(ev);
-  const k = hitTestSparkline(x, y);
-  hoverLayer.style.cursor = (k !== -1) ? 'pointer' : 'default';
+  // Curseur pointer si on survole le header (toujours cliquable) ou la sparkline (uniquement quand etendue).
+  const kHeader = hitTestLabelHeader(x, y);
+  let cursor = 'default';
+  if (kHeader !== -1) {
+    cursor = 'pointer';
+  } else {
+    const kSpark = hitTestSparkline(x, y);
+    if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) cursor = 'pointer';
+  }
+  hoverLayer.style.cursor = cursor;
 });
 hoverLayer.addEventListener('click', (ev)=>{
+  if (!D) return;
   const { x, y } = imgCoordsFromEv(ev);
-  const k = hitTestSparkline(x, y);
-  if (k !== -1) openModal(k);
+  // Priorite 1 : clic sur l'en-tete -> bascule compact/etendu.
+  const kHeader = hitTestLabelHeader(x, y);
+  if (kHeader !== -1) {
+    const c = D.centrales[kHeader];
+    compactMode[c.id] = !isExpanded(c);
+    draw(frame);
+    return;
+  }
+  // Priorite 2 : clic sur la sparkline d'une centrale etendue -> ouvre la modale.
+  const kSpark = hitTestSparkline(x, y);
+  if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) openModal(kSpark);
 });
 
 function fmtInt(v) { return (v == null) ? '—' : Math.round(v); }
