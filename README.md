@@ -60,6 +60,11 @@ Les mesures proviennent de [**Hydro-Québec — Données ouvertes**](https://www
 fichiers JSON horaires des stations hydrométriques et hydrométéorologiques, mis à jour
 quotidiennement. Licence des données : [Creative Commons BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.fr).
 
+### Icônes
+
+- **Microsoft Fluent UI Emoji 3D** ([repo](https://github.com/microsoft/fluentui-emoji), [licence MIT](https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE)) — gouttes 💦, engrenage ⚙, pouring 🫗, éclair ⚡, flèches de tendance, nuage (apport).
+- **Icône barrage** : <a href="https://www.flaticon.com/fr/icones-gratuites/barrage" title="barrage icônes">Barrage icônes créées par Freepik - Flaticon</a>
+
 ### Différence avec l'outil officiel HQ
 
 L'outil officiel d'Hydro-Québec [**Débits et niveaux d'eau**](https://www.hydroquebec.com/production/debits-niveaux-eau.html)
@@ -93,7 +98,7 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
 ## Mise à jour
 
 Animation régénérée manuellement à partir des fichiers ouverts d'Hydro-Québec.
-Instantané du 2026-05-05.
+Instantané du 2026-05-06.
 
 ---
 
