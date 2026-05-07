@@ -1311,21 +1311,64 @@ function drawBigChart() {
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
   }
 
-  // Legende couleurs en haut a gauche : 3 lignes (Total, Turbine, Deverse).
+  // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
+  // la courbe debit total. Mesure les dimensions du bloc, puis compte combien
+  // de points de la courbe tombent dans chaque coin candidat.
+  const lgGapY = 16, lgSwW = 14, lgSwH = 3, lgPadX = 8, lgPadY = 6;
+  const noteTxt = 'Débit total = turbiné + déversé. Saturation si déversé > 10 m³/s.';
+  cx.font = '12px "Segoe UI",Arial';
+  const wTotal = cx.measureText('Débit total').width;
+  const wTurb  = cx.measureText('Turbiné').width;
+  const wDev   = cx.measureText('Déversé').width;
+  cx.font = 'italic 11px "Segoe UI",Arial';
+  const wNote  = cx.measureText(noteTxt).width;
+  const lgInnerW = Math.max(wTotal, wTurb, wDev) + lgSwW + 8;
+  const boxW = Math.max(lgInnerW, wNote) + 2 * lgPadX;
+  const boxH = 3 * lgGapY + 14 + 2 * lgPadY; // 3 lignes legende + 1 ligne note
+  // 4 coins candidats (origine du bloc x,y dans la zone de plot).
+  const corners = [
+    { name: 'HG', x: pad.l + 4,                  y: pad.t + 4 },
+    { name: 'HD', x: pad.l + innerW - boxW - 4,  y: pad.t + 4 },
+    { name: 'BG', x: pad.l + 4,                  y: pad.t + innerH - boxH - 4 },
+    { name: 'BD', x: pad.l + innerW - boxW - 4,  y: pad.t + innerH - boxH - 4 }
+  ];
+  // Score : nombre de points de la courbe DEBIT TOTAL qui tombent dans le
+  // rectangle ELARGI d'une marge de 8 px (compte aussi les points qui frolent
+  // les bords). Le moins de chevauchement = meilleur coin. En cas d'egalite,
+  // on choisit le coin le plus eloigne du curseur courant (xCur) pour ne pas
+  // masquer la lecture en cours.
+  const margin = 8;
+  for (const co of corners) {
+    let score = 0;
+    const x0 = co.x - margin, x1 = co.x + boxW + margin;
+    const y0 = co.y - margin, y1 = co.y + boxH + margin;
+    for (let i2 = 0; i2 < N; i2++) {
+      const v = c.debits[i2]; if (v == null) continue;
+      const px = xOf(i2), py = yOf(v);
+      if (px >= x0 && px <= x1 && py >= y0 && py <= y1) score++;
+    }
+    co.score = score;
+    // Distance horizontale du centre du bloc au curseur courant (pour tie-break).
+    co.distXCur = Math.abs((co.x + boxW / 2) - xCur);
+  }
+  // Tri : score croissant, puis distXCur decroissant (preferer eloigne du curseur).
+  corners.sort((a, b) => (a.score - b.score) || (b.distXCur - a.distXCur));
+  const best = corners[0];
+  // Tracage du bloc.
+  const lgX = best.x + lgPadX;
+  const lgY0 = best.y + lgPadY;
+  const lgTxtX = lgX + lgSwW + 8;
   cx.font = '12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'top';
-  const lgX = pad.l + 8, lgY0 = pad.t + 6, lgGapY = 16, lgSwW = 14, lgSwH = 3, lgTxtX = lgX + lgSwW + 8;
-  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 4,           lgSwW, lgSwH);
+  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 4,            lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Débit total',  lgTxtX, lgY0);
-  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 4,  lgSwW, lgSwH);
+  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 4,   lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Turbiné',      lgTxtX, lgY0 + lgGapY);
   cx.fillStyle = devCol;  cx.fillRect(lgX, lgY0 + 2*lgGapY + 4, lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Déversé',      lgTxtX, lgY0 + 2*lgGapY);
-  // Note explicative sous la legende.
   cx.font = 'italic 11px "Segoe UI",Arial';
   cx.fillStyle = '#666';
-  cx.fillText('Débit total = turbiné + déversé. Saturation si déversé > 10 m³/s.',
-              lgX, lgY0 + 3*lgGapY + 2);
+  cx.fillText(noteTxt, lgX, lgY0 + 3*lgGapY + 2);
 }
 
 function openModal(k) {
