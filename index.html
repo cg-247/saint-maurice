@@ -644,9 +644,20 @@ function draw(i) {
       const plotY = ly + lh - sparkH - sparkBottomMargin;
       const plotW = lwC - barW - 8 * sx - yLabelW;
       const plotH = sparkH - xLabelH;
-      if (plotH > 6 && plotW > 10 && c.maxTotal && c.maxTotal > 0 && c.minTotal !== null) {
-        const range = c.maxTotal - c.minTotal;
-        const yOf = v => plotY + plotH - ((v - c.minTotal) / Math.max(range, 1)) * plotH;
+      // Min/max combine sur les 3 series (debit total, turbine, deverse) pour
+      // que les 3 courbes partagent la meme echelle Y. On part du min/max
+      // historique du debit total (qui est souvent dominant) puis on etend
+      // si turbine/deverse depassent dans la fenetre courante.
+      let yMinC = c.minTotal, yMaxC = c.maxTotal;
+      if (yMinC === null || yMaxC === null) { yMinC = 0; yMaxC = 1; }
+      for (const v of c.turbs) { if (v === null) continue; if (v < yMinC) yMinC = v; if (v > yMaxC) yMaxC = v; }
+      for (const v of c.devs)  { if (v === null) continue; if (v < yMinC) yMinC = v; if (v > yMaxC) yMaxC = v; }
+      // Garder 0 comme borne basse si toutes les series sont positives — sinon
+      // les courbes deverse (souvent ~0) seraient ecrasees au bas de l'axe.
+      if (yMinC > 0) yMinC = 0;
+      if (plotH > 6 && plotW > 10 && yMaxC > yMinC) {
+        const range = yMaxC - yMinC;
+        const yOf = v => plotY + plotH - ((v - yMinC) / Math.max(range, 1)) * plotH;
         // Bande "futur" en gris pale.
         const xFuture = plotX + ((i + 1) / (N - 1)) * plotW;
         if (xFuture < plotX + plotW) {
@@ -665,9 +676,9 @@ function draw(i) {
         ctx.font = fsAxis + 'px "Segoe UI",Arial,sans-serif';
         ctx.fillStyle = 'rgba(60,60,70,.85)';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText(Math.round(c.maxTotal), plotX + plotW + 3 * sx, plotY);
+        ctx.fillText(Math.round(yMaxC), plotX + plotW + 3 * sx, plotY);
         ctx.textBaseline = 'bottom';
-        ctx.fillText(Math.round(c.minTotal), plotX + plotW + 3 * sx, plotY + plotH);
+        ctx.fillText(Math.round(yMinC), plotX + plotW + 3 * sx, plotY + plotH);
         // Labels axe X : date debut a gauche, date fin a droite (sous l'axe).
         ctx.fillStyle = 'rgba(60,60,70,.75)';
         ctx.textBaseline = 'top';
@@ -688,14 +699,33 @@ function draw(i) {
         ctx.fillText(compactX(tsFirst), plotX + 1 * sx, xAxisY);
         ctx.textAlign = 'right';
         ctx.fillText(compactX(tsLast), plotX + plotW - 1 * sx, xAxisY);
-        // Construire les points (en sautant les nulls).
+        // Trace turbine (vert) puis deverse (gris) en arriere-plan, puis le
+        // debit total (couleur statut) par-dessus pour qu'il reste lisible.
+        const drawSeries = (series, color, lw) => {
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lw;
+          let st = false;
+          for (let k = 0; k < N; k++) {
+            const v = series[k];
+            if (v === null) { st = false; continue; }
+            const xx = plotX + (k / (N - 1)) * plotW;
+            const yy = yOf(v);
+            if (!st) { ctx.moveTo(xx, yy); st = true; } else { ctx.lineTo(xx, yy); }
+          }
+          ctx.stroke();
+        };
+        drawSeries(c.turbs, 'rgba(46,160,67,.85)',   1.2 * sx);  // turbine vert
+        drawSeries(c.devs,  'rgba(110,110,110,.85)', 1.2 * sx);  // deverse gris
+
+        // Construire les points debit total (en sautant les nulls).
         const pts = [];
         for (let k = 0; k < N; k++) {
           const v = c.debits[k];
           if (v === null) { pts.push(null); }
           else { pts.push({ x: plotX + (k / (N - 1)) * plotW, y: yOf(v) }); }
         }
-        // Courbe (couleur du statut, trait epais).
+        // Courbe debit total (couleur du statut, trait epais — dominante).
         ctx.beginPath();
         ctx.strokeStyle = col.s;
         ctx.lineWidth = 1.5 * sx;
@@ -1180,8 +1210,12 @@ function drawBigChart() {
   const pad = { l: 60, r: 20, t: 10, b: 36 };
   cx.clearRect(0, 0, w, h);
 
-  // Echelle Y : max historique + 100 m3/s pour laisser de la place aux labels en haut
-  const yMax = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1) + 100;
+  // Echelle Y : max combine des 3 series (debit total, turbine, deverse) +
+  // tampon ~5 % pour laisser de la place aux labels en haut.
+  let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
+  for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
   // Echelle X : N frames + 3h "tampon" a droite pour laisser de la place aux labels
   const xPad = 3; // heures vides a droite
   const xSpan = (N - 1) + xPad;
@@ -1230,7 +1264,25 @@ function drawBigChart() {
     else stroke = '#6a0000';
   }
 
-  // Courbe
+  // Couleurs fixes turbine (vert) + deverse (gris).
+  const turbCol = 'rgba(46,160,67,.85)';
+  const devCol  = 'rgba(110,110,110,.85)';
+  const drawSeriesBig = (series, color, lw) => {
+    cx.beginPath();
+    cx.strokeStyle = color; cx.lineWidth = lw;
+    let st = false;
+    for (let i = 0; i < N; i++) {
+      const v = series[i]; if (v == null) { st = false; continue; }
+      const xx = xOf(i), yy = yOf(v);
+      if (!st) { cx.moveTo(xx, yy); st = true; } else { cx.lineTo(xx, yy); }
+    }
+    cx.stroke();
+  };
+  // Trace turbine puis deverse en arriere-plan, puis le debit total dominant par-dessus.
+  drawSeriesBig(c.turbs, turbCol, 1.5);
+  drawSeriesBig(c.devs,  devCol,  1.5);
+
+  // Courbe debit total (couleur statut, dominante)
   cx.beginPath();
   cx.strokeStyle = stroke; cx.lineWidth = 1.8;
   let started = false;
@@ -1258,6 +1310,22 @@ function drawBigChart() {
     cx.textBaseline = 'bottom';
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
   }
+
+  // Legende couleurs en haut a gauche : 3 lignes (Total, Turbine, Deverse).
+  cx.font = '12px "Segoe UI",Arial';
+  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  const lgX = pad.l + 8, lgY0 = pad.t + 6, lgGapY = 16, lgSwW = 14, lgSwH = 3, lgTxtX = lgX + lgSwW + 8;
+  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 4,           lgSwW, lgSwH);
+  cx.fillStyle = '#333';  cx.fillText('Débit total',  lgTxtX, lgY0);
+  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 4,  lgSwW, lgSwH);
+  cx.fillStyle = '#333';  cx.fillText('Turbiné',      lgTxtX, lgY0 + lgGapY);
+  cx.fillStyle = devCol;  cx.fillRect(lgX, lgY0 + 2*lgGapY + 4, lgSwW, lgSwH);
+  cx.fillStyle = '#333';  cx.fillText('Déversé',      lgTxtX, lgY0 + 2*lgGapY);
+  // Note explicative sous la legende.
+  cx.font = 'italic 11px "Segoe UI",Arial';
+  cx.fillStyle = '#666';
+  cx.fillText('Débit total = turbiné + déversé. Saturation si déversé > 10 m³/s.',
+              lgX, lgY0 + 3*lgGapY + 2);
 }
 
 function openModal(k) {
