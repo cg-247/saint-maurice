@@ -908,23 +908,24 @@ function draw(i) {
           ctx.fillText(compactX(tsFirst), plotX + 1 * sx, xAxisY);
           ctx.textAlign = 'right';
           ctx.fillText(compactX(tsLast), plotX + plotW - 1 * sx, xAxisY);
-          // ---- Courbe APPORT (vert) ----
-          // L'apport est une donnee meteo/journaliere. On affiche la valeur uniquement
-          // sur les frames ou elle est mesuree, sinon la courbe retourne a 0 (pas
-          // d'extrapolation last-known qui suggererait une persistance qu'elle n'a pas).
-          // Tracee en arriere-plan pour que la courbe deversement passe par-dessus.
+          // ---- Courbe APPORT (vert) — stem-plot ----
+          // L'apport est une donnee meteo/journaliere discrete (1 valeur publiee par
+          // jour par HQ). On la trace comme un trait vertical de la base (0) jusqu'a
+          // la valeur, separement pour chaque mesure. Pas de connexion entre les
+          // mesures — sinon le canvas interpole et suggere une evolution continue
+          // que la donnee n'a pas. Idem rendu pour les 4 vues (Heure/Jour/Sem/Mois).
+          // Trace en arriere-plan pour que la courbe deversement passe par-dessus.
           const greenAccent = 'rgba(46,160,67,.85)';
           const y0 = yOf(yMin);   // base de l'echelle (souvent 0)
-          ctx.beginPath();
           ctx.strokeStyle = greenAccent;
           ctx.lineWidth = 1.3 * sx;
-          let aStarted = false;
+          ctx.beginPath();
           for (let k = 0; k < N; k++) {
             const v = r.apports[k];
+            if (v == null || v <= 0) continue;
             const xx = plotX + (k / (N - 1)) * plotW;
-            const yy = (v !== null) ? yOf(v) : y0;
-            if (!aStarted) { ctx.moveTo(xx, yy); aStarted = true; }
-            else { ctx.lineTo(xx, yy); }
+            ctx.moveTo(xx, y0);
+            ctx.lineTo(xx, yOf(v));
           }
           ctx.stroke();
           // ---- Courbe DEVERSEMENT (bleu, par-dessus) ----
@@ -1279,12 +1280,12 @@ function drawBigChart() {
     cx.stroke();
   };
   // Trace turbine puis deverse en arriere-plan, puis le debit total dominant par-dessus.
-  drawSeriesBig(c.turbs, turbCol, 1.5);
-  drawSeriesBig(c.devs,  devCol,  1.5);
+  drawSeriesBig(c.turbs, turbCol, 2.2);
+  drawSeriesBig(c.devs,  devCol,  2.2);
 
   // Courbe debit total (couleur statut, dominante)
   cx.beginPath();
-  cx.strokeStyle = stroke; cx.lineWidth = 1.8;
+  cx.strokeStyle = stroke; cx.lineWidth = 2.6;
   let started = false;
   for (let i = 0; i < N; i++) {
     const v = arr[i]; if (v == null) { started = false; continue; }
@@ -1314,8 +1315,8 @@ function drawBigChart() {
   // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
   // la courbe debit total. Mesure les dimensions du bloc, puis compte combien
   // de points de la courbe tombent dans chaque coin candidat.
-  const lgGapY = 16, lgSwW = 14, lgSwH = 3, lgPadX = 8, lgPadY = 6;
-  const noteTxt = 'Débit total = turbiné + déversé. Saturation si déversé > 10 m³/s.';
+  const lgGapY = 18, lgSwW = 22, lgSwH = 7, lgPadX = 8, lgPadY = 6;
+  const noteTxt = 'Débit total = turbiné + déversé.';
   cx.font = '12px "Segoe UI",Arial';
   const wTotal = cx.measureText('Débit total').width;
   const wTurb  = cx.measureText('Turbiné').width;
@@ -1360,11 +1361,11 @@ function drawBigChart() {
   const lgTxtX = lgX + lgSwW + 8;
   cx.font = '12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'top';
-  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 4,            lgSwW, lgSwH);
+  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 3,            lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Débit total',  lgTxtX, lgY0);
-  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 4,   lgSwW, lgSwH);
+  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 3,   lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Turbiné',      lgTxtX, lgY0 + lgGapY);
-  cx.fillStyle = devCol;  cx.fillRect(lgX, lgY0 + 2*lgGapY + 4, lgSwW, lgSwH);
+  cx.fillStyle = devCol;  cx.fillRect(lgX, lgY0 + 2*lgGapY + 3, lgSwW, lgSwH);
   cx.fillStyle = '#333';  cx.fillText('Déversé',      lgTxtX, lgY0 + 2*lgGapY);
   cx.font = 'italic 11px "Segoe UI",Arial';
   cx.fillStyle = '#666';
@@ -1462,23 +1463,26 @@ function drawBigChartRes() {
     cx.fillText(D.timestamps[i], xOf(i), h - pad.b + 6);
   }
 
-  // Courbe APPORT (vert, retombe a 0 entre les mesures).
+  // Courbe APPORT (vert, stem-plot — chaque mesure = trait vertical de 0 a la
+  // valeur, sans interpolation entre les mesures). L'apport est journalier et
+  // discret ; un trait continu suggererait une evolution continue trompeuse.
   const greenStroke = '#1a6e2a';
+  const apportBaseY = yOf(0);
+  cx.strokeStyle = greenStroke; cx.lineWidth = 2.2;
   cx.beginPath();
-  cx.strokeStyle = greenStroke; cx.lineWidth = 1.5;
-  let aStarted = false;
   for (let i = 0; i < N; i++) {
     const v = r.apports[i];
-    const yy = (v !== null) ? yOf(v) : yOf(0);
+    if (v == null || v <= 0) continue;
     const xx = xOf(i);
-    if (!aStarted) { cx.moveTo(xx, yy); aStarted = true; } else { cx.lineTo(xx, yy); }
+    cx.moveTo(xx, apportBaseY);
+    cx.lineTo(xx, yOf(v));
   }
   cx.stroke();
 
   // Courbe DEVERSEMENT (bleu, par-dessus).
   const blueStroke = '#1a3060';
   cx.beginPath();
-  cx.strokeStyle = blueStroke; cx.lineWidth = 1.8;
+  cx.strokeStyle = blueStroke; cx.lineWidth = 2.6;
   let started = false;
   for (let i = 0; i < N; i++) {
     const v = r.devs[i]; if (v === null) { started = false; continue; }
@@ -1507,10 +1511,10 @@ function drawBigChartRes() {
   // Legende couleurs en haut a gauche.
   cx.font = '12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'top';
-  cx.fillStyle = blueStroke;  cx.fillRect(pad.l + 4, pad.t + 4, 12, 3);
-  cx.fillStyle = '#333';      cx.fillText('Déversement', pad.l + 22, pad.t + 0);
-  cx.fillStyle = greenStroke; cx.fillRect(pad.l + 4, pad.t + 22, 12, 3);
-  cx.fillStyle = '#333';      cx.fillText('Précipitation', pad.l + 22, pad.t + 18);
+  cx.fillStyle = blueStroke;  cx.fillRect(pad.l + 4, pad.t + 5,  22, 7);
+  cx.fillStyle = '#333';      cx.fillText('Déversement', pad.l + 32, pad.t + 0);
+  cx.fillStyle = greenStroke; cx.fillRect(pad.l + 4, pad.t + 23, 22, 7);
+  cx.fillStyle = '#333';      cx.fillText('Précipitation', pad.l + 32, pad.t + 18);
 }
 
 modalClose.addEventListener('click', closeModal);
