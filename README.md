@@ -1,14 +1,12 @@
 ﻿# Saint-Maurice — visualisation des débits Hydro-Québec
 
-> [Voir la démo en direct](https://cg-247.github.io/saint-maurice/)
+## Voir l'animation sur les débits
+
+→ **https://cg-247.github.io/saint-maurice/**
 
 Animation interactive du **bassin Saint-Maurice** (Québec) :
 débits, production électrique estimée et niveaux des réservoirs, à partir des données ouvertes
 publiées par Hydro-Québec.
-
-## Voir la démo
-
-→ **https://cg-247.github.io/saint-maurice/**
 
 L'animation s'ouvre sur la vue **Heure** du mois courant. La barre de contrôle en bas
 permet de naviguer dans le temps :
@@ -98,7 +96,7 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
 ## Mise à jour
 
 Animation régénérée manuellement à partir des fichiers ouverts d'Hydro-Québec.
-Instantané du 2026-05-09.
+Instantané du 2026-05-11.
 
 ---
 
