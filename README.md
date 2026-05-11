@@ -20,8 +20,13 @@ permet de naviguer dans le temps :
 - **Slider** — position libre dans la fenêtre de temps. En vue Heure, glisser vers la gauche charge
   automatiquement le mois précédent en arrière-plan.
 - **Vitesse** — Lent / Normal / Rapide / Très rapide pour la lecture auto.
-- **Clic sur le sparkline** d'une centrale — ouvre un graphique grand format
-  avec curseur cliquable pour repositionner la frame.
+- **Triangle ▾ / ▴ sur une étiquette** — clic pour agrandir l'étiquette d'une centrale ou
+  d'un réservoir et afficher les informations détaillées (débits turbiné/déversé, niveaux
+  amont/aval, production estimée, sparkline historique, etc.).
+- **Clic sur le sparkline** d'une centrale — ouvre un graphique grand format de l'historique.
+  Le **curseur du graphique est cliquable** et déplace la ligne du temps : **toutes les
+  centrales et tous les réservoirs** de l'animation se réajustent simultanément pour afficher
+  l'état du bassin à l'instant choisi.
 
 ## Faits saillants automatiques
 
