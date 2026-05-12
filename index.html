@@ -114,7 +114,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 </div>
 <script>
 // ALL contient les vues actives + meta partages. Les donnees sont chargees a la
-// demande depuis data/sommaire.json (vues Jour/Sem/Mois) et data/{YYYY-MM}-horaire.json
+// demande depuis data/sommaire.json (vues Jour/Semaine/Mois entieres) et data/{YYYY-MM}-horaire.json
 // (vue Heure, par mois). La structure ALL.byPeriode est compatible avec l'ancien
 // format pour minimiser les changements dans le code de rendu.
 //
@@ -127,7 +127,7 @@ let horaireRaw = null;       // { centrales: [...], reservoirs: [...], timestamp
 let manifest   = null;       // { months: [{month, frames, file}], latestMonth }
 let isFetching = false;      // anti-rentrance pour le lazy load
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","tendance-haut","tendance-bas","tendance-stable","apport","centrale","barrage"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -209,7 +209,7 @@ function buildView(key) {
     const n = computeLastKnown(r.niveaux);
     const v = computeLastKnown(r.devs);
     // Apport : pas de last-known. Si la mesure du jour n'est pas dispo, on affiche 0
-    // (cohérent avec le sparkline qui retombe a 0). Stale = false partout (pas de palissement).
+    // (coherent avec le sparkline qui retombe a 0). Stale = false partout (pas de palissement).
     const apportsEff   = (r.apports || []).map(x => x === null ? 0 : x);
     const apportsStale = (r.apports || []).map(() => false);
     return Object.assign({}, r, {
@@ -263,7 +263,7 @@ function setPeriode(key) {
     const a = (key === 'hebdomadaire') ? startOfWeek(first) : first;
     const b = (key === 'hebdomadaire') ? startOfWeek(last)  : last;
     const labelKey = { horaire: 'Heure', journalier: 'Jour', hebdomadaire: 'Semaine', mensuel: 'Mois' }[key] || key;
-    perEl.textContent = '(période : ' + a + ' au ' + b + ') [' + labelKey + ']';
+    perEl.textContent = '(periode : ' + a + ' au ' + b + ') [' + labelKey + ']';
   }
   if (typeof go === 'function') go(frame);
 }
@@ -299,24 +299,55 @@ function rebuildHoraireFromLoadedMonths() {
   }));
   const timestamps = first.timestamps.slice();
   const riverSummaries = (first.riverSummaries || []).slice();
-  // Concatene les mois suivants.
+  // Concatene les mois suivants. Sécurité : on apparie par ID (centrale.id, reservoir.nom)
+  // plutôt que par index — si la config bassin change entre deux régénérations partielles
+  // (ajout/retrait d'une centrale), un appariement par index melangerait silencieusement
+  // les séries. Les centrales/réservoirs présents dans le mois courant mais absents du
+  // mois ajouté reçoivent des null (nb_frames du mois ajouté) ; ceux présents dans le
+  // mois ajouté mais absents du courant sont ignorés (avec un warn console).
   for (let mi = 1; mi < months.length; mi++) {
     const sub = months[mi]._data;
-    for (let ci = 0; ci < centrales.length; ci++) {
-      const dest = centrales[ci]; const src = sub.centrales[ci];
-      dest.debits.push(...src.debits);
-      dest.turbs.push(...src.turbs);
-      dest.devs.push(...src.devs);
-      dest.mws.push(...src.mws);
-      dest.trends.push(...src.trends);
-      dest.stables.push(...src.stables);
+    const nFrames = sub.timestamps.length;
+    const nulls = () => new Array(nFrames).fill(null);
+
+    const srcCentralesById = new Map(sub.centrales.map(c => [c.id, c]));
+    for (const dest of centrales) {
+      const src = srcCentralesById.get(dest.id);
+      if (src) {
+        dest.debits.push(...src.debits);
+        dest.turbs.push(...src.turbs);
+        dest.devs.push(...src.devs);
+        dest.mws.push(...src.mws);
+        dest.trends.push(...src.trends);
+        dest.stables.push(...src.stables);
+        srcCentralesById.delete(dest.id);
+      } else {
+        console.warn('Centrale absente du mois ' + months[mi].month + ' : ' + dest.id + ' (' + dest.nom + ') — comblee par null');
+        dest.debits.push(...nulls()); dest.turbs.push(...nulls()); dest.devs.push(...nulls());
+        dest.mws.push(...nulls());    dest.trends.push(...nulls()); dest.stables.push(...nulls());
+      }
     }
-    for (let ri = 0; ri < reservoirs.length; ri++) {
-      const dest = reservoirs[ri]; const src = sub.reservoirs[ri];
-      dest.niveaux.push(...src.niveaux);
-      dest.devs.push(...src.devs);
-      dest.apports.push(...src.apports);
+    for (const orphan of srcCentralesById.values()) {
+      console.warn('Centrale presente uniquement dans le mois ' + months[mi].month + ' : ' + orphan.id + ' (' + orphan.nom + ') — ignoree');
     }
+
+    const srcReservoirsByNom = new Map(sub.reservoirs.map(r => [r.nom, r]));
+    for (const dest of reservoirs) {
+      const src = srcReservoirsByNom.get(dest.nom);
+      if (src) {
+        dest.niveaux.push(...src.niveaux);
+        dest.devs.push(...src.devs);
+        dest.apports.push(...src.apports);
+        srcReservoirsByNom.delete(dest.nom);
+      } else {
+        console.warn('Reservoir absent du mois ' + months[mi].month + ' : ' + dest.nom + ' — comble par null');
+        dest.niveaux.push(...nulls()); dest.devs.push(...nulls()); dest.apports.push(...nulls());
+      }
+    }
+    for (const orphan of srcReservoirsByNom.values()) {
+      console.warn('Reservoir present uniquement dans le mois ' + months[mi].month + ' : ' + orphan.nom + ' — ignore');
+    }
+
     timestamps.push(...sub.timestamps);
     riverSummaries.push(...(sub.riverSummaries || []));
   }
