@@ -41,6 +41,30 @@ de chiffres dans la prose — les chiffres sont déjà dans les étiquettes et
 sparklines de l'animation. Le texte change avec la frame quand vous naviguez
 dans le temps.
 
+## Étiquette « Neige et température en amont »
+
+Une petite étiquette dans le **coin haut-gauche** de l'animation affiche, pour
+la frame en cours, l'**épaisseur de neige restante** (cm) et les
+**températures min/max** (°C) à quatre endroits clés du bassin, du nord vers
+le sud :
+
+- **Réservoir Gouin** — tête du bassin
+- **Rapide-Blanc** — centre (couvre Chute-Allard, Rapides-des-Cœurs, Rapide-Blanc)
+- **La Tuque** — sud (couvre Trenche, Beaumont, La Tuque)
+- **Grand-Mère** — aval (couvre Grand-Mère, Shawinigan, La Gabelle)
+
+En bas de l'étiquette, un **verdict de fonte** synthétise la situation :
+*« fonte active (T > 0 même la nuit) »*, *« fonte en pause (gel la nuit) »*,
+ou *« fonte partielle »* selon le signe des températures observées.
+
+**L'étiquette se masque automatiquement** quand il n'y a plus de neige
+significative en amont (≈ 0 cm partout) ou quand aucune donnée météo n'est
+disponible — pas la peine d'occuper l'espace si l'info n'apporte rien.
+
+L'objectif est d'**aider à anticiper** les variations de débit : un stock
+nival important au nord avec des températures qui passent au-dessus de zéro
+annonce une fonte qui va alimenter la rivière dans les jours suivants.
+
 ## Sources
 
 ### Image de fond
@@ -92,6 +116,26 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
 - **Pointe (vues Jour et Semaine)** : on retient l'horodatage où le débit total **bassin**
   est maximum sur la fenêtre, avec toutes les valeurs cohérentes de cet instant.
 - **Heure** : convertie en heure locale Québec (HAE/HNE).
+- **Neige et température (étiquette météo)** : agrégation des **stations hydrométéorologiques
+  Hydro-Québec** voisines du bassin Saint-Maurice. Les valeurs publiées sont des mesures
+  horaires de `Épaisseur de neige` (cm, instantanée), `Température Maximum` et
+  `Température Minimum` (°C, max/min horaire). Pour chaque zone, on **moyenne** les
+  stations qui lui sont rattachées, on **ignore les valeurs sentinelles -999** (capteur
+  inactif, typiquement neige nulle hors saison) et on arrondit l'épaisseur à 0 cm sous 0,5 cm.
+  Le verdict de fonte est une règle simple basée sur le **signe de T_min** par zone
+  (toutes positives ⇒ « fonte active », toutes négatives ⇒ « fonte en pause »,
+  mixte ⇒ « fonte partielle »).
+
+  Stations utilisées (identifiants Hydro-Québec) :
+
+  - **Réservoir Gouin** : Gouin Bois (CM2T, `1-10622`), La Loutre (CMUT, `1-7726`)
+  - **Rapide-Blanc** : Weymount (CM5G, `1-15532`), Windigo (CMRW, `1-7322`), Rapide-Blanc (CM3U, `1-10496`)
+  - **La Tuque** : Lac à la Truite (CMIM, `1-14194`)
+  - **Grand-Mère** : Saint-Maurice (CM2X, `1-15306`)
+
+  Ces stations ont été sélectionnées par **proximité géographique** (Haversine) des
+  ouvrages couverts par chaque zone. Les données brutes sont issues du même flux ouvert
+  que les débits (fichier `VUE_STATIONS_ET_TARAGES`).
 
 ## Licences
 
@@ -101,7 +145,7 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
 ## Mise à jour
 
 Animation régénérée manuellement à partir des fichiers ouverts d'Hydro-Québec.
-Instantané du 2026-05-13.
+Instantané du 2026-05-14.
 
 ---
 
