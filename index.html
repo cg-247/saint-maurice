@@ -1080,20 +1080,20 @@ function renderMeteoPanel(f) {
   const snap  = D.meteo.frames[f];
   if (!snap || !snap.length) { hide(); return; }
 
-  const fmtN = (v) => v === null || v === undefined ? '<span class="muted">n/d</span>' : (v < 0.5 ? '0&nbsp;cm' : (v.toFixed(0) + '&nbsp;cm'));
+  const fmtN = (v) => v === null || v === undefined ? '<span class="muted">n/d</span>' : (v < 0.05 ? '0&nbsp;cm' : (v.toFixed(1) + '&nbsp;cm'));
   const fmtT = (tmn, tmx) => {
     if (tmn === null && tmx === null) return '<span class="muted">n/d</span>';
-    const mn = tmn === null ? '?' : tmn.toFixed(0);
-    const mx = tmx === null ? '?' : tmx.toFixed(0);
+    const mn = tmn === null ? '?' : tmn.toFixed(1);
+    const mx = tmx === null ? '?' : tmx.toFixed(1);
     return 'T&nbsp;' + mn + '&nbsp;/&nbsp;' + mx + '&nbsp;&deg;C';
   };
 
   let rows = '';
   // Pour le verdict on nomme explicitement les zones : "Haut", "Centre", "Sud", "Aval"
   // (le premier mot du nom complet "Haut bassin (Gouin)" suffit pour la lisibilite).
-  const nomsAvecNeige = [];
-  const nomsSansNeige = [];
+  const nomsZones = [];
   let totalNeigeData = 0;
+  let totalNeigePositive = 0;
   let totalTminPositif = 0, totalTminData = 0;
   for (let i = 0; i < zones.length; i++) {
     const z = zones[i];
@@ -1104,8 +1104,8 @@ function renderMeteoPanel(f) {
             '<td class="temp">' + fmtT(d.tmn, d.tmx) + '</td></tr>';
     if (d.n !== null) {
       totalNeigeData++;
-      if (d.n >= 1) nomsAvecNeige.push(nomEsc);
-      else nomsSansNeige.push(nomEsc);
+      nomsZones.push(nomEsc);
+      if (d.n > 0) totalNeigePositive++;
     }
     if (d.tmn !== null) {
       totalTminData++;
@@ -1113,9 +1113,8 @@ function renderMeteoPanel(f) {
     }
   }
 
-  // Si aucune donnee neige ou aucune zone n'a de neige significative : masquer
-  // l'etiquette completement (l'info ne meritait pas l'espace).
-  if (totalNeigeData === 0 || nomsAvecNeige.length === 0) { hide(); return; }
+  // Si aucune donnee neige ou TOUTES les zones sont a 0 : masquer l'etiquette.
+  if (totalNeigeData === 0 || totalNeigePositive === 0) { hide(); return; }
 
   // Verdict global : on nomme les zones par leur nom court ("Haut", "Centre", ...).
   // Le mot "neige" est systematiquement present pour eviter toute ambiguite.
@@ -1127,15 +1126,15 @@ function renderMeteoPanel(f) {
   let verdict;
   if (totalTminData > 0 && totalTminPositif === totalTminData) {
     // Toutes les zones sont au-dessus de zero la nuit => fonte continue
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsAvecNeige) +
+    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
               ', fonte active (T &gt; 0 m&ecirc;me la nuit)';
   } else if (totalTminData > 0 && totalTminPositif === 0) {
     // Toutes en gel la nuit => stock fige
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsAvecNeige) +
+    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
               ', fonte en pause (gel la nuit)';
   } else {
     // Cas mixte : certaines zones gelent la nuit, d'autres non
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsAvecNeige) +
+    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
               ', fonte partielle (gel la nuit dans certaines zones)';
   }
 
