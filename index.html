@@ -1080,7 +1080,7 @@ function renderMeteoPanel(f) {
   const snap  = D.meteo.frames[f];
   if (!snap || !snap.length) { hide(); return; }
 
-  const fmtN = (v) => v === null || v === undefined ? '<span class="muted">n/d</span>' : (v < 0.05 ? '0&nbsp;cm' : (v.toFixed(1) + '&nbsp;cm'));
+  const fmtN = (v) => v === null || v === undefined ? '<span class="muted">n/d</span>' : (v < 0.005 ? '0&nbsp;cm' : (v.toFixed(2) + '&nbsp;cm'));
   const fmtT = (tmn, tmx) => {
     if (tmn === null && tmx === null) return '<span class="muted">n/d</span>';
     const mn = tmn === null ? '?' : tmn.toFixed(1);
