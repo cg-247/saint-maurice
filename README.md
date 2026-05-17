@@ -12,8 +12,10 @@ L'animation s'ouvre sur la vue **Heure** du mois courant. La barre de contrôle 
 permet de naviguer dans le temps :
 
 - **Sélecteur de pas** — bascule entre **Heure** (mois courant, plus historique chargé à la demande),
-  **Jour** (heure de pointe de chaque jour, tout l'historique), **Semaine** (plage dim → sam, heure de
-  pointe) et **Mois** (mois calendaire, heure de pointe).
+  **Jour** (pic horaire propre à chaque centrale dans la journée), **Semaine** (plage dim → sam, pic
+  propre sur les 168 h) et **Mois** (mois calendaire, pic propre sur le mois). Dans toutes les vues
+  agrégées, les niveaux amont/aval sont lus au ts précis du pic débit pour rester physiquement
+  cohérents avec le calcul MW. Les niveaux de réservoir sont moyennés (variables lentes).
 - **▶ Play / ⏸ Pause** — lecture automatique.
 - **◀ ▶▶** — frame précédente / suivante.
 - **⏮ Début / ⏭ Maintenant** — saut direct à la première ou dernière frame.
@@ -113,15 +115,22 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
   avec η = 0,90 (rendement turbine + génératrice).
 - **Couleur** (statut de chaque centrale) : ratio `(débit_courant - min_historique) / (max - min)`
   — vert < 25 %, jaune 25-50 %, orange 50-75 %, rouge ≥ 75 %.
-- **Pointe (vues Jour et Semaine)** : on retient l'horodatage où le débit total **bassin**
-  est maximum sur la fenêtre, avec toutes les valeurs cohérentes de cet instant.
-- **Heure** : convertie en heure locale Québec (HAE/HNE).
+- **Vues agrégées (Jour, Semaine, Mois)** : pour chaque centrale, on identifie le ts horaire
+  où **son** débit total atteint son pic dans la période (jour, semaine ou mois), puis on lit
+  toutes les autres séries (turbiné, déversé, niveau amont, niveau aval) à **ce ts précis**.
+  La chute `H = amont - aval` et la puissance `P = 9,81 · Q · H · η / 1000` sont donc
+  calculées au même instant que le pic débit, ce qui garantit la cohérence physique.
+  Les niveaux de réservoir sont moyennés (variables lentes). Les apports (publiés en agrégat
+  journalier) retiennent le max des apports journaliers de la période.
+- **Heure** : valeurs instantanées au ts brut, convertie en heure locale Québec (HAE/HNE).
 - **Neige et température (étiquette météo)** : agrégation des **stations hydrométéorologiques
   Hydro-Québec** voisines du bassin Saint-Maurice. Les valeurs publiées sont des mesures
   horaires de `Épaisseur de neige` (cm, instantanée), `Température Maximum` et
   `Température Minimum` (°C, max/min horaire). Pour chaque zone, on **moyenne** les
-  stations qui lui sont rattachées, on **ignore les valeurs sentinelles -999** (capteur
-  inactif, typiquement neige nulle hors saison) et on arrondit l'épaisseur à 0 cm sous 0,5 cm.
+  stations qui lui sont rattachées (pas inter-zone), on **ignore les valeurs sentinelles -999**
+  (capteur inactif, typiquement neige nulle hors saison) et on arrondit l'épaisseur à 0 cm
+  sous 0,5 cm. En vues **Semaine** et **Mois**, on affiche les extrêmes de la période :
+  neige = max (pic d'accumulation), tmax = max (pic de chaleur), tmin = min (extrême froid).
   Le verdict de fonte est une règle simple basée sur le **signe de T_min** par zone
   (toutes positives ⇒ « fonte active », toutes négatives ⇒ « fonte en pause »,
   mixte ⇒ « fonte partielle »).

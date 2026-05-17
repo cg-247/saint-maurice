@@ -11,10 +11,12 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
      font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:10px 10px 70px;min-height:100vh}
-#titlebox{position:absolute;top:7.4%;left:50%;transform:translateX(-50%);
+#titlebox{position:absolute;top:calc(7.4% - 1cm);left:50%;transform:translateX(-50%);
           text-align:center;color:#1a1a2e;pointer-events:none;z-index:2;width:90%}
 #titlebox h1{font-size:clamp(16px, 1.55vw, 28px);letter-spacing:.3px;font-weight:700}
 #titlebox h1 #periode{font-size:clamp(9px, 0.78vw, 14px);color:rgba(26,26,46,.55);font-weight:400;margin-left:8px;letter-spacing:0}
+#titlebox #subtitle{font-size:clamp(11px, 1vw, 17px);color:rgba(26,26,46,.70);font-weight:500;font-style:italic;margin-top:2px;min-height:0;letter-spacing:.1px}
+#titlebox #subtitle:empty{display:none}
 #titlebox #ts{font-size:clamp(13px, 1.22vw, 22px);color:#000;font-weight:600;margin-top:4px;min-height:24px}
 #wrap{position:relative;display:inline-block;max-width:100%}
 #img{display:block;max-width:100%;height:auto}
@@ -92,6 +94,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="hover-layer"></div>
   <div id="titlebox">
     <h1 id="titre">D&#233;bit d&#8217;eau - Saint-Maurice<span id="periode"></span></h1>
+    <div id="subtitle"></div>
     <div id="ts">&#8212;</div>
   </div>
   <div id="meteoBox"></div>
@@ -289,6 +292,12 @@ function setPeriode(key) {
     const b = (key === 'hebdomadaire') ? startOfWeek(last)  : last;
     const labelKey = { horaire: 'Heure', journalier: 'Jour', hebdomadaire: 'Semaine', mensuel: 'Mois' }[key] || key;
     perEl.textContent = '(periode : ' + a + ' au ' + b + ') [' + labelKey + ']';
+  }
+  // Sous-titre : explique ce que les chiffres affiches representent. En vue
+  // Heure, les ts horaires sont deja explicites (instantane), donc rien.
+  const subEl = document.getElementById('subtitle');
+  if (subEl) {
+    subEl.textContent = (key === 'horaire') ? '' : 'Débit max atteint sur la période';
   }
   if (typeof go === 'function') go(frame);
 }
