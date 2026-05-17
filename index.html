@@ -63,28 +63,6 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 #riverSummary .when{display:block;font-weight:700;color:#1a3060;
                     font-size:clamp(12px, 1.05vw, 19px);letter-spacing:.3px;margin-bottom:4px}
 #riverSummary b,#riverSummary strong{color:#000;font-weight:700}
-/* Etiquette meteo : neige + temperature par zone (haut/centre/sud/aval).
-   Forme d'etiquette (encadre blanc semi-transparent avec bordure), placee en
-   haut-gauche de l'image. Mise en page table-like alignee a gauche. */
-#meteoBox{position:absolute;left:1.2%;top:4%;
-          width:24%;z-index:4;
-          color:#1a1a2e;
-          background:rgba(255,255,255,.82);
-          border:1px solid rgba(26,48,96,.35);
-          border-radius:6px;
-          padding:7px 10px 7px 10px;
-          box-shadow:0 2px 6px rgba(0,0,0,.12);
-          font-size:clamp(10px, 0.85vw, 15px);line-height:1.35;text-align:left}
-#meteoBox .title{display:block;font-weight:700;color:#1a3060;
-                 font-size:clamp(11px, 0.95vw, 16px);letter-spacing:.3px;margin-bottom:4px;
-                 border-bottom:1px solid rgba(26,48,96,.18);padding-bottom:3px}
-#meteoBox table{border-collapse:collapse;width:100%}
-#meteoBox td{padding:1px 4px 1px 0;white-space:nowrap;vertical-align:baseline}
-#meteoBox td.zone{font-weight:600;color:#1a1a2e}
-#meteoBox td.snow{text-align:right;font-variant-numeric:tabular-nums;color:#1a3060;font-weight:600;padding-right:8px}
-#meteoBox td.temp{text-align:right;font-variant-numeric:tabular-nums;color:#2a2a3e}
-#meteoBox td.muted{color:#888;font-weight:normal}
-#meteoBox .verdict{display:block;margin-top:4px;font-style:italic;color:#1a3060;font-size:0.92em}
 </style>
 </head>
 <body>
@@ -97,7 +75,6 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <div id="subtitle"></div>
     <div id="ts">&#8212;</div>
   </div>
-  <div id="meteoBox"></div>
   <div id="riverSummary"></div>
   <div id="disclaimer">
     Projet personnel non affili&eacute; &agrave; Hydro-Qu&eacute;bec.
@@ -177,7 +154,6 @@ const fi         = document.getElementById('fi');
 const speedSel   = document.getElementById('speed');
 const periodeSel = document.getElementById('periodeSel');
 const riverBox   = document.getElementById('riverSummary');
-const meteoBox   = document.getElementById('meteoBox');
 
 let D = null;     // vue active (rebatie par setPeriode)
 let N = 0;        // nombre de frames de la vue active
@@ -1078,82 +1054,6 @@ function resize() {
   if (D) draw(frame);
 }
 
-// Rend le panneau meteo (neige + temperature par zone). Lecture pure : la donnee
-// est preparee cote serveur dans D.meteo.frames[frame] = [{n, tmn, tmx}, ...].
-// Verdict global : pratiquement terminee / active / pas commencee, selon la
-// presence de neige et le signe des temperatures.
-function renderMeteoPanel(f) {
-  const hide = () => { meteoBox.innerHTML = ''; meteoBox.style.display = 'none'; };
-  if (!D || !D.meteo || !D.meteo.zones || !D.meteo.frames) { hide(); return; }
-  const zones = D.meteo.zones;
-  const snap  = D.meteo.frames[f];
-  if (!snap || !snap.length) { hide(); return; }
-
-  const fmtN = (v) => v === null || v === undefined ? '<span class="muted">n/d</span>' : (v < 0.005 ? '0&nbsp;cm' : (v.toFixed(2) + '&nbsp;cm'));
-  const fmtT = (tmn, tmx) => {
-    if (tmn === null && tmx === null) return '<span class="muted">n/d</span>';
-    const mn = tmn === null ? '?' : tmn.toFixed(1);
-    const mx = tmx === null ? '?' : tmx.toFixed(1);
-    return 'T&nbsp;' + mn + '&nbsp;/&nbsp;' + mx + '&nbsp;&deg;C';
-  };
-
-  let rows = '';
-  // Pour le verdict on nomme explicitement les zones : "Haut", "Centre", "Sud", "Aval"
-  // (le premier mot du nom complet "Haut bassin (Gouin)" suffit pour la lisibilite).
-  const nomsZones = [];
-  let totalNeigeData = 0;
-  let totalNeigePositive = 0;
-  let totalTminPositif = 0, totalTminData = 0;
-  for (let i = 0; i < zones.length; i++) {
-    const z = zones[i];
-    const d = snap[i] || { n: null, tmn: null, tmx: null };
-    const nomEsc = z.nom.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    rows += '<tr><td class="zone">' + nomEsc + '</td>' +
-            '<td class="snow">' + fmtN(d.n) + '</td>' +
-            '<td class="temp">' + fmtT(d.tmn, d.tmx) + '</td></tr>';
-    if (d.n !== null) {
-      totalNeigeData++;
-      nomsZones.push(nomEsc);
-      if (d.n > 0) totalNeigePositive++;
-    }
-    if (d.tmn !== null) {
-      totalTminData++;
-      if (d.tmn > 0) totalTminPositif++;
-    }
-  }
-
-  // Si aucune donnee neige ou TOUTES les zones sont a 0 : masquer l'etiquette.
-  if (totalNeigeData === 0 || totalNeigePositive === 0) { hide(); return; }
-
-  // Verdict global : on nomme les zones par leur nom court ("Haut", "Centre", ...).
-  // Le mot "neige" est systematiquement present pour eviter toute ambiguite.
-  const joinFr = (arr) => {
-    if (arr.length === 0) return '';
-    if (arr.length === 1) return arr[0];
-    return arr.slice(0, -1).join(', ') + ' et ' + arr[arr.length - 1];
-  };
-  let verdict;
-  if (totalTminData > 0 && totalTminPositif === totalTminData) {
-    // Toutes les zones sont au-dessus de zero la nuit => fonte continue
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
-              ', fonte active (T &gt; 0 m&ecirc;me la nuit)';
-  } else if (totalTminData > 0 && totalTminPositif === 0) {
-    // Toutes en gel la nuit => stock fige
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
-              ', fonte en pause (gel la nuit)';
-  } else {
-    // Cas mixte : certaines zones gelent la nuit, d'autres non
-    verdict = 'Neige encore pr&eacute;sente pr&egrave;s de ' + joinFr(nomsZones) +
-              ', fonte partielle (gel la nuit dans certaines zones)';
-  }
-
-  meteoBox.style.display = '';
-  meteoBox.innerHTML =
-    '<span class="title">Neige et temp&eacute;rature en amont</span>' +
-    '<table>' + rows + '</table>' +
-    '<span class="verdict">' + verdict + '</span>';
-}
-
 function go(i) {
   if (!D) return;
   frame = Math.max(0, Math.min(N-1, i));
@@ -1190,8 +1090,6 @@ function go(i) {
     const labelEsc = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     riverBox.innerHTML = '<span class="when">' + labelEsc + '</span>' + _renderInlineMarkdown(txt || '');
   }
-  // Panneau meteo : neige + temperature par zone, plus un verdict global de fonte.
-  if (meteoBox) renderMeteoPanel(frame);
   if (typeof modalIdx !== 'undefined' && modalIdx >= 0 && typeof drawBigChart === 'function') {
     drawBigChart();
   }
