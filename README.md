@@ -127,9 +127,17 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
   Hydro-Québec** voisines du bassin Saint-Maurice. Les valeurs publiées sont des mesures
   horaires de `Épaisseur de neige` (cm, instantanée), `Température Maximum` et
   `Température Minimum` (°C, max/min horaire). Pour chaque zone, on **moyenne** les
-  stations qui lui sont rattachées (pas inter-zone), on **ignore les valeurs sentinelles -999**
-  (capteur inactif, typiquement neige nulle hors saison) et on arrondit l'épaisseur à 0 cm
-  sous 0,5 cm. En vues **Semaine** et **Mois**, on affiche les extrêmes de la période :
+  stations qui lui sont rattachées (pas inter-zone) et on **ignore les valeurs sentinelles
+  -999** (capteur inactif).
+
+  **Filtrage du bruit des capteurs de neige** : les sondes ultrasoniques (type Campbell SR50,
+  précision réelle ±1 cm) oscillent typiquement entre −0,3 et +0,4 cm autour du vrai zéro
+  une fois le manteau fondu. Deux seuils symétriques sont appliqués pour éviter d'afficher
+  un manteau résiduel inexistant en plein été :
+    * valeurs négatives par station entre -5 et   cm →   (avant moyenne) ;
+    * moyenne de zone < 0,5 cm →   (après moyenne).
+
+  En vues **Semaine** et **Mois**, on affiche les extrêmes de la période :
   neige = max (pic d'accumulation), tmax = max (pic de chaleur), tmin = min (extrême froid).
   Le verdict de fonte est une règle simple basée sur le **signe de T_min** par zone
   (toutes positives ⇒ « fonte active », toutes négatives ⇒ « fonte en pause »,
