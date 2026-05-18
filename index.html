@@ -3,6 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <title>D&eacute;bit d&rsquo;eau &mdash; Saint-Maurice</title>
+<script>
+// Redirection mobile : si l'ecran fait <=768px et qu'on est sur GitHub Pages (index.html),
+// on bascule vers mobile.html. L'utilisateur peut forcer le desktop via le lien
+// "Animation complete" depuis la page mobile, qui ajoute ?desktop=1 -> on memorise
+// ce choix dans localStorage et on ne redirige plus.
+(function () {
+  try {
+    var params = new URLSearchParams(location.search);
+    var STORE = 'hq-prefer-desktop';
+    if (params.has('desktop')) {
+      localStorage.setItem(STORE, '1');
+      return; // pas de redirection cette fois, et plus jamais (tant que la clef existe)
+    }
+    if (localStorage.getItem(STORE) === '1') return;
+    if (window.innerWidth > 768) return;
+    // En local on a animation-centrales.html (mobile = animation-mobile.html),
+    // sur GitHub Pages on a index.html (mobile = mobile.html).
+    var target = location.pathname.endsWith('animation-centrales.html')
+                 ? 'animation-mobile.html'
+                 : 'mobile.html';
+    location.replace(target);
+  } catch (e) { /* localStorage indisponible (mode prive ?) : pas de redirection */ }
+})();
+</script>
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png">
@@ -90,7 +114,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     &middot;
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 13:27</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 13:43</div>
 </div>
 <div id="modal">
   <div id="modal-card">
