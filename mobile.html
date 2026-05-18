@@ -1,0 +1,460 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a2e">
+<title>Saint-Maurice &mdash; Mobile</title>
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:#1a1a2e;color:#eee;font-family:"Segoe UI",Arial,sans-serif;
+          touch-action:manipulation;overscroll-behavior-y:contain}
+body{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
+
+/* HEADER sticky */
+header{position:sticky;top:0;z-index:10;background:#1a1a2e;
+       border-bottom:1px solid #2a2a4e;padding:10px 14px;
+       display:flex;align-items:center;justify-content:space-between;gap:10px}
+header h1{font-size:15px;font-weight:600;letter-spacing:.2px;color:#eee;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header a#link-full{font-size:12px;color:#9ab;text-decoration:none;padding:6px 8px;
+                   border:1px solid #3a3a5e;border-radius:6px;background:#22223e;
+                   white-space:nowrap;min-height:32px;display:inline-flex;align-items:center}
+header a#link-full:active{background:#2a2a4e}
+
+/* CHIPS scrollables */
+nav#chips{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;
+          padding:10px 12px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;
+          scroll-snap-type:x mandatory;
+          -webkit-overflow-scrolling:touch;scrollbar-width:none}
+nav#chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;min-width:54px;height:48px;
+      border-radius:24px;border:1px solid #3a3a5e;background:#22223e;color:#cdd;
+      font-size:15px;font-weight:600;letter-spacing:.3px;cursor:pointer;
+      scroll-snap-align:center;padding:0 14px;
+      display:inline-flex;align-items:center;justify-content:center;
+      transition:transform .12s, background .12s}
+.chip:active{transform:scale(.94)}
+.chip.sel{background:#4a6fa5;color:#fff;border-color:#5a82bf;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.chip.sel.status-vert    {background:#1a6e2a;border-color:#2a8e3a}
+.chip.sel.status-jaune   {background:#a08000;border-color:#c0a000}
+.chip.sel.status-orange  {background:#a05500;border-color:#c07000}
+.chip.sel.status-rouge   {background:#8a1010;border-color:#aa2020}
+
+/* ETIQUETTE */
+section#label{background:#fff;color:#1a1a2e;margin:12px;
+              border-radius:10px;padding:14px 16px;
+              box-shadow:0 2px 10px rgba(0,0,0,.25)}
+#label.status-vert   {border-left:6px solid #1a6e2a}
+#label.status-jaune  {border-left:6px solid #a08000}
+#label.status-orange {border-left:6px solid #a05500}
+#label.status-rouge  {border-left:6px solid #8a1010}
+#label .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+#label .nom{font-size:20px;font-weight:700;letter-spacing:.2px}
+#label .cap{font-size:13px;color:#666;white-space:nowrap}
+#label .line{margin-top:8px;font-size:16px;line-height:1.35;display:flex;
+             align-items:center;gap:8px;flex-wrap:wrap}
+#label .ico{font-size:18px;width:22px;text-align:center;flex-shrink:0}
+#label .val{font-weight:600}
+#label .unit{font-size:13px;color:#555;font-weight:400}
+#label .sub{font-size:13px;color:#666;font-weight:400}
+#label .stale{opacity:.45}
+#label .trend-up   {color:#a01818;font-weight:600}
+#label .trend-down {color:#1a6e1a;font-weight:600}
+#label .trend-flat {color:#3a3a3a}
+#label .stats{margin-top:10px;padding-top:8px;border-top:1px solid #e3e6ef;
+              font-size:12px;color:#666;display:flex;gap:14px;flex-wrap:wrap}
+#label .stats b{color:#1a1a2e;font-weight:600}
+
+/* CANVAS */
+section#chartWrap{flex:1 1 auto;background:#fff;color:#1a1a2e;margin:0 12px;
+                  border-radius:10px;padding:8px;
+                  box-shadow:0 2px 10px rgba(0,0,0,.25);
+                  min-height:340px}
+canvas#bigCv{display:block;width:100%;height:50vh;min-height:320px;max-height:520px}
+
+/* FOOTER */
+footer{padding:14px;text-align:center;font-size:12px;color:#9ab;font-style:italic}
+footer a{color:#bcd;text-decoration:underline}
+
+/* ETAT chargement / erreur */
+#status{padding:24px;text-align:center;color:#9ab;font-style:italic}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<header>
+  <h1>Saint-Maurice &mdash; Mobile</h1>
+  <a id="link-full" href="index.html">Animation compl&egrave;te &nearr;</a>
+</header>
+
+<nav id="chips" aria-label="Centrales"></nav>
+
+<section id="label" class="hidden" aria-live="polite"></section>
+
+<section id="chartWrap" class="hidden">
+  <canvas id="bigCv"></canvas>
+</section>
+
+<div id="status">Chargement des donn&eacute;es&hellip;</div>
+
+<footer>
+  Mise &agrave; jour&nbsp;: 2026-05-18 13:27<br>
+  <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
+</footer>
+
+<script>
+'use strict';
+
+// Liens croises : en local (file:// ou serveur sur output/), l'index.html n'existe pas.
+// On pointe alors directement vers animation-centrales.html (fichier voisin).
+if (location.pathname.endsWith('animation-mobile.html')) {
+  document.getElementById('link-full').href = 'animation-centrales.html';
+}
+
+// Codes 2 lettres par ID HQ (ordre amont->aval defini par le tri visuel ci-dessous).
+const CODES = {
+  '3-178':'CA', '3-180':'RC', '3-82':'RB', '3-83':'TR',
+  '3-84':'BM',  '3-85':'LT',  '3-89':'GM', '3-90':'SH', '3-91':'GA'
+};
+// Ordre des chips : SUD -> NORD (La Gabelle, pres du Saint-Laurent, en premier ;
+// Chute-Allard, le plus en amont, en dernier). Inverse du sens de l'eau qui coule.
+const ORDER = ['3-91','3-90','3-89','3-85','3-84','3-83','3-82','3-180','3-178'];
+const FALLBACK_ID = '3-83';   // Trenche, milieu du bassin
+const STORE_KEY   = 'hq-mobile-centrale';
+
+// --- Etat global ---
+let D = null;            // dataset horaire { centrales, timestamps, ... }
+let N = 0;               // nb de frames horaires chargees
+let selectedIdx = -1;    // index dans D.centrales de la centrale selectionnee
+let frame = 0;           // toujours = N-1 (derniere frame disponible)
+
+// --- Helpers ---
+function statusClass(c, val) {
+  if (val == null || c.minTotal == null || c.maxTotal == null) return '';
+  const span = c.maxTotal - c.minTotal;
+  if (span <= 0) return '';
+  const r = (val - c.minTotal) / span * 100;
+  if (r < 25) return 'status-vert';
+  if (r < 50) return 'status-jaune';
+  if (r < 75) return 'status-orange';
+  return 'status-rouge';
+}
+function statusStroke(c, val) {
+  switch (statusClass(c, val)) {
+    case 'status-vert':   return '#1a6e2a';
+    case 'status-jaune':  return '#7a6200';
+    case 'status-orange': return '#7a3a00';
+    case 'status-rouge':  return '#6a0000';
+    default:              return '#555';
+  }
+}
+// Calque "derniere valeur connue" : si val[i] est null, renvoie la derniere valeur non-null.
+// Retourne aussi un flag stale = true si on a du remonter dans le passe.
+function effectiveAt(arr, i) {
+  if (arr[i] != null) return { v: arr[i], stale: false };
+  for (let k = i - 1; k >= 0; k--) {
+    if (arr[k] != null) return { v: arr[k], stale: true };
+  }
+  return { v: null, stale: false };
+}
+function fmtInt(v) { return (v == null) ? '—' : Math.round(v); }
+function computeStats(arr) {
+  let mn = Infinity, mx = -Infinity, sum = 0, n = 0;
+  for (const v of arr) { if (v == null) continue; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; n++; }
+  return { min: n ? mn : null, max: n ? mx : null, avg: n ? sum / n : null, n };
+}
+
+// --- Chargement initial ---
+async function init() {
+  try {
+    const manifest = await fetch('data/manifest.json').then(r => r.json());
+    const month = manifest.latestMonth;
+    const monthEntry = (manifest.months || []).find(m => m.month === month);
+    const file = (monthEntry && monthEntry.file) || (month + '-horaire.json');
+    D = await fetch('data/' + file).then(r => r.json());
+    N = D.timestamps.length;
+    frame = N - 1;
+
+    // Selection initiale : localStorage ou fallback Trenche
+    const savedId = localStorage.getItem(STORE_KEY) || FALLBACK_ID;
+    selectedIdx = D.centrales.findIndex(c => c.id === savedId);
+    if (selectedIdx < 0) selectedIdx = D.centrales.findIndex(c => c.id === FALLBACK_ID);
+    if (selectedIdx < 0) selectedIdx = 0;
+
+    buildChips();
+    document.getElementById('status').classList.add('hidden');
+    document.getElementById('label').classList.remove('hidden');
+    document.getElementById('chartWrap').classList.remove('hidden');
+    render();
+    // Centrer la chip selectionnee dans le scroll
+    setTimeout(() => {
+      const sel = document.querySelector('.chip.sel');
+      if (sel) sel.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
+    }, 0);
+  } catch (e) {
+    document.getElementById('status').textContent = 'Erreur de chargement : ' + e.message;
+  }
+}
+
+// --- Chips ---
+function buildChips() {
+  const nav = document.getElementById('chips');
+  nav.innerHTML = '';
+  // On respecte l'ordre amont->aval defini dans ORDER, en ne gardant que celles presentes.
+  const byId = {};
+  D.centrales.forEach((c, i) => { byId[c.id] = i; });
+  const ordered = ORDER.filter(id => id in byId).map(id => byId[id]);
+  // Ajoute en fin toute centrale presente dans D mais absente de ORDER (cas de bordure).
+  D.centrales.forEach((c, i) => { if (!ORDER.includes(c.id)) ordered.push(i); });
+
+  ordered.forEach(idx => {
+    const c = D.centrales[idx];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip';
+    btn.dataset.idx = idx;
+    btn.textContent = CODES[c.id] || c.nom.slice(0, 2).toUpperCase();
+    btn.setAttribute('aria-label', c.nom);
+    btn.addEventListener('click', () => selectIdx(idx));
+    nav.appendChild(btn);
+  });
+}
+
+function selectIdx(idx) {
+  selectedIdx = idx;
+  const c = D.centrales[idx];
+  localStorage.setItem(STORE_KEY, c.id);
+  render();
+}
+
+// --- Render etiquette + graphique ---
+function render() {
+  const c = D.centrales[selectedIdx];
+  const i = frame;
+  const debCur = c.debits[i];
+  const statCls = statusClass(c, debCur);
+
+  // Mise a jour visuelle des chips
+  document.querySelectorAll('.chip').forEach(btn => {
+    const idx = parseInt(btn.dataset.idx, 10);
+    btn.classList.toggle('sel', idx === selectedIdx);
+    btn.classList.remove('status-vert','status-jaune','status-orange','status-rouge');
+    if (idx === selectedIdx && statCls) btn.classList.add(statCls);
+  });
+
+  // Etiquette
+  const lab = document.getElementById('label');
+  lab.classList.remove('status-vert','status-jaune','status-orange','status-rouge');
+  if (statCls) lab.classList.add(statCls);
+
+  const eDeb  = effectiveAt(c.debits, i);
+  const eTurb = effectiveAt(c.turbs,  i);
+  const eDev  = effectiveAt(c.devs,   i);
+  const eMw   = effectiveAt(c.mws,    i);
+  const tr    = c.trends ? c.trends[i] : null;
+  const stab  = c.stables ? c.stables[i] : null;
+  const trUnit = D.trendUnit || '6h';
+  const stats  = computeStats(c.debits);
+  const mwPct  = (eMw.v != null && c.cap_mw) ? Math.round(eMw.v / c.cap_mw * 100) : null;
+
+  let trendHtml = '<span class="trend-flat">—</span>';
+  if (tr != null) {
+    if (tr > 50) {
+      trendHtml = '<span class="trend-up">+' + Math.round(tr) + ' m³/s en ' + trUnit + '</span>';
+    } else if (tr < -50) {
+      trendHtml = '<span class="trend-down">' + Math.round(tr) + ' m³/s en ' + trUnit + '</span>';
+    } else {
+      const stTxt = (stab == null) ? 'stable'
+                  : 'stable depuis ' + stab + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem'));
+      trendHtml = '<span class="trend-flat">' + stTxt + '</span>';
+    }
+  }
+
+  lab.innerHTML =
+    '<div class="row">' +
+      '<div class="nom">' + escapeHtml(c.nom) + '</div>' +
+      (c.cap_mw ? '<div class="cap">' + c.cap_mw + ' MW install&eacute;s</div>' : '') +
+    '</div>' +
+    '<div class="line' + (eDeb.stale ? ' stale' : '') + '">' +
+      '<span class="ico">💧</span>' +
+      '<span class="val">' + fmtInt(eDeb.v) + '</span><span class="unit">m³/s total</span>' +
+    '</div>' +
+    '<div class="line' + ((eTurb.stale && eDev.stale) ? ' stale' : '') + '">' +
+      '<span class="ico">⚙️</span>' +
+      '<span class="val">' + fmtInt(eTurb.v) + '</span><span class="unit">turbin&eacute;</span>' +
+      '<span style="width:6px"></span>' +
+      '<span class="ico">🫗</span>' +
+      '<span class="val">' + fmtInt(eDev.v) + '</span><span class="unit">d&eacute;vers&eacute;</span>' +
+    '</div>' +
+    '<div class="line' + (eMw.stale ? ' stale' : '') + '">' +
+      '<span class="ico">⚡</span>' +
+      '<span class="val">' + fmtInt(eMw.v) + '</span><span class="unit">MW' +
+      (mwPct != null ? ' (' + mwPct + ' %)' : '') + '</span>' +
+    '</div>' +
+    '<div class="line">' +
+      '<span class="ico">📈</span>' + trendHtml +
+    '</div>' +
+    '<div class="stats">' +
+      '<span>min <b>' + fmtInt(stats.min) + '</b></span>' +
+      '<span>moy <b>' + fmtInt(stats.avg) + '</b></span>' +
+      '<span>max <b>' + fmtInt(stats.max) + '</b></span>' +
+      '<span>n=<b>' + stats.n + '</b></span>' +
+    '</div>';
+
+  drawBigChart();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+// --- Graphique grand format (derive de drawBigChart() du template desktop) ---
+// Simplifications mobile : pas de bande "futur" (frame = N-1 toujours),
+// pas de curseur vertical (toujours sur la derniere frame, en bout de courbe),
+// legende fixe en haut-gauche (pas de tri par chevauchement), padding gauche reduit.
+const bigCv  = document.getElementById('bigCv');
+const bigCtx = bigCv.getContext('2d');
+
+function drawBigChart() {
+  if (selectedIdx < 0 || !D) return;
+  const c = D.centrales[selectedIdx];
+  const arr = c.debits;
+
+  // Resolution retina : on multiplie la taille en pixels par devicePixelRatio
+  // pour eviter le flou sur ecrans haute densite, tout en gardant la taille CSS inchangee.
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = bigCv.clientWidth;
+  const cssH = bigCv.clientHeight;
+  bigCv.width  = Math.round(cssW * dpr);
+  bigCv.height = Math.round(cssH * dpr);
+  const cx = bigCtx;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const w = cssW, h = cssH;
+  const pad = { l: 50, r: 14, t: 8, b: 30 };
+  cx.clearRect(0, 0, w, h);
+
+  // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
+  let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
+  for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
+  const xSpan = Math.max(1, N - 1);
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const xOf = i => pad.l + (i / xSpan) * innerW;
+  const yOf = v => pad.t + (1 - v / yMax) * innerH;
+
+  // Grille horizontale + ticks Y (5 lignes)
+  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+  cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
+  cx.textAlign = 'right'; cx.textBaseline = 'middle';
+  for (let g = 0; g <= 5; g++) {
+    const y = pad.t + (g / 5) * innerH;
+    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+    cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+  }
+
+  // Ticks X : 4 dates reparties
+  cx.fillStyle = '#666';
+  cx.textAlign = 'center'; cx.textBaseline = 'top';
+  const xTicks = 4;
+  for (let g = 0; g <= xTicks; g++) {
+    const i = Math.round((g / xTicks) * (N - 1));
+    const x = xOf(i);
+    // Date format court : "JJ" ou "MM-JJ" selon ce qu'on a
+    const ts = String(D.timestamps[i] || '');
+    cx.fillText(ts.length > 5 ? ts.slice(-5) : ts, x, h - pad.b + 6);
+  }
+
+  // Couleur de la courbe debit total = statut courant (ratio min/max).
+  const dCur = arr[frame];
+  const stroke = statusStroke(c, dCur);
+  const turbCol = 'rgba(46,160,67,.85)';
+  const devCol  = 'rgba(110,110,110,.85)';
+
+  const drawSeriesBig = (series, color, lw) => {
+    cx.beginPath();
+    cx.strokeStyle = color; cx.lineWidth = lw;
+    let st = false;
+    for (let i = 0; i < N; i++) {
+      const v = series[i]; if (v == null) { st = false; continue; }
+      const xx = xOf(i), yy = yOf(v);
+      if (!st) { cx.moveTo(xx, yy); st = true; } else { cx.lineTo(xx, yy); }
+    }
+    cx.stroke();
+  };
+  drawSeriesBig(c.turbs, turbCol, 2);
+  drawSeriesBig(c.devs,  devCol,  2);
+
+  // Courbe debit total (dominante)
+  cx.beginPath();
+  cx.strokeStyle = stroke; cx.lineWidth = 2.4;
+  let started = false;
+  for (let i = 0; i < N; i++) {
+    const v = arr[i]; if (v == null) { started = false; continue; }
+    const xx = xOf(i), yy = yOf(v);
+    if (!started) { cx.moveTo(xx, yy); started = true; } else { cx.lineTo(xx, yy); }
+  }
+  cx.stroke();
+
+  // Point sur la derniere valeur (frame = N-1) avec label "X m³/s".
+  if (dCur != null) {
+    const xCur = xOf(frame), yCur = yOf(dCur);
+    cx.fillStyle = stroke;
+    cx.beginPath(); cx.arc(xCur, yCur, 4, 0, 2 * Math.PI); cx.fill();
+    cx.fillStyle = '#222'; cx.font = 'bold 12px "Segoe UI",Arial';
+    const valTxt = Math.round(dCur) + ' m³/s';
+    const txtW = cx.measureText(valTxt).width;
+    const fitsRight = (xCur + 6 + txtW) <= (pad.l + innerW - 2);
+    cx.textAlign = fitsRight ? 'left' : 'right';
+    cx.textBaseline = 'bottom';
+    cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yCur - 4);
+  }
+
+  // Legende fixe en haut-gauche (simple, pas de calcul de coin pour le mobile).
+  const lgX0 = pad.l + 6, lgY0 = pad.t + 4;
+  const lgSwW = 18, lgSwH = 6, lgGap = 16, lgPadX = 6, lgPadY = 5;
+  cx.font = '11px "Segoe UI",Arial';
+  const wMax = Math.max(
+    cx.measureText('Débit total').width,
+    cx.measureText('Turbiné').width,
+    cx.measureText('Déversé').width
+  );
+  const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
+  const boxH = 3 * lgGap + 2 * lgPadY;
+  cx.fillStyle = 'rgba(255,255,255,.85)';
+  cx.fillRect(lgX0 - lgPadX, lgY0 - lgPadY, boxW, boxH);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(lgX0 - lgPadX, lgY0 - lgPadY, boxW, boxH);
+  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  const labels = [
+    { c: stroke,  t: 'Débit total' },
+    { c: turbCol, t: 'Turbiné' },
+    { c: devCol,  t: 'Déversé' }
+  ];
+  labels.forEach((lb, k) => {
+    cx.fillStyle = lb.c;
+    cx.fillRect(lgX0, lgY0 + k * lgGap + 3, lgSwW, lgSwH);
+    cx.fillStyle = '#333';
+    cx.fillText(lb.t, lgX0 + lgSwW + 6, lgY0 + k * lgGap);
+  });
+}
+
+// Redessine sur rotation / resize
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (D) drawBigChart(); }, 100);
+}, { passive: true });
+
+// Demarrage
+init();
+</script>
+</body>
+</html>

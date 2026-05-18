@@ -63,10 +63,12 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 #riverSummary .when{display:block;font-weight:700;color:#1a3060;
                     font-size:clamp(12px, 1.05vw, 19px);letter-spacing:.3px;margin-bottom:4px}
 #riverSummary b,#riverSummary strong{color:#000;font-weight:700}
-#generatedAt{position:fixed;left:8px;bottom:50px;
-             font-size:clamp(12px, 1vw, 16px);color:#aab;
+/* Date de derniere mise a jour, posee en bas-gauche du schema (dans #wrap).
+   Position symetrique du #riverSummary (qui est en bas-droite, top:86%). */
+#generatedAt{position:absolute;left:1.5%;top:96%;
+             font-size:clamp(13px, 1.1vw, 20px);color:#0a0a1a;
              font-family:"Segoe UI",Arial,sans-serif;font-style:italic;
-             pointer-events:none;z-index:19;opacity:.8;letter-spacing:.2px}
+             pointer-events:none;z-index:4;opacity:1;letter-spacing:.2px;font-weight:500}
 </style>
 </head>
 <body>
@@ -85,7 +87,10 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources &raquo;</a>
     &middot;
     <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires &raquo;</a>
+    &middot;
+    <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
   </div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 13:27</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -95,7 +100,6 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <canvas id="modal-canvas"></canvas>
   </div>
 </div>
-<div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 12:42</div>
 <div id="ctrl">
   <button id="btnStart" title="Aller au d&eacute;but">&#9198; D&eacute;but</button>
   <button id="btnPrev">&#9664;</button>
@@ -121,6 +125,13 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <span id="fi"></span>
 </div>
 <script>
+// Lien vers la version mobile : en local (output/), le fichier s'appelle animation-mobile.html ;
+// sur GitHub Pages, il est renomme mobile.html. On adapte si on detecte le mode local.
+if (location.pathname.endsWith('animation-centrales.html')) {
+  var lm = document.getElementById('link-mobile');
+  if (lm) lm.href = 'animation-mobile.html';
+}
+
 // ALL contient les vues actives + meta partages. Les donnees sont chargees a la
 // demande depuis data/sommaire.json (vues Jour/Semaine/Mois entieres) et data/{YYYY-MM}-horaire.json
 // (vue Heure, par mois). La structure ALL.byPeriode est compatible avec l'ancien
