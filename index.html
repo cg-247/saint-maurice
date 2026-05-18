@@ -4,10 +4,16 @@
 <meta charset="UTF-8">
 <title>D&eacute;bit d&rsquo;eau &mdash; Saint-Maurice</title>
 <script>
-// Redirection mobile : si l'ecran fait <=768px et qu'on est sur GitHub Pages (index.html),
-// on bascule vers mobile.html. L'utilisateur peut forcer le desktop via le lien
-// "Animation complete" depuis la page mobile, qui ajoute ?desktop=1 -> on memorise
-// ce choix dans localStorage et on ne redirige plus.
+// Redirection mobile : si la largeur de l'ecran fait <=768px, on bascule vers la page
+// mobile. L'utilisateur peut forcer le desktop via le lien "Animation complete" depuis
+// la page mobile, qui ajoute ?desktop=1 -> on memorise ce choix dans localStorage et
+// on ne redirige plus.
+//
+// On utilise screen.width (largeur physique du device, en CSS pixels) plutot que
+// window.innerWidth : sans balise <meta viewport>, iOS Safari rend la page avec une
+// largeur virtuelle de 980px par defaut, ce qui ferait passer innerWidth bien au-dessus
+// de 768 meme sur un iPhone. screen.width donne la vraie taille physique (375 sur
+// iPhone SE, 390 sur 13/14, 430 sur Pro Max) -> detection fiable.
 (function () {
   try {
     var params = new URLSearchParams(location.search);
@@ -17,7 +23,8 @@
       return; // pas de redirection cette fois, et plus jamais (tant que la clef existe)
     }
     if (localStorage.getItem(STORE) === '1') return;
-    if (window.innerWidth > 768) return;
+    var w = Math.min(screen.width || 9999, window.innerWidth || 9999);
+    if (w > 768) return;
     // En local on a animation-centrales.html (mobile = animation-mobile.html),
     // sur GitHub Pages on a index.html (mobile = mobile.html).
     var target = location.pathname.endsWith('animation-centrales.html')
@@ -114,7 +121,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     &middot;
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 13:43</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-18 13:57</div>
 </div>
 <div id="modal">
   <div id="modal-card">
