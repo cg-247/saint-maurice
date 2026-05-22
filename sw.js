@@ -10,8 +10,20 @@
 //
 // Pour invalider le cache app shell apres un changement de HTML/asset :
 // bumper CACHE_VERSION ci-dessous. Les anciens caches sont purges a l'activate.
+//
+// Convention semver (hq-sm-vMAJOR.MINOR.PATCH) :
+//   MAJOR : breaking change (renommage de SHELL_CACHE/DATA_CACHE, nouvelle
+//           strategie de cache, structure du SW completement repensee).
+//   MINOR : ajout/retrait d'asset dans SHELL_ASSETS, changement de manifest
+//           a livrer, modification du comportement d'install/activate.
+//   PATCH : ajustement mineur (fix logique fetch, typo, commentaire) sans
+//           toucher a la liste d'assets ni au comportement utilisateur.
 
-const CACHE_VERSION = 'hq-sm-v2';
+// Cette ligne est REECRITE a chaque build par scripts/render-animation.ps1 a
+// partir de data/pwa/version.json. La valeur ci-dessous est juste un placeholder
+// pour developpement local et lecture du source - ne pas modifier directement,
+// modifier version.json et lancer render-animation.ps1.
+const CACHE_VERSION = 'hq-sm-v2.1.0';
 const SHELL_CACHE = CACHE_VERSION + '-shell';
 const DATA_CACHE  = CACHE_VERSION + '-data';
 
