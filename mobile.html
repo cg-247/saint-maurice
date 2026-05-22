@@ -9,6 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
+<link rel="manifest" href="manifest-mobile.webmanifest">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{background:#1a1a2e;color:#eee;font-family:"Segoe UI",Arial,sans-serif;
@@ -103,7 +104,7 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-22 08:37<br>
+  Mise &agrave; jour&nbsp;: 2026-05-22 08:27<br>
   <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
 </footer>
 
@@ -456,6 +457,14 @@ window.addEventListener('resize', () => {
 
 // Demarrage
 init();
+
+// Enregistrement du service worker (PWA installable). Silencieux si non supporte
+// ou en file:// : ne doit jamais bloquer l'affichage.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
+  });
+}
 </script>
 </body>
 </html>
