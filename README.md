@@ -2,11 +2,62 @@
 
 ## Voir l'animation sur les débits
 
-→ **https://cg-247.github.io/saint-maurice/**
+→ **Version complète (desktop)** : <https://cg-247.github.io/saint-maurice/>
+→ **Version mobile light** : <https://cg-247.github.io/saint-maurice/mobile.html>
 
 Animation interactive du **bassin Saint-Maurice** (Québec) :
 débits, production électrique estimée et niveaux des réservoirs, à partir des données ouvertes
-publiées par Hydro-Québec.
+publiées par Hydro-Québec. La page s'adapte automatiquement : visite la racine sur un mobile
+et tu seras redirigé(e) vers la version mobile (un lien permet de forcer le mode complet).
+
+## Installation comme application (PWA)
+
+Les deux pages sont des **Progressive Web Apps** : tu peux les installer sur ton téléphone
+ou ton ordinateur comme une vraie application, **sans passer par un magasin**. Elles
+s'ouvrent en plein écran (sans barre d'adresse), démarrent vite et fonctionnent même
+hors-ligne avec les dernières données vues.
+
+### Sur Android (Chrome, Edge, Samsung Internet, Brave)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/mobile.html> dans Chrome (ou la version
+   complète si tu préfères).
+2. Une bannière « Ajouter à l'écran d'accueil » apparaît en bas. Sinon : menu **⋮ → Installer
+   l'application** (ou **Ajouter à l'écran d'accueil**).
+3. L'icône **barrage** (version mobile) ou **centrale** (version complète) apparaît sur
+   ton écran d'accueil, comme n'importe quelle app.
+
+Les deux versions ont des icônes distinctes — tu peux installer les **deux** côte à côte.
+
+### Sur iPhone / iPad (Safari uniquement)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/mobile.html> dans **Safari**
+   (Chrome iOS ne supporte pas l'installation).
+2. Touche le bouton **Partager** (carré avec flèche vers le haut).
+3. Choisis **« Ajouter à l'écran d'accueil »**.
+
+### Sur ordinateur (Windows, macOS, Linux)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome, Edge ou Brave.
+2. Une **icône d'installation** (un écran avec une flèche vers le bas) apparaît à droite
+   de la barre d'adresse → clic dessus.
+3. La PWA est ajoutée au menu Démarrer (Windows), Launchpad (macOS) ou menu d'applications
+   (Linux) ; tu peux l'épingler à la barre des tâches / au Dock.
+
+### Désinstaller
+
+- **Mobile** : long-press sur l'icône → Désinstaller (Android) ou Supprimer l'app (iOS).
+- **Desktop** : ouvre la PWA, clic sur les 3 points en haut à droite → Désinstaller.
+  Ou via chrome://apps / dge://apps.
+
+### Pourquoi deux versions distinctes ?
+
+- **Version complète** (~72 KB de HTML + 1 Mo de données mensuelles) : toutes les fonctions —
+  schéma du bassin, étiquettes détaillées, sparklines, modal grand format, faits saillants.
+  Conçue pour desktop / tablette ou pour un mobile en mode paysage.
+- **Version mobile** (~19 KB) : interface simplifiée pour sélectionner rapidement une
+  centrale et voir son historique. Idéale pour un coup d'œil rapide sur téléphone.
+
+## Navigation
 
 L'animation s'ouvre sur la vue **Heure** du mois courant. La barre de contrôle en bas
 permet de naviguer dans le temps :
