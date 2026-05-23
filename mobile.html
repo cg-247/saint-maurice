@@ -16,6 +16,11 @@ html,body{background:#1a1a2e;color:#eee;font-family:"Segoe UI",Arial,sans-serif;
           touch-action:manipulation;overscroll-behavior-y:contain}
 body{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
 
+/* PULL-TO-REFRESH : pas d'indicateur visuel, juste le retour elastique du body
+   pendant le geste. Le scroll vers le bas en haut de page declenche un reload. */
+body.ptr-dragging{transition:none}
+body.ptr-releasing{transition:transform .25s ease}
+
 /* HEADER sticky */
 header{position:sticky;top:0;z-index:10;background:#1a1a2e;
        border-bottom:1px solid #2a2a4e;padding:10px 14px;
@@ -104,9 +109,9 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-23 08:36<br>
+  Mise &agrave; jour&nbsp;: 2026-05-23 08:53<br>
   <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
-  &middot; <span title="Version de la PWA installee">v2.2.0 &middot; 22 mai 2026</span>
+  &middot; <span title="Version de la PWA installee">v2.2.1 &middot; 23 mai 2026</span>
 </footer>
 
 <script>
@@ -458,6 +463,75 @@ window.addEventListener('resize', () => {
 
 // Demarrage
 init();
+
+// --- Pull-to-refresh ---
+// Geste : doigt qui descend depuis le haut de page (scrollY === 0).
+// Seuil 70px : au-dela, le relachement declenche un reload complet de la page.
+// Resistance progressive (sqrt) pour le feel "elastique" iOS-like.
+// Pas d'indicateur visuel : le retour elastique du body est suffisant.
+(function setupPullToRefresh() {
+  const THRESHOLD = 70;
+  const MAX_PULL = 140;
+  let startY = 0;
+  let dragging = false;
+  let pulled = 0;
+
+  function setPull(px) {
+    pulled = px;
+    const clamped = Math.min(px, MAX_PULL);
+    document.body.style.transform = 'translateY(' + clamped + 'px)';
+  }
+
+  function reset() {
+    document.body.classList.remove('ptr-dragging');
+    document.body.classList.add('ptr-releasing');
+    document.body.style.transform = '';
+    setTimeout(() => {
+      document.body.classList.remove('ptr-releasing');
+    }, 260);
+  }
+
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY > 0) { dragging = false; return; }
+    if (e.touches.length !== 1) { dragging = false; return; }
+    startY = e.touches[0].clientY;
+    dragging = true;
+    pulled = 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) {
+      if (pulled > 0) setPull(0);
+      dragging = false;
+      return;
+    }
+    const resisted = Math.round(Math.sqrt(dy * 32));
+    document.body.classList.add('ptr-dragging');
+    setPull(resisted);
+    if (e.cancelable) e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (pulled >= THRESHOLD) {
+      document.body.classList.remove('ptr-dragging');
+      document.body.classList.add('ptr-releasing');
+      document.body.style.transform = 'translateY(60px)';
+      setTimeout(() => { location.reload(); }, 150);
+    } else {
+      reset();
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (!dragging) return;
+    dragging = false;
+    reset();
+  }, { passive: true });
+})();
 
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
 // ou en file:// : ne doit jamais bloquer l'affichage.
