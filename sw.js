@@ -23,7 +23,7 @@
 // partir de data/pwa/version.json. La valeur ci-dessous est juste un placeholder
 // pour developpement local et lecture du source - ne pas modifier directement,
 // modifier version.json et lancer render-animation.ps1.
-const CACHE_VERSION = 'hq-sm-v2.4.0';
+const CACHE_VERSION = 'hq-sm-v2.4.1';
 const SHELL_CACHE = CACHE_VERSION + '-shell';
 const DATA_CACHE  = CACHE_VERSION + '-data';
 

@@ -126,10 +126,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-24 16:46<br>
+  Mise &agrave; jour&nbsp;: 2026-05-24 17:15<br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA installee">v2.4.0</span>
+  &middot; <span title="Version de la PWA installee">v2.4.1</span>
 </footer>
 
 <script>
@@ -523,20 +523,26 @@ function drawBigChart() {
   cx.fillStyle = '#666';
   cx.textAlign = 'center'; cx.textBaseline = 'top';
 
-  // En vue Heure, on s'aligne sur des heures rondes multiples de 12 h pour
-  // eviter des libelles biscornus comme "15h" ou "21h". On parcourt les
-  // timestamps et on garde ceux dont l'heure est dans {00, 12} (heure locale Quebec
-  // telle qu'ecrite dans le timestamp).
+  // En vue Heure, deux ticks seulement : debut et fin des donnees reelles de
+  // la centrale active (premiere et derniere valeur non-null de c.debits).
+  // Avantage : l'axe X montre exactement la plage utile par centrale, ce qui peut
+  // varier d'une centrale a l'autre si certaines sont en retard de publication.
   let tickIdx;
   if (D.periode === 'horaire') {
-    tickIdx = [];
+    let firstIdx = -1, lastIdx = -1;
     for (let i = 0; i < N; i++) {
-      const ts = String(D.timestamps[i] || '');
-      const m = ts.match(/^\d{4}-\d{2}-\d{2} (\d{2}):/);
-      if (m && (m[1] === '00' || m[1] === '12')) tickIdx.push(i);
+      if (c.debits[i] != null) { firstIdx = i; break; }
     }
-    // Assure que le tout dernier point est visible si on n'a pas deja un tick proche
-    if (tickIdx.length === 0 || tickIdx[tickIdx.length - 1] < N - 3) tickIdx.push(N - 1);
+    for (let i = N - 1; i >= 0; i--) {
+      if (c.debits[i] != null) { lastIdx = i; break; }
+    }
+    if (firstIdx < 0) {       // aucune donnee : fallback sur les bornes du dataset
+      tickIdx = [0, N - 1];
+    } else if (firstIdx === lastIdx) {
+      tickIdx = [firstIdx];   // un seul point disponible
+    } else {
+      tickIdx = [firstIdx, lastIdx];
+    }
   } else {
     tickIdx = [];
     const xTicks = 4;
@@ -544,8 +550,20 @@ function drawBigChart() {
       tickIdx.push(Math.round((g / xTicks) * (N - 1)));
     }
   }
-  for (const i of tickIdx) {
+  // Alignement des libelles : en vue Heure on a deux ticks aux extremites de
+  // l'axe ; on les colle aux bords (gauche pour le premier, droite pour le dernier)
+  // pour eviter que le texte deborde du canvas. Pour les autres periodes, le
+  // centrage habituel est OK car les ticks sont equidistants et eloignes des bords.
+  for (let k = 0; k < tickIdx.length; k++) {
+    const i = tickIdx[k];
     const x = xOf(i);
+    if (D.periode === 'horaire' && tickIdx.length > 1) {
+      if (k === 0)                       cx.textAlign = 'left';
+      else if (k === tickIdx.length - 1) cx.textAlign = 'right';
+      else                               cx.textAlign = 'center';
+    } else {
+      cx.textAlign = 'center';
+    }
     cx.fillText(fmtTick(String(D.timestamps[i] || '')), x, h - pad.b + 6);
   }
 
