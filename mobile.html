@@ -51,6 +51,17 @@ nav#chips::-webkit-scrollbar{display:none}
 .chip.sel.status-orange  {background:#a05500;border-color:#c07000}
 .chip.sel.status-rouge   {background:#8a1010;border-color:#aa2020}
 
+/* BARRE PERIODE (Heure/Jour/Semaine/Mois) */
+nav#periodes{display:flex;gap:6px;padding:8px 12px;background:#1a1a2e;
+             border-bottom:1px solid #2a2a4e}
+.period-btn{flex:1;min-height:36px;padding:6px 4px;
+            border:1px solid #3a3a5e;background:#22223e;color:#cdd;
+            border-radius:8px;font:inherit;font-size:13px;font-weight:600;
+            cursor:pointer;transition:transform .12s, background .12s}
+.period-btn:active{transform:scale(.96)}
+.period-btn.sel{background:#4a6fa5;color:#fff;border-color:#5a82bf;
+                box-shadow:0 2px 6px rgba(0,0,0,.3)}
+
 /* ETIQUETTE */
 section#label{background:#fff;color:#1a1a2e;margin:12px;
               border-radius:10px;padding:14px 16px;
@@ -100,6 +111,13 @@ footer a{color:#bcd;text-decoration:underline}
 
 <nav id="chips" aria-label="Centrales"></nav>
 
+<nav id="periodes" aria-label="P&eacute;riode" role="tablist" class="hidden">
+  <button type="button" class="period-btn sel" data-key="horaire"      role="tab">Heure</button>
+  <button type="button" class="period-btn"     data-key="journalier"   role="tab">Jour</button>
+  <button type="button" class="period-btn"     data-key="hebdomadaire" role="tab">Semaine</button>
+  <button type="button" class="period-btn"     data-key="mensuel"      role="tab">Mois</button>
+</nav>
+
 <section id="label" class="hidden" aria-live="polite"></section>
 
 <section id="chartWrap" class="hidden">
@@ -109,9 +127,9 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-24 08:52<br>
+  Mise &agrave; jour&nbsp;: 2026-05-24 10:35<br>
   <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
-  &middot; <span title="Version de la PWA installee">v2.2.1 &middot; 23 mai 2026</span>
+  &middot; <span title="Version de la PWA installee">v2.3.0 &middot; 24 mai 2026</span>
 </footer>
 
 <script>
@@ -136,10 +154,11 @@ const FALLBACK_ID = '3-83';   // Trenche, milieu du bassin
 const STORE_KEY   = 'hq-mobile-centrale';
 
 // --- Etat global ---
-let D = null;            // dataset horaire { centrales, timestamps, ... }
-let N = 0;               // nb de frames horaires chargees
+let D = null;            // dataset de la vue active { centrales, timestamps, periode, ... }
+let N = 0;               // nb de frames de la vue active
 let selectedIdx = -1;    // index dans D.centrales de la centrale selectionnee
 let frame = 0;           // toujours = N-1 (derniere frame disponible)
+let views = {};          // { horaire, journalier, hebdomadaire, mensuel } -> dataset ou null
 
 // --- Helpers ---
 function statusClass(c, val) {
@@ -184,18 +203,38 @@ async function init() {
     const month = manifest.latestMonth;
     const monthEntry = (manifest.months || []).find(m => m.month === month);
     const file = (monthEntry && monthEntry.file) || (month + '-horaire.json');
-    D = await fetch('data/' + file).then(r => r.json());
-    N = D.timestamps.length;
-    frame = N - 1;
 
-    // Selection initiale : localStorage ou fallback Trenche
+    // Charge en parallele le mois horaire courant + le sommaire (Jour/Semaine/Mois).
+    const [horaire, sommaire] = await Promise.all([
+      fetch('data/' + file).then(r => r.json()),
+      fetch('data/sommaire.json').then(r => r.json())
+    ]);
+
+    views = {
+      horaire:      horaire || null,
+      journalier:   sommaire.journalier   || null,
+      hebdomadaire: sommaire.hebdomadaire || null,
+      mensuel:      sommaire.mensuel      || null
+    };
+    // Marque la periodicite dans chaque vue (utilise par fmtTick / label tendance).
+    Object.entries(views).forEach(([k, v]) => { if (v) v.periode = k; });
+
+    // Selection initiale : localStorage ou fallback Trenche (sur la vue Heure
+    // qui contient toujours toutes les centrales).
     const savedId = localStorage.getItem(STORE_KEY) || FALLBACK_ID;
-    selectedIdx = D.centrales.findIndex(c => c.id === savedId);
-    if (selectedIdx < 0) selectedIdx = D.centrales.findIndex(c => c.id === FALLBACK_ID);
+    selectedIdx = views.horaire.centrales.findIndex(c => c.id === savedId);
+    if (selectedIdx < 0) selectedIdx = views.horaire.centrales.findIndex(c => c.id === FALLBACK_ID);
     if (selectedIdx < 0) selectedIdx = 0;
+
+    // Active la vue Heure et branche les boutons periode.
+    setPeriode('horaire');
+    document.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', () => setPeriode(btn.dataset.key));
+    });
 
     buildChips();
     document.getElementById('status').classList.add('hidden');
+    document.getElementById('periodes').classList.remove('hidden');
     document.getElementById('label').classList.remove('hidden');
     document.getElementById('chartWrap').classList.remove('hidden');
     render();
@@ -207,6 +246,28 @@ async function init() {
   } catch (e) {
     document.getElementById('status').textContent = 'Erreur de chargement : ' + e.message;
   }
+}
+
+// Bascule la vue active. Conserve la centrale selectionnee si elle existe dans
+// la nouvelle vue ; sinon fallback sur le 1er index disponible.
+function setPeriode(key) {
+  if (!views[key]) return;
+  D = views[key];
+  N = D.timestamps.length;
+  frame = N - 1;
+  // Re-aligne selectedIdx sur la centrale par son ID (les vues peuvent ne pas
+  // partager le meme ordre, meme si en pratique elles le partagent).
+  if (selectedIdx >= 0 && views.horaire && views.horaire.centrales[selectedIdx]) {
+    const id = views.horaire.centrales[selectedIdx].id;
+    const newIdx = D.centrales.findIndex(c => c.id === id);
+    if (newIdx >= 0) selectedIdx = newIdx;
+  }
+  // MAJ visuelle des boutons.
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.classList.toggle('sel', btn.dataset.key === key);
+  });
+  // Re-render seulement si l'init est termine (render() lit le DOM #label).
+  if (!document.getElementById('label').classList.contains('hidden')) render();
 }
 
 // --- Chips ---
@@ -277,8 +338,8 @@ function render() {
     } else if (tr < -50) {
       trendHtml = '<span class="trend-down">' + Math.round(tr) + ' m³/s en ' + trUnit + '</span>';
     } else {
-      const stTxt = (stab == null) ? 'stable'
-                  : 'stable depuis ' + stab + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem'));
+      const unit = { horaire:'h', journalier:'j', hebdomadaire:'sem', mensuel:'mois' }[D.periode] || 'h';
+      const stTxt = (stab == null) ? 'stable' : 'stable depuis ' + stab + unit;
       trendHtml = '<span class="trend-flat">' + stTxt + '</span>';
     }
   }
@@ -368,16 +429,24 @@ function drawBigChart() {
     cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
 
-  // Ticks X : 4 dates reparties
+  // Ticks X : 4 dates reparties. Format adapte a la periode active :
+  //   horaire      'yyyy-MM-dd HH:mm'           -> 'MM-dd' (date uniquement)
+  //   journalier   'yyyy-MM-dd' (ou + suffixe)  -> 'MM-dd'
+  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'   -> 'MM-dd' (debut de semaine)
+  //   mensuel      'yyyy-MM'                    -> 'yyyy-MM' tel quel
+  const fmtTick = (ts) => {
+    if (!ts) return '';
+    if (D.periode === 'mensuel') return ts;
+    const m = ts.match(/^\d{4}-(\d{2}-\d{2})/);
+    return m ? m[1] : ts.slice(-5);
+  };
   cx.fillStyle = '#666';
   cx.textAlign = 'center'; cx.textBaseline = 'top';
   const xTicks = 4;
   for (let g = 0; g <= xTicks; g++) {
     const i = Math.round((g / xTicks) * (N - 1));
     const x = xOf(i);
-    // Date format court : "JJ" ou "MM-JJ" selon ce qu'on a
-    const ts = String(D.timestamps[i] || '');
-    cx.fillText(ts.length > 5 ? ts.slice(-5) : ts, x, h - pad.b + 6);
+    cx.fillText(fmtTick(String(D.timestamps[i] || '')), x, h - pad.b + 6);
   }
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
