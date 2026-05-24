@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
-<link rel="manifest" href="manifest-mobile.webmanifest">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{background:#1a1a2e;color:#eee;font-family:"Segoe UI",Arial,sans-serif;
@@ -106,7 +106,7 @@ footer a{color:#bcd;text-decoration:underline}
 <body>
 <header>
   <h1>Saint-Maurice &mdash; Mobile</h1>
-  <a id="link-full" href="index.html?desktop=1">Animation compl&egrave;te &nearr;</a>
+  <a id="link-full" href="index.html?desktop=1">Version bureau &nearr;</a>
 </header>
 
 <nav id="chips" aria-label="Centrales"></nav>
@@ -115,7 +115,6 @@ footer a{color:#bcd;text-decoration:underline}
   <button type="button" class="period-btn sel" data-key="horaire"      role="tab">Heure</button>
   <button type="button" class="period-btn"     data-key="journalier"   role="tab">Jour</button>
   <button type="button" class="period-btn"     data-key="hebdomadaire" role="tab">Semaine</button>
-  <button type="button" class="period-btn"     data-key="mensuel"      role="tab">Mois</button>
 </nav>
 
 <section id="label" class="hidden" aria-live="polite"></section>
@@ -127,9 +126,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-24 14:54<br>
-  <a href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
-  &middot; <span title="Version de la PWA installee">v2.3.0 &middot; 24 mai 2026</span>
+  Mise &agrave; jour&nbsp;: 2026-05-24 16:46<br>
+  <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
+  &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
+  &middot; <span title="Version de la PWA installee">v2.4.0</span>
 </footer>
 
 <script>
@@ -141,6 +141,21 @@ footer a{color:#bcd;text-decoration:underline}
 if (location.pathname.endsWith('animation-mobile.html')) {
   document.getElementById('link-full').href = 'animation-centrales.html?desktop=1';
 }
+
+// Lien "Details & sources" : en local, pointe vers le README.md voisin servi
+// par notre serveur local. Sur GitHub Pages, garde le lien vers le repo source.
+(function () {
+  var lr = document.getElementById('link-readme');
+  if (!lr) return;
+  var isLocal = location.protocol === 'file:'
+             || /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(location.hostname);
+  if (isLocal) {
+    lr.href = 'README.md';
+    lr.removeAttribute('target');
+    lr.removeAttribute('rel');
+    lr.title = 'Apercu local du README publie';
+  }
+})();
 
 // Codes 2 lettres par ID HQ (ordre amont->aval defini par le tri visuel ci-dessous).
 const CODES = {
@@ -158,7 +173,7 @@ let D = null;            // dataset de la vue active { centrales, timestamps, pe
 let N = 0;               // nb de frames de la vue active
 let selectedIdx = -1;    // index dans D.centrales de la centrale selectionnee
 let frame = 0;           // toujours = N-1 (derniere frame disponible)
-let views = {};          // { horaire, journalier, hebdomadaire, mensuel } -> dataset ou null
+let views = {};          // { horaire, journalier, hebdomadaire } -> dataset ou null
 
 // --- Helpers ---
 function statusClass(c, val) {
@@ -196,28 +211,83 @@ function computeStats(arr) {
   return { min: n ? mn : null, max: n ? mx : null, avg: n ? sum / n : null, n };
 }
 
+// Tronque une vue aux N derniers points (timestamps + toutes les series par centrale).
+// Idempotent : si la vue est plus courte que N, ne fait rien.
+function trimView(view, n) {
+  if (!view || !Array.isArray(view.timestamps)) return;
+  const total = view.timestamps.length;
+  if (total <= n) return;
+  const start = total - n;
+  view.timestamps = view.timestamps.slice(start);
+  (view.centrales || []).forEach(c => {
+    ['debits','turbs','devs','mws','trends','stables'].forEach(k => {
+      if (Array.isArray(c[k])) c[k] = c[k].slice(start);
+    });
+  });
+}
+
+// Concatene la vue horaire du mois precedent + mois courant pour pouvoir
+// afficher 48 h glissantes meme a cheval sur 2 mois. Aligne les centrales par ID.
+function mergeHoraire(prev, curr) {
+  if (!prev) return curr;
+  if (!curr) return prev;
+  const merged = {
+    timestamps: prev.timestamps.concat(curr.timestamps),
+    centrales: curr.centrales.map(cc => {
+      const pc = prev.centrales.find(p => p.id === cc.id);
+      const pad = pc ? null : new Array(prev.timestamps.length).fill(null);
+      const j = k => (pc ? pc[k] : pad).concat(cc[k] || []);
+      return Object.assign({}, cc, {
+        debits:  j('debits'),
+        turbs:   j('turbs'),
+        devs:    j('devs'),
+        mws:     j('mws'),
+        trends:  cc.trends  ? j('trends')  : undefined,
+        stables: cc.stables ? j('stables') : undefined
+      });
+    })
+  };
+  // Conserve les autres champs scalaires de curr (periode, trendUnit, etc.).
+  Object.keys(curr).forEach(k => {
+    if (!(k in merged)) merged[k] = curr[k];
+  });
+  return merged;
+}
+
 // --- Chargement initial ---
 async function init() {
   try {
     const manifest = await fetch('data/manifest.json').then(r => r.json());
     const month = manifest.latestMonth;
-    const monthEntry = (manifest.months || []).find(m => m.month === month);
-    const file = (monthEntry && monthEntry.file) || (month + '-horaire.json');
+    const months = manifest.months || [];
+    const currEntry = months.find(m => m.month === month);
+    const currFile = (currEntry && currEntry.file) || (month + '-horaire.json');
+    // Mois precedent dans le manifest (s'il existe), pour permettre le chevauchement 48 h.
+    const idx = months.findIndex(m => m.month === month);
+    const prevEntry = (idx > 0) ? months[idx - 1] : null;
 
-    // Charge en parallele le mois horaire courant + le sommaire (Jour/Semaine/Mois).
-    const [horaire, sommaire] = await Promise.all([
-      fetch('data/' + file).then(r => r.json()),
+    // Charge en parallele le mois horaire courant (+ precedent si dispo) + le sommaire.
+    const fetches = [
+      fetch('data/' + currFile).then(r => r.json()),
       fetch('data/sommaire.json').then(r => r.json())
-    ]);
+    ];
+    if (prevEntry) fetches.push(fetch('data/' + prevEntry.file).then(r => r.json()).catch(() => null));
+    const [horaireCurr, sommaire, horairePrev] = await Promise.all(fetches);
+    const horaire = mergeHoraire(horairePrev || null, horaireCurr);
 
     views = {
       horaire:      horaire || null,
       journalier:   sommaire.journalier   || null,
-      hebdomadaire: sommaire.hebdomadaire || null,
-      mensuel:      sommaire.mensuel      || null
+      hebdomadaire: sommaire.hebdomadaire || null
     };
     // Marque la periodicite dans chaque vue (utilise par fmtTick / label tendance).
     Object.entries(views).forEach(([k, v]) => { if (v) v.periode = k; });
+
+    // Plages mobile : on garde les derniers N points de chaque vue.
+    // Les bins en amont sont calendaires, donc 15 bins jour peuvent chevaucher 2 mois.
+    trimView(views.horaire,      48);  // 48 dernieres heures
+    trimView(views.journalier,   15);  // 15 derniers jours
+    trimView(views.hebdomadaire,  6);  // 6 dernieres semaines
 
     // Selection initiale : localStorage ou fallback Trenche (sur la vue Heure
     // qui contient toujours toutes les centrales).
@@ -429,22 +499,52 @@ function drawBigChart() {
     cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
 
-  // Ticks X : 4 dates reparties. Format adapte a la periode active :
-  //   horaire      'yyyy-MM-dd HH:mm'           -> 'MM-dd' (date uniquement)
+  // Ticks X : format adapte a la periode active.
+  //   horaire      'yyyy-MM-dd HH:mm'           -> 'dd mois HHhMM' (ex. '22 mai 12h00')
   //   journalier   'yyyy-MM-dd' (ou + suffixe)  -> 'MM-dd'
-  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'   -> 'MM-dd' (debut de semaine)
+  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'   -> 'MM-dd'   (debut de semaine)
   //   mensuel      'yyyy-MM'                    -> 'yyyy-MM' tel quel
+  const MOIS_FR = ['janv','fevr','mars','avr','mai','juin','juil','aout','sept','oct','nov','dec'];
   const fmtTick = (ts) => {
     if (!ts) return '';
     if (D.periode === 'mensuel') return ts;
+    if (D.periode === 'horaire') {
+      const m = ts.match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+      if (m) {
+        const mois = MOIS_FR[parseInt(m[1], 10) - 1] || m[1];
+        // Le 'd' initial est sans zero de tete pour rester compact ("8 mai" plutot que "08 mai").
+        return parseInt(m[2], 10) + ' ' + mois + ' ' + m[3] + 'h' + m[4];
+      }
+      return ts.slice(-5);
+    }
     const m = ts.match(/^\d{4}-(\d{2}-\d{2})/);
     return m ? m[1] : ts.slice(-5);
   };
   cx.fillStyle = '#666';
   cx.textAlign = 'center'; cx.textBaseline = 'top';
-  const xTicks = 4;
-  for (let g = 0; g <= xTicks; g++) {
-    const i = Math.round((g / xTicks) * (N - 1));
+
+  // En vue Heure, on s'aligne sur des heures rondes multiples de 12 h pour
+  // eviter des libelles biscornus comme "15h" ou "21h". On parcourt les
+  // timestamps et on garde ceux dont l'heure est dans {00, 12} (heure locale Quebec
+  // telle qu'ecrite dans le timestamp).
+  let tickIdx;
+  if (D.periode === 'horaire') {
+    tickIdx = [];
+    for (let i = 0; i < N; i++) {
+      const ts = String(D.timestamps[i] || '');
+      const m = ts.match(/^\d{4}-\d{2}-\d{2} (\d{2}):/);
+      if (m && (m[1] === '00' || m[1] === '12')) tickIdx.push(i);
+    }
+    // Assure que le tout dernier point est visible si on n'a pas deja un tick proche
+    if (tickIdx.length === 0 || tickIdx[tickIdx.length - 1] < N - 3) tickIdx.push(N - 1);
+  } else {
+    tickIdx = [];
+    const xTicks = 4;
+    for (let g = 0; g <= xTicks; g++) {
+      tickIdx.push(Math.round((g / xTicks) * (N - 1)));
+    }
+  }
+  for (const i of tickIdx) {
     const x = xOf(i);
     cx.fillText(fmtTick(String(D.timestamps[i] || '')), x, h - pad.b + 6);
   }

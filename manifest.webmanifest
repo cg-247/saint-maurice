@@ -1,11 +1,11 @@
 {
-  "id": "/saint-maurice/full",
-  "name": "Saint-Maurice — Animation complète",
+  "id": "/saint-maurice/",
+  "name": "Saint-Maurice — Débits & niveaux",
   "short_name": "St-Maurice",
-  "description": "Animation interactive des débits, niveaux et production estimée du bassin Saint-Maurice (Hydro-Québec, données ouvertes).",
+  "description": "Animation interactive des débits, niveaux et production estimée du bassin Saint-Maurice (Hydro-Québec, données ouvertes). Adapte automatiquement la vue bureau ou mobile.",
   "lang": "fr-CA",
   "dir": "ltr",
-  "start_url": "./index.html?desktop=1",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
@@ -43,13 +43,14 @@
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Vue desktop de l'animation complète du bassin Saint-Maurice"
+      "label": "Vue bureau de l'animation du bassin Saint-Maurice"
     },
     {
-      "src": "assets/screenshot-full-narrow.png",
+      "src": "assets/screenshot-mobile-narrow.png",
       "sizes": "720x1280",
       "type": "image/png",
-      "label": "Vue mobile/tablette de l'animation complète"
+      "form_factor": "narrow",
+      "label": "Vue mobile : sélection rapide d'une centrale"
     }
   ]
 }

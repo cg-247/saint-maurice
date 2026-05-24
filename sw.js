@@ -1,4 +1,4 @@
-// Service worker partage entre les deux PWAs Saint-Maurice (complete et mobile).
+// Service worker de la PWA Saint-Maurice (unifiee bureau + mobile).
 //
 // Strategies :
 //   - HTML (index.html, mobile.html) + donnees (data/*.json)
@@ -23,7 +23,7 @@
 // partir de data/pwa/version.json. La valeur ci-dessous est juste un placeholder
 // pour developpement local et lecture du source - ne pas modifier directement,
 // modifier version.json et lancer render-animation.ps1.
-const CACHE_VERSION = 'hq-sm-v2.3.0';
+const CACHE_VERSION = 'hq-sm-v2.4.0';
 const SHELL_CACHE = CACHE_VERSION + '-shell';
 const DATA_CACHE  = CACHE_VERSION + '-data';
 
@@ -32,7 +32,6 @@ const DATA_CACHE  = CACHE_VERSION + '-data';
 // stale-while-revalidate (comme les donnees) pour se rafraichir automatiquement.
 const SHELL_ASSETS = [
   'manifest.webmanifest',
-  'manifest-mobile.webmanifest',
   'assets/favicon-16.png',
   'assets/favicon-32.png',
   'assets/favicon-48.png',
@@ -41,10 +40,6 @@ const SHELL_ASSETS = [
   'assets/icon-full-512-any.png',
   'assets/icon-full-192-maskable.png',
   'assets/icon-full-512-maskable.png',
-  'assets/icon-mobile-192-any.png',
-  'assets/icon-mobile-512-any.png',
-  'assets/icon-mobile-192-maskable.png',
-  'assets/icon-mobile-512-maskable.png',
   'assets/gestion-reservoir.jpg',
 ];
 
