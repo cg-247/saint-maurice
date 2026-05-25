@@ -16,10 +16,32 @@ html,body{background:#1a1a2e;color:#eee;font-family:"Segoe UI",Arial,sans-serif;
           touch-action:manipulation;overscroll-behavior-y:contain}
 body{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
 
-/* PULL-TO-REFRESH : pas d'indicateur visuel, juste le retour elastique du body
-   pendant le geste. Le scroll vers le bas en haut de page declenche un reload. */
+/* PULL-TO-REFRESH : indicateur visuel attache au geste (style moderne, comme
+   Twitter/X, Instagram). Le body se translate pendant le drag ; un spinner
+   apparait au-dessus, tourne avec la progression, puis spin actif pendant le
+   refetch reseau. Pas de reload de page : on re-fetch les JSON en place. */
 body.ptr-dragging{transition:none}
 body.ptr-releasing{transition:transform .25s ease}
+.ptr-indicator{position:fixed;top:8px;left:50%;width:32px;height:32px;
+               margin-left:-16px;border-radius:50%;
+               background:#22223e;border:1px solid #3a3a5e;
+               box-shadow:0 2px 8px rgba(0,0,0,.4);
+               display:flex;align-items:center;justify-content:center;
+               color:#cdd;font-size:16px;font-weight:700;
+               opacity:0;transform:translateY(-40px) rotate(0deg);
+               transition:opacity .2s, transform .25s ease;
+               pointer-events:none;z-index:20}
+.ptr-indicator.armed{color:#fff;background:#4a6fa5;border-color:#5a82bf}
+.ptr-indicator.spinning{animation:ptr-spin .8s linear infinite}
+.ptr-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+           background:#22223e;color:#eee;border:1px solid #3a3a5e;
+           padding:8px 14px;border-radius:18px;font-size:13px;
+           box-shadow:0 4px 12px rgba(0,0,0,.4);
+           opacity:0;transition:opacity .25s;pointer-events:none;z-index:21}
+.ptr-toast.show{opacity:1}
+.ptr-toast.err{border-color:#7a3030;color:#fbb}
+@keyframes ptr-spin{from{transform:translateY(0) rotate(0deg)}
+                    to  {transform:translateY(0) rotate(360deg)}}
 
 /* HEADER sticky */
 header{position:sticky;top:0;z-index:10;background:#1a1a2e;
@@ -104,6 +126,8 @@ footer a{color:#bcd;text-decoration:underline}
 </style>
 </head>
 <body>
+<div id="ptrIndicator" class="ptr-indicator" aria-hidden="true">&darr;</div>
+<div id="ptrToast" class="ptr-toast" role="status" aria-live="polite"></div>
 <header>
   <h1>Saint-Maurice &mdash; Mobile</h1>
   <a id="link-full" href="index.html?desktop=1">Version bureau &nearr;</a>
@@ -126,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-24 17:41<br>
+  Mise &agrave; jour&nbsp;: 2026-05-25 10:26<br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA installee">v2.4.1</span>
+  &middot; <span title="Version de la PWA installee">v2.4.2</span>
 </footer>
 
 <script>
@@ -254,40 +278,46 @@ function mergeHoraire(prev, curr) {
   return merged;
 }
 
+// --- Chargement des donnees (factorise pour reutilisation par pull-to-refresh) ---
+// opts.forceNetwork=true : bypasse le service worker (cache:'reload'), pour
+// que le pull-to-refresh ne ramene pas le cache stale. Defaut: false (init
+// normal, le SW peut servir le cache pour une ouverture instantanee).
+async function loadData(opts) {
+  const init = (opts && opts.forceNetwork) ? { cache: 'reload' } : undefined;
+  const j = (url) => fetch(url, init).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + url); return r.json(); });
+
+  const manifest = await j('data/manifest.json');
+  const month = manifest.latestMonth;
+  const months = manifest.months || [];
+  const currEntry = months.find(m => m.month === month);
+  const currFile = (currEntry && currEntry.file) || (month + '-horaire.json');
+  const idx = months.findIndex(m => m.month === month);
+  const prevEntry = (idx > 0) ? months[idx - 1] : null;
+
+  const fetches = [
+    j('data/' + currFile),
+    j('data/sommaire.json')
+  ];
+  if (prevEntry) fetches.push(j('data/' + prevEntry.file).catch(() => null));
+  const [horaireCurr, sommaire, horairePrev] = await Promise.all(fetches);
+  const horaire = mergeHoraire(horairePrev || null, horaireCurr);
+
+  const v = {
+    horaire:      horaire || null,
+    journalier:   sommaire.journalier   || null,
+    hebdomadaire: sommaire.hebdomadaire || null
+  };
+  Object.entries(v).forEach(([k, view]) => { if (view) view.periode = k; });
+  trimView(v.horaire,      48);
+  trimView(v.journalier,   15);
+  trimView(v.hebdomadaire,  6);
+  return v;
+}
+
 // --- Chargement initial ---
 async function init() {
   try {
-    const manifest = await fetch('data/manifest.json').then(r => r.json());
-    const month = manifest.latestMonth;
-    const months = manifest.months || [];
-    const currEntry = months.find(m => m.month === month);
-    const currFile = (currEntry && currEntry.file) || (month + '-horaire.json');
-    // Mois precedent dans le manifest (s'il existe), pour permettre le chevauchement 48 h.
-    const idx = months.findIndex(m => m.month === month);
-    const prevEntry = (idx > 0) ? months[idx - 1] : null;
-
-    // Charge en parallele le mois horaire courant (+ precedent si dispo) + le sommaire.
-    const fetches = [
-      fetch('data/' + currFile).then(r => r.json()),
-      fetch('data/sommaire.json').then(r => r.json())
-    ];
-    if (prevEntry) fetches.push(fetch('data/' + prevEntry.file).then(r => r.json()).catch(() => null));
-    const [horaireCurr, sommaire, horairePrev] = await Promise.all(fetches);
-    const horaire = mergeHoraire(horairePrev || null, horaireCurr);
-
-    views = {
-      horaire:      horaire || null,
-      journalier:   sommaire.journalier   || null,
-      hebdomadaire: sommaire.hebdomadaire || null
-    };
-    // Marque la periodicite dans chaque vue (utilise par fmtTick / label tendance).
-    Object.entries(views).forEach(([k, v]) => { if (v) v.periode = k; });
-
-    // Plages mobile : on garde les derniers N points de chaque vue.
-    // Les bins en amont sont calendaires, donc 15 bins jour peuvent chevaucher 2 mois.
-    trimView(views.horaire,      48);  // 48 dernieres heures
-    trimView(views.journalier,   15);  // 15 derniers jours
-    trimView(views.hebdomadaire,  6);  // 6 dernieres semaines
+    views = await loadData();
 
     // Selection initiale : localStorage ou fallback Trenche (sur la vue Heure
     // qui contient toujours toutes les centrales).
@@ -316,6 +346,28 @@ async function init() {
   } catch (e) {
     document.getElementById('status').textContent = 'Erreur de chargement : ' + e.message;
   }
+}
+
+// --- Refetch en place (declenche par pull-to-refresh). Bypasse le SW pour
+// garantir des donnees fraiches, met a jour `views` et re-rend sans
+// recharger la page. Throw si le reseau echoue (l'appelant gere le toast). ---
+async function refreshData() {
+  const fresh = await loadData({ forceNetwork: true });
+  views = fresh;
+  // Re-aligne selectedIdx (la liste des centrales devrait etre identique, mais
+  // on se protege contre un changement d'ordre).
+  if (selectedIdx >= 0 && views.horaire) {
+    const oldId = (D && D.centrales[selectedIdx]) ? D.centrales[selectedIdx].id : null;
+    if (oldId) {
+      const ni = views.horaire.centrales.findIndex(c => c.id === oldId);
+      if (ni >= 0) selectedIdx = ni;
+    }
+  }
+  // Reactive la vue courante (ou horaire par defaut) avec les nouvelles donnees.
+  const curKey = (D && D.periode) || 'horaire';
+  setPeriode(views[curKey] ? curKey : 'horaire');
+  buildChips();
+  render();
 }
 
 // Bascule la vue active. Conserve la centrale selectionnee si elle existe dans
@@ -651,34 +703,90 @@ window.addEventListener('resize', () => {
 // Demarrage
 init();
 
-// --- Pull-to-refresh ---
+// --- Pull-to-refresh (pattern moderne : indicateur visuel + refetch en place) ---
 // Geste : doigt qui descend depuis le haut de page (scrollY === 0).
-// Seuil 70px : au-dela, le relachement declenche un reload complet de la page.
-// Resistance progressive (sqrt) pour le feel "elastique" iOS-like.
-// Pas d'indicateur visuel : le retour elastique du body est suffisant.
+// - Pendant le drag : indicateur apparait, rotation/etat proportionnels a la progression.
+// - Au relachement au-dela du seuil : refetch JSON en bypass cache (refreshData()),
+//   pas de location.reload() => pas de flash de page, pas de "2e tentative".
+// - Spinner reste actif pendant le refetch ; toast d'erreur si reseau echoue.
 (function setupPullToRefresh() {
   const THRESHOLD = 70;
   const MAX_PULL = 140;
   let startY = 0;
   let dragging = false;
   let pulled = 0;
+  let refreshing = false;  // bloque les nouveaux gestes pendant un refetch en cours
+  const indicator = document.getElementById('ptrIndicator');
+  const toast = document.getElementById('ptrToast');
 
   function setPull(px) {
     pulled = px;
     const clamped = Math.min(px, MAX_PULL);
     document.body.style.transform = 'translateY(' + clamped + 'px)';
+    // Indicateur : apparait progressivement, tourne avec la progression, change
+    // d'etat visuel quand le seuil est franchi.
+    if (indicator) {
+      const ratio = Math.min(clamped / THRESHOLD, 1);
+      const armed = clamped >= THRESHOLD;
+      indicator.style.opacity = Math.min(clamped / 30, 1);
+      indicator.style.transform = 'translateY(' + Math.min(clamped - 8, 48) + 'px) rotate(' + (ratio * 180) + 'deg)';
+      indicator.classList.toggle('armed', armed);
+    }
+  }
+
+  function hideIndicator() {
+    if (!indicator) return;
+    indicator.classList.remove('armed','spinning');
+    indicator.style.opacity = '';
+    indicator.style.transform = '';
   }
 
   function reset() {
     document.body.classList.remove('ptr-dragging');
     document.body.classList.add('ptr-releasing');
     document.body.style.transform = '';
+    hideIndicator();
     setTimeout(() => {
       document.body.classList.remove('ptr-releasing');
     }, 260);
   }
 
+  function showToast(msg, isError) {
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.toggle('err', !!isError);
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); }, 2200);
+  }
+
+  async function triggerRefresh() {
+    refreshing = true;
+    // Maintient le body legerement decale pour montrer que ca tourne, et active le spin.
+    document.body.classList.remove('ptr-dragging');
+    document.body.classList.add('ptr-releasing');
+    document.body.style.transform = 'translateY(40px)';
+    if (indicator) {
+      indicator.style.opacity = '1';
+      indicator.style.transform = 'translateY(32px) rotate(0deg)';
+      indicator.classList.add('armed','spinning');
+    }
+    try {
+      await refreshData();
+      showToast('Donnees a jour', false);
+    } catch (e) {
+      showToast('Hors-ligne : donnees inchangees', true);
+    } finally {
+      refreshing = false;
+      document.body.style.transform = '';
+      hideIndicator();
+      setTimeout(() => {
+        document.body.classList.remove('ptr-releasing');
+      }, 260);
+    }
+  }
+
   document.addEventListener('touchstart', e => {
+    if (refreshing) { dragging = false; return; }
     if (window.scrollY > 0) { dragging = false; return; }
     if (e.touches.length !== 1) { dragging = false; return; }
     startY = e.touches[0].clientY;
@@ -692,6 +800,7 @@ init();
     if (dy <= 0) {
       if (pulled > 0) setPull(0);
       dragging = false;
+      hideIndicator();
       return;
     }
     const resisted = Math.round(Math.sqrt(dy * 32));
@@ -704,10 +813,7 @@ init();
     if (!dragging) return;
     dragging = false;
     if (pulled >= THRESHOLD) {
-      document.body.classList.remove('ptr-dragging');
-      document.body.classList.add('ptr-releasing');
-      document.body.style.transform = 'translateY(60px)';
-      setTimeout(() => { location.reload(); }, 150);
+      triggerRefresh();
     } else {
       reset();
     }
