@@ -26,11 +26,12 @@
     var w = Math.min(screen.width || 9999, window.innerWidth || 9999);
     if (w > 768) return;
     // En local on a animation-centrales.html (mobile = animation-mobile.html),
-    // sur GitHub Pages on a index.html (mobile = mobile.html).
-    var target = location.pathname.endsWith('animation-centrales.html')
-                 ? 'animation-mobile.html'
-                 : 'mobile.html';
-    location.replace(target);
+    // sur GitHub Pages on a index.html (mobile = mobile.html). Le serveur local
+    // sert animation-centrales.html aussi via "/" (path qui se termine par "/"),
+    // d'ou la double condition.
+    var p = location.pathname;
+    var isLocal = p.endsWith('animation-centrales.html') || p.endsWith('/');
+    location.replace(isLocal ? 'animation-mobile.html' : 'mobile.html');
   } catch (e) { /* localStorage indisponible (mode prive ?) : pas de redirection */ }
 })();
 </script>
@@ -131,7 +132,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     &middot;
     <span title="Version de la PWA installee">v2.4.2</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-29 07:53</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-29 13:00</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -168,10 +169,14 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 <script>
 // Lien vers la version mobile : en local (output/), le fichier s'appelle animation-mobile.html ;
 // sur GitHub Pages, il est renomme mobile.html. On adapte si on detecte le mode local.
-if (location.pathname.endsWith('animation-centrales.html')) {
-  var lm = document.getElementById('link-mobile');
-  if (lm) lm.href = 'animation-mobile.html';
-}
+// Le serveur local sert aussi animation-centrales.html via "/", d'ou la double condition.
+(function () {
+  var p = location.pathname;
+  if (p.endsWith('animation-centrales.html') || p.endsWith('/')) {
+    var lm = document.getElementById('link-mobile');
+    if (lm) lm.href = 'animation-mobile.html';
+  }
+})();
 
 // Lien "Details & sources" : en local (file:// ou localhost), pointe vers le
 // README.md voisin servi par notre serveur local. Sur GitHub Pages, garde le

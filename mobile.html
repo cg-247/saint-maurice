@@ -150,7 +150,7 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-29 07:53<br>
+  Mise &agrave; jour&nbsp;: 2026-05-29 13:00<br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
   &middot; <span title="Version de la PWA installee">v2.4.2</span>
@@ -527,7 +527,10 @@ function drawBigChart() {
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const w = cssW, h = cssH;
-  const pad = { l: 50, r: 14, t: 8, b: 30 };
+  // pad.l = 64 : assez large pour un label "NNNN m³/s" (4 chiffres + unite) en
+  // textAlign='right' a pad.l - 6. Avec pad.l=50, les centrales a fort debit
+  // (Grand-Mere yMax~2800) avaient leur premier chiffre clippe hors canvas.
+  const pad = { l: 64, r: 14, t: 8, b: 30 };
   cx.clearRect(0, 0, w, h);
 
   // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
