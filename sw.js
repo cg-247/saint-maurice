@@ -23,7 +23,7 @@
 // partir de data/pwa/version.json. La valeur ci-dessous est juste un placeholder
 // pour developpement local et lecture du source - ne pas modifier directement,
 // modifier version.json et lancer render-animation.ps1.
-const CACHE_VERSION = 'hq-sm-v2.4.2';
+const CACHE_VERSION = 'hq-sm-v2.4.3';
 const SHELL_CACHE = CACHE_VERSION + '-shell';
 const DATA_CACHE  = CACHE_VERSION + '-data';
 
@@ -99,8 +99,27 @@ self.addEventListener('fetch', (event) => {
   if (isDataRequest(url) || isHtmlRequest(url)) {
     // Stale-while-revalidate : sert le cache immediatement (rapide + hors-ligne),
     // puis met a jour en arriere-plan. La prochaine visite aura la version fraiche.
+    //
+    // EXCEPTION : si le client demande explicitement le reseau (req.cache ===
+    // 'reload' ou 'no-store'), on bypasse le cache pour cette requete. C'est le
+    // cas du pull-to-refresh (loadData({forceNetwork:true})) qui doit absolument
+    // ramener les donnees fraiches, pas l'ancien cache. Le resultat est tout de
+    // meme mis en cache pour beneficier aux prochaines lectures.
+    const forceNetwork = (req.cache === 'reload' || req.cache === 'no-store');
     event.respondWith((async () => {
       const cache = await caches.open(DATA_CACHE);
+      if (forceNetwork) {
+        try {
+          const res = await fetch(req);
+          if (res && res.ok) cache.put(req, res.clone());
+          return res;
+        } catch (e) {
+          // Hors-ligne : on retombe sur le cache si dispo, sinon on relance l'erreur.
+          const cached = await cache.match(req);
+          if (cached) return cached;
+          throw e;
+        }
+      }
       const cached = await cache.match(req);
       const fetchPromise = fetch(req).then((res) => {
         if (res && res.ok) cache.put(req, res.clone());
