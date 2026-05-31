@@ -71,6 +71,11 @@ permet de naviguer dans le temps :
   Le **curseur du graphique est cliquable** et déplace la ligne du temps : **toutes les
   centrales et tous les réservoirs** de l'animation se réajustent simultanément pour afficher
   l'état du bassin à l'instant choisi.
+- **Indicateur de turbines** *(vue bureau uniquement)* — quand une centrale est agrandie, une
+  icône du **type de turbine** (Francis ou Kaplan) accompagnée de `k/N` indique combien de
+  groupes sont **en fonction** sur le total. Un **clic** ouvre une fenêtre détaillée montrant
+  chaque turbine, son **régime estimé** (% de charge, surcharge le cas échéant) et une explication
+  de la conduite selon le type. *(Pas encore disponible sur la vue mobile.)*
 
 ## Faits saillants automatiques
 
@@ -111,6 +116,7 @@ quotidiennement. Licence des données : [Creative Commons BY 4.0](https://creati
 
 - **Microsoft Fluent UI Emoji 3D** ([repo](https://github.com/microsoft/fluentui-emoji), [licence MIT](https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE)) — gouttes 💦, engrenage ⚙, pouring 🫗, éclair ⚡, flèches de tendance, nuage (apport).
 - **Icône barrage** : <a href="https://www.flaticon.com/fr/icones-gratuites/barrage" title="barrage icônes">Barrage icônes créées par Freepik - Flaticon</a>
+- **Icônes turbines** (Francis, Kaplan — vue bureau) : <a href="https://www.flaticon.com/fr/icones-gratuites/turbine" title="turbine icônes">Turbine icônes créées par Freepik - Flaticon</a>
 
 ### Différence avec l'outil officiel HQ
 
@@ -141,6 +147,25 @@ l'aval, et quels ouvrages déversent (eau perdue) à un moment donné.
   Les niveaux de réservoir sont moyennés (variables lentes). Les apports (publiés en agrégat
   journalier) retiennent le max des apports journaliers de la période.
 - **Heure** : valeurs instantanées au ts brut, convertie en heure locale Québec (HAE/HNE).
+
+### Estimation des turbines en service *(vue bureau uniquement)*
+
+Hydro-Québec publie le **débit turbiné total** d'une centrale, pas le détail par groupe. À partir
+de ce total, du **type de turbine** (Francis ou Kaplan/Saxo, selon les fiches publiques de chaque
+centrale) et du **nombre de groupes**, l'animation **estime** une configuration plausible — c'est
+une reconstruction, pas une mesure :
+
+- **Combien de groupes en service** : on en met le moins possible pour que chacun travaille dans sa
+  **zone de bon rendement** (~85 % de son régime nominal). Sous un **plancher** technique (≈ 50 % pour
+  les Francis, ≈ 25 % pour les Kaplan), un groupe est arrêté plutôt que de tourner à bas régime
+  (vibrations, cavitation, usure).
+- **Répartition de la charge** : également entre les groupes en service (optimum pour des groupes
+  identiques).
+- **Surcharge** : un groupe peut dépasser **100 %** de son régime nominal (réserve d'environ
+  +5 à +15 %), généralement en crue, pour turbiner le maximum avant de devoir déverser. L'animation
+  l'affiche alors en orange.
+
+Ces valeurs par turbine sont **estimées** (la répartition réelle entre groupes n'est pas mesurée).
 
 ## Licences
 

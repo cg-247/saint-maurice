@@ -63,8 +63,11 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
             width:min(90vw, 1200px);height:min(78vh, 700px);
             box-shadow:0 10px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
 #modal-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px}
-#modal-stats{font-size:13px;color:#555;margin-bottom:8px}
+#modal-stats{font-size:15px;color:#333;margin-bottom:8px}
 #modal-canvas{flex:1 1 auto;display:block;width:100%;cursor:crosshair}
+#modal-note{font-size:12px;color:#888;text-align:left;margin-top:8px;line-height:1.4}
+#modal-note:empty{display:none}
+#modal-note b{color:#555}
 #modal-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
              font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-close:hover{color:#000}
@@ -130,9 +133,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.4.4</span>
+    <span title="Version de la PWA installee">v2.5.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-31 11:05</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-31 15:00</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -140,6 +143,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <div id="modal-title"></div>
     <div id="modal-stats"></div>
     <canvas id="modal-canvas"></canvas>
+    <div id="modal-note"></div>
   </div>
 </div>
 <div id="ctrl">
@@ -211,7 +215,7 @@ let dataStamp  = null;       // manifest.generatedAt du dernier chargement (dete
 let lastFetchAt = -1e9;      // performance.now() du dernier fetch reussi (garde-fou anti-spam)
 let autoRefreshing = false;  // re-fetch auto (visibilitychange) en cours
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -241,6 +245,7 @@ let N = 0;        // nombre de frames de la vue active
 let frame = 0, playing = false, timer = null;
 let modalIdx = -1;     // index centrale dans la modale (-1 = ferme)
 let modalResIdx = -1;  // index reservoir dans la modale (-1 = ferme)
+let modalTurbIdx = -1; // index centrale dans la modale TURBINES (-1 = ferme)
 
 // Mode etendu par centrale ou reservoir : compactMode[key] = true => etendu, sinon compact (defaut).
 // Compact centrale = nom + debit total. Etendu centrale = toutes les lignes + sparkline.
@@ -629,6 +634,82 @@ function fmt2(v) {
   return v.toFixed(2).replace('.', ',');
 }
 
+// --- Turbinage : configuration de groupes estimee ---------------------------
+// HQ ne publie QUE le debit turbine TOTAL d'une centrale (pas par groupe). On
+// reconstruit la configuration la plus plausible selon la conduite reelle (doc
+// "economic dispatch" / "unit commitment") :
+//   1. On choisit le NOMBRE de groupes en service (commitment) en visant une CHARGE
+//      CIBLE OPTIMALE par groupe (~85 % du nominal = haut rendement). Un operateur
+//      arrete des groupes pour garder les actifs dans leur zone optimale plutot que de
+//      les laisser tourner juste au-dessus du plancher (rendement mediocre).
+//   2. On REPARTIT LA CHARGE EGALEMENT entre les groupes en service : pour des groupes
+//      identiques, l'optimum (coûts marginaux egaux) = meme charge sur chacun.
+// Charge/groupe visee dans [plancher, ~cible] ; peut depasser 100 % en SURCHARGE quand
+// tous les groupes tournent et que le debit excede encore le nominal (cas crue : on
+// turbine au max avant de devoir deverser). Plancher : Francis 50 %, Kaplan 25 %.
+// Retourne { charges: [..N..] (valeur reelle, peut etre > 1 en surcharge), k, pct,
+//            surcharge: bool }.
+// spec = { nb_groupes, cap, famille_turbine } (une centrale OU un sous-groupe).
+function turbineConfig(spec, turb) {
+  const N = spec.nb_groupes;
+  if (!N || !spec.cap || turb === null || turb === undefined) return null;
+  const plancher = (spec.famille_turbine === 'Francis') ? 0.50 : 0.25;
+  const CIBLE = 0.85;                            // charge visee par groupe (zone optimale)
+  const qmax = spec.cap / N;                     // debit nominal d'un groupe
+  const pct = Math.max(0, turb / spec.cap);      // charge globale (non bornee : peut depasser 100 %)
+  const charges = new Array(N).fill(0);
+  if (turb <= 0.5) return { charges: charges, k: 0, pct: 0, surcharge: false };   // arret total
+  // 1. Commitment : nb de groupes qui place chacun le plus pres possible de la cible.
+  let k = Math.round(turb / (qmax * CIBLE));
+  if (k < 1) k = 1;
+  if (k > N) k = N;
+  // Contrainte haute : on ajoute des groupes tant que la charge/groupe depasse 100 %,
+  // MAIS si tous les groupes (k=N) sont deja en service et que ca depasse encore, c'est
+  // une SURCHARGE legitime (on ne peut pas ajouter plus de groupes).
+  while (k < N && (turb / (k * qmax)) > 1) k++;
+  // Contrainte basse (rendement) : sous le plancher, on arrete un groupe.
+  while (k > 1 && (turb / (k * qmax)) < plancher) k--;
+  // 2. Repartition EGALE entre les k groupes en service (valeur reelle, peut etre > 1).
+  const chargeEgale = Math.max(0, turb / (k * qmax));
+  for (let g = 0; g < k; g++) charges[g] = chargeEgale;
+  const surcharge = chargeEgale > 1.001;
+  return { charges: charges, k: k, pct: pct, surcharge: surcharge };
+}
+
+// Position verticale (fraction de lh) de l'indicateur turbine compact dans l'etiquette,
+// sous la ligne MW. Sert au rendu ET au hit-test du clic (doivent rester synchronises).
+const TURB_ROW_FRAC = 0.575;
+
+// Liste des sous-unites de turbinage d'une centrale : ses sous_groupes (ex. Shawinigan-2/-3,
+// debit reparti au prorata des cap) ou la centrale entiere. turb = debit turbine total.
+// Retourne [{ label, spec:{nb_groupes,cap,famille_turbine}, turb }, ...].
+function turbineUnits(c, turb) {
+  if (c.sous_groupes && c.sous_groupes.length > 0) {
+    const capTot = c.sous_groupes.reduce((s, sg) => s + sg.cap, 0) || c.cap;
+    return c.sous_groupes.map(sg => ({
+      label: sg.nom,
+      spec: { nb_groupes: sg.nb_groupes, cap: sg.cap, famille_turbine: c.famille_turbine },
+      turb: turb * (sg.cap / capTot)
+    }));
+  }
+  return [{ label: null,
+            spec: { nb_groupes: c.nb_groupes, cap: c.cap, famille_turbine: c.famille_turbine },
+            turb: turb }];
+}
+
+// Agrege k/N/pct sur toutes les sous-unites (pour l'indicateur compact de l'etiquette).
+function turbineAggregate(c, turb) {
+  const units = turbineUnits(c, turb);
+  let k = 0, N = 0;
+  let surcharge = false;
+  for (const u of units) {
+    const cfg = turbineConfig(u.spec, u.turb);
+    if (cfg) { k += cfg.k; N += u.spec.nb_groupes; if (cfg.surcharge) surcharge = true; }
+  }
+  const pct = c.cap ? Math.max(0, turb / c.cap) : 0;   // non borne : peut depasser 100 %
+  return { k: k, N: N, pct: pct, surcharge: surcharge };
+}
+
 function draw(i) {
   const sx = cv.width  / img.naturalWidth;
   const sy = cv.height / img.naturalHeight;
@@ -719,7 +800,7 @@ function draw(i) {
     drawLeftSegments(ctx, [
       { icon: 'centrale', size: fsCentrIcon },
       { text: c.nom, color: '#111' }
-    ], leftX, ly + lh*0.084, fontName);
+    ], leftX, ly + lh*0.071, fontName);
 
     // Indicateur pliage : fleche dans le coin haut-droit, plus grosse que le nom.
     // Compact : ▾ (cliquer pour etendre). Etendu : ▴ (cliquer pour replier).
@@ -727,8 +808,8 @@ function draw(i) {
     ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
     ctx.fillStyle = '#1a1a2e';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(expanded ? '▴' : '▾', lx + lwC - 6*sx, ly + lh*0.084);
-    const sepY = ly + lh*0.19;
+    ctx.fillText(expanded ? '▴' : '▾', lx + lwC - 6*sx, ly + lh*0.071);
+    const sepY = ly + lh*0.159;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
     ctx.lineTo(lx + lwC - 6*sx, sepY);
@@ -745,7 +826,7 @@ function draw(i) {
       drawLeftSegments(ctx, [
         { icon: 'debit', size: fsIcon },
         { text: debEff + ' m³/s', color: valCol }
-      ], leftX, ly + lh*0.262, fontTotal);
+      ], leftX, ly + lh*0.220, fontTotal);
       ctx.restore();
     }
 
@@ -767,7 +848,7 @@ function draw(i) {
           { text: (turbEff !== null ? turbEff : '-') + '   ', color: grayCol },
           { icon: 'deverse', size: fsIconDev },
           { text: (devEff  !== null ? devEff  : '-'), color: grayCol }
-        ], leftX, ly + lh*0.40, fontDetail);
+        ], leftX, ly + lh*0.335, fontDetail);
         ctx.restore();
       }
 
@@ -787,8 +868,39 @@ function draw(i) {
         }
         ctx.save();
         if (c.mwsStale[i]) ctx.globalAlpha = 0.45;
-        drawLeftSegments(ctx, segs, leftX, ly + lh*0.55, fontMw);
+        drawLeftSegments(ctx, segs, leftX, ly + lh*0.461, fontMw);
         ctx.restore();
+      }
+
+      // Ligne 3b : INDICATEUR turbine compact = 1 icone (du type) remplie selon la
+      // charge globale + "k/N" (groupes en fonction / total). Le detail des N turbines
+      // (empilement, charge par groupe) s'ouvre dans un modal au clic (cf. hitTestTurbineIcon).
+      const turbForCfg = c.turbsEff[i];
+      if (c.nb_groupes && turbForCfg !== null && turbForCfg !== undefined) {
+        const agg = turbineAggregate(c, turbForCfg);   // { k, N, pct } combine (gere sous_groupes)
+        const fam = c.famille_turbine;
+        const name = (fam === 'Francis') ? 'turbine-francis' : 'turbine-kaplan';
+        const sz = Math.round(fsIcon * 0.95);   // taille proche des autres icones de l'etiquette
+        const yMid = ly + lh*TURB_ROW_FRAC;
+        // Dans l'etiquette : icone PLEINE et NETTE (pas de jauge ni teinte verte).
+        // La charge par turbine (jauge) est reservee au modal detaille.
+        const turbIm = iconImgs[name];
+        if (turbIm && turbIm.complete && turbIm.naturalWidth > 0) {
+          ctx.save();
+          if (c.turbsStale[i]) ctx.globalAlpha = 0.5;
+          ctx.drawImage(turbIm, leftX, yMid - sz/2, sz, sz);
+          ctx.restore();
+        }
+        // Texte "k/N" + chevron pour signaler le clic (modal), sur une seule ligne.
+        // Meme police que la ligne MW (fontMw / fsMw) pour la coherence visuelle.
+        ctx.font = fontMw;
+        ctx.fillStyle = '#2a6a2a';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        const lbl = (agg.k > 0) ? (agg.k + '/' + agg.N) : 'arrêt';
+        ctx.fillText(lbl, leftX + sz + 6*sx, yMid);
+        const wLbl = ctx.measureText(lbl).width;
+        ctx.fillStyle = '#5a7a9a';
+        ctx.fillText(' ▸', leftX + sz + 6*sx + wLbl, yMid);
       }
 
       // Ligne 4 : tendance
@@ -796,17 +908,17 @@ function draw(i) {
       const fontTrend = fsTrend+'px "Segoe UI",Arial,sans-serif';
       const trUnit = D.trendUnit || '6h';
       if (tr === null) {
-        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.68, fontTrend);
+        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.70, fontTrend);
       } else {
         const sign = tr >= 0 ? '+' : '';
         if (tr > 50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#a01818' }
-          ], leftX, ly + lh*0.68, fontTrend);
+          ], leftX, ly + lh*0.70, fontTrend);
         } else if (tr < -50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#1a6e1a' }
-          ], leftX, ly + lh*0.68, fontTrend);
+          ], leftX, ly + lh*0.70, fontTrend);
         } else {
           const sh = c.stables ? c.stables[i] : null;
           const stTxt = (sh === null || sh === undefined) ? 'stable'
@@ -814,7 +926,7 @@ function draw(i) {
                                                 : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
           drawLeftSegments(ctx, [
             { text: stTxt, color: '#3a3a3a' }
-          ], leftX, ly + lh*0.68, fontTrend);
+          ], leftX, ly + lh*0.70, fontTrend);
         }
       }
 
@@ -1228,6 +1340,9 @@ function go(i) {
   if (typeof modalResIdx !== 'undefined' && modalResIdx >= 0 && typeof drawBigChartRes === 'function') {
     drawBigChartRes();
   }
+  if (typeof modalTurbIdx !== 'undefined' && modalTurbIdx >= 0 && typeof drawTurbineModal === 'function') {
+    drawTurbineModal();
+  }
 }
 
 // Bascule de periode (le label dans le titre est mis a jour par setPeriode)
@@ -1263,6 +1378,7 @@ const modalCard  = document.getElementById('modal-card');
 const modalClose = document.getElementById('modal-close');
 const modalTitle = document.getElementById('modal-title');
 const modalStats = document.getElementById('modal-stats');
+const modalNote  = document.getElementById('modal-note');
 const modalCv    = document.getElementById('modal-canvas');
 const modalCtx   = modalCv.getContext('2d');
 
@@ -1288,6 +1404,23 @@ function hitTestSparkline(xImg, yImg) {
     const y0 = c.labelY + lh - sparkH - sparkBottomMargin;
     const y1 = c.labelY + lh - sparkBottomMargin;
     if (xImg >= x0 && xImg <= x1 && yImg >= y0 && yImg <= y1) return k;
+  }
+  return -1;
+}
+// Zone cliquable de l'indicateur turbine (centrale etendue) -> ouvre le modal turbines.
+// Doit rester synchronisee avec le rendu (TURB_ROW_FRAC, leftX, taille).
+function hitTestTurbineIcon(xImg, yImg) {
+  const lh = D.labelH;
+  const barW = 12;
+  for (let k = 0; k < D.centrales.length; k++) {
+    const c = D.centrales[k];
+    if (!isExpanded(c) || !c.nb_groupes) continue;
+    const lwC = c.labelW || D.labelW;
+    const x0 = c.labelX + barW + 4;
+    const x1 = c.labelX + lwC - 4;             // toute la largeur de la ligne indicateur
+    const yMid = c.labelY + lh * TURB_ROW_FRAC;
+    const half = lh * 0.085;                    // bande verticale autour de l'indicateur
+    if (xImg >= x0 && xImg <= x1 && yImg >= yMid - half && yImg <= yMid + half) return k;
   }
   return -1;
 }
@@ -1347,6 +1480,7 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   let cursor = 'default';
   if (hitTestLabelHeader(x, y) !== -1)         { cursor = 'pointer'; }
   else if (hitTestReservoirHeader(x, y) !== -1) { cursor = 'pointer'; }
+  else if (hitTestTurbineIcon(x, y) !== -1)     { cursor = 'pointer'; }
   else {
     const kSpark = hitTestSparkline(x, y);
     if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) cursor = 'pointer';
@@ -1374,7 +1508,10 @@ hoverLayer.addEventListener('click', (ev)=>{
     draw(frame);
     return;
   }
-  // Priorite 3 : clic sur la sparkline d'une centrale etendue -> ouvre la modale.
+  // Priorite 3 : clic sur l'indicateur turbine d'une centrale etendue -> modal turbines.
+  const kTurb = hitTestTurbineIcon(x, y);
+  if (kTurb !== -1) { openTurbineModal(kTurb); return; }
+  // Priorite 4 : clic sur la sparkline d'une centrale etendue -> ouvre la modale.
   const kSpark = hitTestSparkline(x, y);
   if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) { openModal(kSpark); return; }
   // Priorite 4 : clic sur la sparkline d'un reservoir etendu -> ouvre la modale reservoir.
@@ -1561,6 +1698,8 @@ function drawBigChart() {
 
 function openModal(k) {
   modalIdx = k;
+  modalTurbIdx = -1; modalResIdx = -1;
+  modalNote.innerHTML = '';
   const c = D.centrales[k];
   modalTitle.textContent = c.nom + ' — débit total';
   const s = computeStats(c.debits);
@@ -1579,12 +1718,15 @@ function closeModal() {
   modal.classList.remove('open');
   modalIdx = -1;
   modalResIdx = -1;
+  modalTurbIdx = -1;
 }
 
 // ----- Modale grand graphique pour un RESERVOIR : courbes deversement + apport -----
 function openModalRes(k) {
   modalResIdx = k;
   modalIdx = -1;
+  modalTurbIdx = -1;
+  modalNote.innerHTML = '';
   const r = D.reservoirs[k];
   modalTitle.textContent = r.nom + ' — déversement & précipitation';
   // Stats sur le deversement (signal principal du reservoir).
@@ -1598,6 +1740,134 @@ function openModalRes(k) {
     s.n + ' mesures';
   modal.classList.add('open');
   requestAnimationFrame(drawBigChartRes);
+}
+
+// ----- Modale TURBINES : N icones en grand, charge par groupe (empilement estime) -----
+function openTurbineModal(k) {
+  modalTurbIdx = k;
+  modalIdx = -1;
+  modalResIdx = -1;
+  const c = D.centrales[k];
+  const turb = c.turbsEff[frame];
+  const agg = turbineAggregate(c, turb);
+  const type = c.type_turbine || c.famille_turbine || '?';
+  modalTitle.textContent = c.nom + ' — turbines ' + type;
+
+  // Phrase lisible (pas de jargon turbiné x/y).
+  const N = agg.N, kf = agg.k, arret = N - kf;
+  let phrase;
+  if (kf === 0) {
+    phrase = 'Cette centrale possède <b>' + N + ' turbines</b>, actuellement <b>toutes à l’arrêt</b>.';
+  } else if (arret === 0) {
+    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> et elles sont <b>toutes en fonction</b>, '
+           + 'à environ <b>' + Math.round(agg.pct*100) + ' %</b> de leur capacité.';
+  } else {
+    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> : <b>' + kf + ' en fonction</b> et <b>'
+           + arret + ' à l’arrêt</b>. '
+           + 'Charge globale de la centrale : <b>' + Math.round(agg.pct*100) + ' %</b>.';
+  }
+  if (agg.surcharge) {
+    phrase += ' <span style="color:#c25a00"><b>Surcharge</b> : les groupes en service dépassent leur régime nominal.</span>';
+  }
+  modalStats.innerHTML = phrase;
+
+  // Note de reconstruction (bas a gauche) : explique comment la conduite est geree
+  // selon le type de turbine. Detaillee, sans mentionner le detail de publication HQ.
+  const plancherTxt = (c.famille_turbine === 'Francis') ? '50 %' : '25 %';
+  let explic;
+  if (c.famille_turbine === 'Francis') {
+    explic = 'Les turbines <b>Francis</b> ont une plage de bon rendement assez étroite : sous '
+           + '~' + plancherTxt + ' de leur débit nominal, elles vibrent et caviteront (usure). '
+           + 'Un opérateur évite donc de les faire tourner à bas régime — il préfère <b>arrêter '
+           + 'des groupes</b> et faire travailler les autres dans leur zone optimale (~85 %).';
+  } else {
+    explic = 'Les turbines <b>' + type + '</b> (famille Kaplan, pales orientables) gardent un bon '
+           + 'rendement sur une plage large, jusqu’à ~' + plancherTxt + ' du débit nominal. Elles '
+           + 'tolèrent les variations ; on arrête tout de même des groupes pour rester près de la '
+           + 'zone optimale (~85 %) quand le débit baisse.';
+  }
+  // Note sur la surcharge : un groupe peut depasser 100 % de son regime nominal de
+  // facon temporaire (reserve de surcharge ~+5 a +15 %), typiquement en crue quand on
+  // turbine au maximum avant de devoir deverser. Affiche le cas echeant ou en general.
+  const noteSurcharge = agg.surcharge
+    ? '<br><b style="color:#c25a00">Au-delà de 100 % :</b> certaines turbines tournent ici en '
+      + '<b>surcharge</b>. Un groupe dispose d’une réserve d’environ +5 à +15 % au-dessus de son '
+      + 'régime nominal, utilisée temporairement (souvent en crue) pour turbiner le maximum avant '
+      + 'de devoir déverser — au prix d’un rendement moindre et d’une usure accrue.'
+    : '<br><span style="color:#888">À noter : en forte crue, un groupe peut tourner en légère '
+      + 'surcharge (~+10 % au-delà de 100 %) pour turbiner davantage avant de déverser.</span>';
+  modalNote.innerHTML =
+    '<b>Comment c’est géré :</b> ' + explic
+    + '<br>La charge est répartie également entre les groupes en service.'
+    + noteSurcharge
+    + '<br><i>Configuration estimée — la répartition réelle par turbine n’est pas mesurée.</i>';
+
+  modal.classList.add('open');
+  requestAnimationFrame(drawTurbineModal);
+}
+
+function drawTurbineModal() {
+  if (modalTurbIdx < 0) return;
+  const c = D.centrales[modalTurbIdx];
+  const turb = c.turbsEff[frame];
+  const w = modalCv.width  = modalCv.clientWidth;
+  const h = modalCv.height = modalCv.clientHeight;
+  const cx = modalCtx;
+  cx.clearRect(0, 0, w, h);
+  const units = turbineUnits(c, turb);   // 1 section, ou Shawinigan-2 / Shawinigan-3
+  const name = (c.famille_turbine === 'Francis') ? 'turbine-francis' : 'turbine-kaplan';
+  const turbIm = iconImgs[name];
+  const pad = 24;
+  const sectionGap = 28;
+  const labelH = 28;          // place sous chaque icone pour le % (texte 18px gras)
+  const titleH = units.length > 1 ? 24 : 0;
+  const gap = 12;
+  // Hauteur dispo par section.
+  const secH = (h - pad*2 - sectionGap*(units.length-1)) / units.length;
+  // Taille d'icone ABSOLUE et FIXE pour TOUS les modals : calee sur la rangee la plus
+  // chargee du projet (Shawinigan-2 = 8 turbines / rangee). Une centrale avec moins de
+  // turbines garde donc EXACTEMENT la meme grosseur d'icone (pas d'agrandissement).
+  // Bornee par la hauteur dispo de la section pour ne jamais deborder verticalement.
+  const REF_N = 8;   // turbines par rangee de reference (Shawinigan-2)
+  const zoneHcommon = secH - titleH;
+  const iconSz = Math.max(24, Math.min(Math.floor((w - pad*2 - (REF_N-1)*gap) / REF_N), zoneHcommon - labelH));
+  units.forEach((u, si) => {
+    const cfg = turbineConfig(u.spec, u.turb);
+    const N = u.spec.nb_groupes;
+    const yTop = pad + si * (secH + sectionGap);
+    // Titre de section (si sous-groupes).
+    if (titleH) {
+      cx.font = 'bold 15px "Segoe UI",Arial,sans-serif';
+      cx.fillStyle = '#1a1a2e';
+      cx.textAlign = 'left'; cx.textBaseline = 'top';
+      const kU = cfg ? cfg.charges.filter(v => v > 0).length : 0;
+      cx.fillText(u.label + '  (' + kU + '/' + N + ')', pad, yTop);
+    }
+    // Zone icones : repartie sur la largeur (taille commune iconSz).
+    const zoneY = yTop + titleH;
+    const zoneH = secH - titleH;
+    const rowW = N * iconSz + (N-1) * gap;
+    let curX = Math.max(pad, (w - rowW) / 2);
+    const iconTop = zoneY + Math.max(0, (zoneH - labelH - iconSz) / 2);
+    for (let g = 0; g < N; g++) {
+      const charge = cfg ? cfg.charges[g] : 0;
+      // Icone dessinee telle quelle (couleurs 3D conservees, pas de teinte). La charge
+      // est portee par le % sous l'icone. Une turbine a l'arret est estompee.
+      if (turbIm && turbIm.complete && turbIm.naturalWidth > 0) {
+        cx.save();
+        cx.globalAlpha = (charge > 0) ? 1.0 : 0.28;
+        cx.drawImage(turbIm, curX, iconTop, iconSz, iconSz);
+        cx.restore();
+      }
+      // Libelle % sous l'icone (plus gros, en gras). Surcharge (>100 %) en orange.
+      cx.font = 'bold 18px "Segoe UI",Arial,sans-serif';
+      cx.fillStyle = (charge <= 0) ? '#aaa' : (charge > 1.001 ? '#c25a00' : '#2a6a2a');
+      cx.textAlign = 'center'; cx.textBaseline = 'top';
+      const pctTxt = charge > 0 ? Math.round(charge*100) + ' %' : 'arrêt';
+      cx.fillText(pctTxt, curX + iconSz/2, iconTop + iconSz + 4);
+      curX += iconSz + gap;
+    }
+  });
 }
 
 function drawBigChartRes() {
@@ -1706,7 +1976,7 @@ function drawBigChartRes() {
 
 modalClose.addEventListener('click', closeModal);
 modal.addEventListener('click', (ev)=>{ if (ev.target === modal) closeModal(); });
-document.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape' && (modalIdx !== -1 || modalResIdx !== -1)) closeModal(); });
+document.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape' && (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1)) closeModal(); });
 modalCv.addEventListener('click', (ev)=>{
   if (modalIdx < 0 && modalResIdx < 0) return;
   const r = modalCv.getBoundingClientRect();
@@ -1723,15 +1993,34 @@ modalCv.addEventListener('click', (ev)=>{
 window.addEventListener('resize', ()=>{
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
+  else if (modalTurbIdx >= 0) drawTurbineModal();
 });
 
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
 // ou en file:// : ne doit jamais bloquer l'affichage.
-if ('serviceWorker' in navigator) {
+// EN DEVELOPPEMENT LOCAL (localhost/127.0.0.1) : on n'enregistre PAS le SW et on
+// desenregistre tout SW existant + on purge ses caches, pour que chaque regeneration
+// soit visible immediatement (pas de version cachee servie par le SW). En production
+// (GitHub Pages), comportement PWA normal.
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  var host = location.hostname;
+  var isLocal = (host === 'localhost' || host === '127.0.0.1' || host === '[::1]');
+  if (isLocal) {
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      regs.forEach(function (r) { r.unregister(); });
+    }).catch(function () {});
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (keys) {
+        keys.forEach(function (k) { caches.delete(k); });
+      }).catch(function () {});
+    }
+    return;
+  }
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
   });
-}
+})();
 </script>
 </body>
 </html>
