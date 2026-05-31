@@ -130,9 +130,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.4.3</span>
+    <span title="Version de la PWA installee">v2.4.4</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-30 17:37</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-05-31 08:03</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -207,6 +207,9 @@ const loadedMonths = new Set();
 let horaireRaw = null;       // { centrales: [...], reservoirs: [...], timestamps: [...], riverSummaries: [...] }
 let manifest   = null;       // { months: [{month, frames, file}], latestMonth }
 let isFetching = false;      // anti-rentrance pour le lazy load
+let dataStamp  = null;       // manifest.generatedAt du dernier chargement (detecte les vrais changements)
+let lastFetchAt = -1e9;      // performance.now() du dernier fetch reussi (garde-fou anti-spam)
+let autoRefreshing = false;  // re-fetch auto (visibilitychange) en cours
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
 const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage"];
 const iconImgs = {};
@@ -362,8 +365,13 @@ function setPeriode(key) {
 //   2. sommaire.json (vues Jour/Semaine/Mois entieres)
 //   3. {latestMonth}-horaire.json (mois courant pour la vue Heure)
 // Une fois les 3 charges, on reconstruit ALL.byPeriode et on appelle setPeriode().
-async function fetchJson(url) {
-  const r = await fetch(url, { cache: 'no-cache' });
+// opts.forceNetwork=true : cache:'reload' au lieu de 'no-cache'. C'est ce que le
+// service worker reconnait (isDataRequest + req.cache==='reload') pour bypasser le
+// stale-while-revalidate et ramener des donnees vraiment fraiches. Utilise par le
+// re-fetch auto au retour au premier plan.
+async function fetchJson(url, opts) {
+  const mode = (opts && opts.forceNetwork) ? 'reload' : 'no-cache';
+  const r = await fetch(url, { cache: mode });
   if (!r.ok) throw new Error('HTTP ' + r.status + ' sur ' + url);
   return r.json();
 }
@@ -461,11 +469,12 @@ function rebuildHoraireFromLoadedMonths() {
 }
 
 // Charge un mois horaire (idempotent : ignore si deja charge).
-async function ensureMonthLoaded(monthKey) {
+// opts.forceNetwork : transmis a fetchJson pour bypasser le cache SW (re-fetch auto).
+async function ensureMonthLoaded(monthKey, opts) {
   if (loadedMonths.has(monthKey)) return;
   const entry = manifest.months.find(m => m.month === monthKey);
   if (!entry) return;
-  const data = await fetchJson('data/' + entry.file);
+  const data = await fetchJson('data/' + entry.file, opts);
   entry._data = data;
   loadedMonths.add(monthKey);
   rebuildHoraireFromLoadedMonths();
@@ -530,12 +539,57 @@ async function init() {
     }
     periodeSel.value = initialPeriode;
     setPeriode(initialPeriode);
+    dataStamp = manifest.generatedAt || null;
+    lastFetchAt = performance.now();
   } catch (err) {
     console.error('Erreur de chargement initial', err);
     if (riverBox) riverBox.innerHTML = '<span class="when">Erreur de chargement</span>' + (err.message || err);
   }
 }
 init();
+
+// --- Re-fetch auto au retour au premier plan ---
+// Comme la version mobile : une PWA ne rafraichit jamais les donnees toute seule,
+// c'est du code applicatif. Au retour de l'onglet/app au premier plan, on re-fetch
+// SILENCIEUSEMENT le manifest (bypass SW via forceNetwork). Si generatedAt a change,
+// on recharge sommaire + mois courant et on re-rend la vue active. Sinon : rien.
+// Garde-fous : pas de re-entrance, pas pendant le lazy-load, au plus 1 fois / 30 s.
+async function autoRefresh() {
+  if (autoRefreshing || isFetching) return;
+  if (performance.now() - lastFetchAt < 30000) return;
+  autoRefreshing = true;
+  try {
+    const fresh = await fetchJson('data/manifest.json', { forceNetwork: true });
+    lastFetchAt = performance.now();
+    const freshStamp = fresh.generatedAt || null;
+    if (freshStamp != null && freshStamp === dataStamp) return; // rien de neuf
+    // Donnees changees : recharge sommaire + mois courant en bypass cache.
+    manifest = fresh;
+    const latest = manifest.latestMonth;
+    loadedMonths.clear();
+    manifest.months.forEach(m => { delete m._data; });
+    horaireRaw = null;
+    const [sommaire] = await Promise.all([
+      fetchJson('data/sommaire.json', { forceNetwork: true }),
+      latest ? ensureMonthLoaded(latest, { forceNetwork: true }) : Promise.resolve()
+    ]);
+    if (sommaire.journalier)   ALL.byPeriode.journalier   = sommaire.journalier;
+    if (sommaire.hebdomadaire) ALL.byPeriode.hebdomadaire = sommaire.hebdomadaire;
+    if (sommaire.mensuel)      ALL.byPeriode.mensuel      = sommaire.mensuel;
+    dataStamp = freshStamp;
+    // Re-rend la vue active (ou un fallback dispo). setPeriode repositionne sur la
+    // derniere frame, ce qui est le comportement attendu d'un rafraichissement.
+    const curKey = (D && D.periode) || periodeSel.value || ALL.defaultPeriode || 'horaire';
+    setPeriode(ALL.byPeriode[curKey] ? curKey : (['horaire','journalier','hebdomadaire','mensuel'].find(k => ALL.byPeriode[k]) || 'horaire'));
+  } catch (e) {
+    /* hors-ligne ou erreur reseau : on garde les donnees actuelles, silencieux */
+  } finally {
+    autoRefreshing = false;
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') autoRefresh();
+});
 
 function ratioColor(r) {
   // Couleur basee sur (current - min) / (max - min) en %

@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-05-30 17:37<br>
+  Mise &agrave; jour&nbsp;: 2026-05-31 08:03<br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA installee">v2.4.3</span>
+  &middot; <span title="Version de la PWA installee">v2.4.4</span>
 </footer>
 
 <script>
@@ -198,6 +198,8 @@ let N = 0;               // nb de frames de la vue active
 let selectedIdx = -1;    // index dans D.centrales de la centrale selectionnee
 let frame = 0;           // toujours = N-1 (derniere frame disponible)
 let views = {};          // { horaire, journalier, hebdomadaire } -> dataset ou null
+let dataStamp = null;    // manifest.generatedAt du dernier chargement (detecte les vrais changements)
+let lastFetchAt = -1e9;  // performance.now() du dernier fetch reussi (garde-fou anti-spam du re-fetch auto)
 
 // --- Helpers ---
 function statusClass(c, val) {
@@ -307,10 +309,13 @@ async function loadData(opts) {
     journalier:   sommaire.journalier   || null,
     hebdomadaire: sommaire.hebdomadaire || null
   };
-  Object.entries(v).forEach(([k, view]) => { if (view) view.periode = k; });
+  Object.entries(v).forEach(([k, view]) => { if (view && typeof view === 'object') view.periode = k; });
   trimView(v.horaire,      48);
   trimView(v.journalier,   15);
   trimView(v.hebdomadaire,  6);
+  // Empreinte de generation : sert a detecter un vrai changement de donnees.
+  v._stamp = manifest.generatedAt || null;
+  lastFetchAt = performance.now();
   return v;
 }
 
@@ -318,6 +323,7 @@ async function loadData(opts) {
 async function init() {
   try {
     views = await loadData();
+    dataStamp = views._stamp;
 
     // Selection initiale : localStorage ou fallback Trenche (sur la vue Heure
     // qui contient toujours toutes les centrales).
@@ -351,9 +357,15 @@ async function init() {
 // --- Refetch en place (declenche par pull-to-refresh). Bypasse le SW pour
 // garantir des donnees fraiches, met a jour `views` et re-rend sans
 // recharger la page. Throw si le reseau echoue (l'appelant gere le toast). ---
+// Retourne true si les donnees ont reellement change (empreinte differente), false
+// sinon. Ne re-rend QUE si quelque chose a change : un re-fetch identique ne provoque
+// aucun clignotement. Throw si le reseau echoue (l'appelant gere le toast/erreur).
 async function refreshData() {
   const fresh = await loadData({ forceNetwork: true });
+  const changed = (fresh._stamp == null) || (fresh._stamp !== dataStamp);
+  if (!changed) return false;
   views = fresh;
+  dataStamp = fresh._stamp;
   // Re-aligne selectedIdx (la liste des centrales devrait etre identique, mais
   // on se protege contre un changement d'ordre).
   if (selectedIdx >= 0 && views.horaire) {
@@ -368,6 +380,7 @@ async function refreshData() {
   setPeriode(views[curKey] ? curKey : 'horaire');
   buildChips();
   render();
+  return true;
 }
 
 // Bascule la vue active. Conserve la centrale selectionnee si elle existe dans
@@ -774,8 +787,8 @@ init();
       indicator.classList.add('armed','spinning');
     }
     try {
-      await refreshData();
-      showToast('Donnees a jour', false);
+      const changed = await refreshData();
+      showToast(changed ? 'Donnees mises a jour' : 'Deja a jour', false);
     } catch (e) {
       showToast('Hors-ligne : donnees inchangees', true);
     } finally {
@@ -790,7 +803,10 @@ init();
 
   document.addEventListener('touchstart', e => {
     if (refreshing) { dragging = false; return; }
-    if (window.scrollY > 0) { dragging = false; return; }
+    // Tolerance : le bounce/overscroll natif laisse parfois scrollY a 1-2px alors
+    // qu'on est visuellement en haut. Un seuil strict (> 0) faisait rater le 1er
+    // geste, d'ou la sensation de devoir le faire deux fois.
+    if (window.scrollY > 2) { dragging = false; return; }
     if (e.touches.length !== 1) { dragging = false; return; }
     startY = e.touches[0].clientY;
     dragging = true;
@@ -799,6 +815,13 @@ init();
 
   document.addEventListener('touchmove', e => {
     if (!dragging) return;
+    // Si l'utilisateur a scrolle entre-temps (plus en haut), on annule le geste.
+    if (window.scrollY > 2) {
+      if (pulled > 0) setPull(0);
+      dragging = false;
+      hideIndicator();
+      return;
+    }
     const dy = e.touches[0].clientY - startY;
     if (dy <= 0) {
       if (pulled > 0) setPull(0);
@@ -809,6 +832,10 @@ init();
     const resisted = Math.round(Math.sqrt(dy * 32));
     document.body.classList.add('ptr-dragging');
     setPull(resisted);
+    // Quand le move est cancelable, on bloque le scroll/bounce natif pour que NOTRE
+    // geste prenne immediatement. S'il ne l'est pas (le navigateur a deja decide de
+    // scroller), on suit quand meme le drag visuellement plutot que d'abandonner :
+    // le geste reste actif et se declenchera au touchend.
     if (e.cancelable) e.preventDefault();
   }, { passive: false });
 
@@ -827,6 +854,23 @@ init();
     dragging = false;
     reset();
   }, { passive: true });
+
+  // --- Re-fetch auto au retour au premier plan ---
+  // Comportement attendu d'une PWA : on rouvre l'app (ou on y revient apres l'avoir
+  // mise en arriere-plan) et les donnees sont a jour, sans geste. Re-fetch SILENCIEUX
+  // (pas de spinner, pas de toast) : refreshData() ne re-rend que si l'empreinte a
+  // change. Garde-fous : pas pendant un refresh en cours, et au plus une fois / 30 s
+  // (evite de spammer le reseau quand on bascule rapidement entre apps).
+  const MIN_REFETCH_GAP = 30000; // ms
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (refreshing) return;
+    if (performance.now() - lastFetchAt < MIN_REFETCH_GAP) return;
+    refreshing = true;
+    refreshData()
+      .catch(() => { /* hors-ligne : on garde les donnees actuelles, silencieux */ })
+      .finally(() => { refreshing = false; });
+  });
 })();
 
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
