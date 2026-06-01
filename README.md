@@ -1,4 +1,4 @@
-﻿# Saint-Maurice — visualisation des débits Hydro-Québec
+# Saint-Maurice — visualisation des débits Hydro-Québec
 
 ## Voir l'animation sur les débits
 
@@ -6,89 +6,18 @@
 
 Animation interactive du **bassin Saint-Maurice** (Québec) : débits, production électrique
 estimée et niveaux des réservoirs, à partir des données ouvertes publiées par Hydro-Québec.
-La page **détecte automatiquement** ton appareil :
-
-- **Sur un mobile** (écran ≤ 768 px), elle bascule vers la **vue mobile** (sélection rapide
-  d'une centrale, historique).
-- **Sur un ordinateur ou une tablette**, elle affiche la **vue bureau complète** (schéma du
-  bassin, étiquettes, sparklines).
-
-Un lien dans chaque vue permet de basculer manuellement (📱 Mobile ↔ Version bureau ↗) et
-**ton choix est mémorisé** pour les visites suivantes.
-
-## Installer comme application
-
-Tu peux ajouter l'animation à l'écran d'accueil de ton téléphone ou au menu de
-ton ordinateur pour l'ouvrir comme une vraie app, sans barre d'adresse.
-
-### Sur Android (Chrome, Edge, Samsung Internet, Brave)
-
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome.
-2. Une bannière « Ajouter à l'écran d'accueil » apparaît en bas. Sinon : menu **⋮ → Installer
-   l'application** (ou **Ajouter à l'écran d'accueil**).
-3. L'icône apparaît sur ton écran d'accueil, comme n'importe quelle app.
-
-### Sur iPhone / iPad (Safari uniquement)
-
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans **Safari**
-   (Chrome iOS ne supporte pas l'installation).
-2. Touche le bouton **Partager** (carré avec flèche vers le haut).
-3. Choisis **« Ajouter à l'écran d'accueil »**.
-
-### Sur ordinateur (Windows, macOS, Linux)
-
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome, Edge ou Brave.
-2. Une **icône d'installation** (un écran avec une flèche vers le bas) apparaît à droite
-   de la barre d'adresse → clic dessus.
-3. L'app est ajoutée au menu Démarrer (Windows), Launchpad (macOS) ou menu d'applications
-   (Linux) ; tu peux l'épingler à la barre des tâches / au Dock.
-
-### Désinstaller
-
-- **Mobile** : long-press sur l'icône → Désinstaller (Android) ou Supprimer l'app (iOS).
-- **Ordinateur** : ouvre l'app, clic sur les 3 points en haut à droite → Désinstaller.
 
 ## Navigation
 
-L'animation s'ouvre sur la vue **Heure** du mois courant. La barre de contrôle en bas
-permet de naviguer dans le temps :
+La barre de contrôle en bas permet de naviguer dans le temps :
 
-- **Sélecteur de pas** — bascule entre **Heure** (mois courant, plus historique chargé à la demande),
-  **Jour** (pic horaire propre à chaque centrale dans la journée), **Semaine** (plage dim → sam, pic
-  propre sur les 168 h) et **Mois** (mois calendaire, pic propre sur le mois). Dans toutes les vues
-  agrégées, les niveaux amont/aval sont lus au ts précis du pic débit pour rester physiquement
-  cohérents avec le calcul MW. Les niveaux de réservoir sont moyennés (variables lentes).
-- **▶ Play / ⏸ Pause** — lecture automatique.
-- **◀ ▶▶** — frame précédente / suivante.
-- **⏮ Début / ⏭ Maintenant** — saut direct à la première ou dernière frame.
-- **Slider** — position libre dans la fenêtre de temps. En vue Heure, glisser vers la gauche charge
-  automatiquement le mois précédent en arrière-plan.
-- **Vitesse** — Lent / Normal / Rapide / Très rapide pour la lecture auto.
-- **Triangle ▾ / ▴ sur une étiquette** — clic pour agrandir l'étiquette d'une centrale ou
-  d'un réservoir et afficher les informations détaillées (débits turbiné/déversé, niveaux
-  amont/aval, production estimée, sparkline historique, etc.).
-- **Clic sur le sparkline** d'une centrale — ouvre un graphique grand format de l'historique.
-  Le **curseur du graphique est cliquable** et déplace la ligne du temps : **toutes les
-  centrales et tous les réservoirs** de l'animation se réajustent simultanément pour afficher
-  l'état du bassin à l'instant choisi.
-- **Indicateur de turbines** *(vue bureau uniquement)* — quand une centrale est agrandie, une
-  icône du **type de turbine** (Francis ou Kaplan) accompagnée de `k/N` indique combien de
-  groupes sont **en fonction** sur le total. Un **clic** ouvre une fenêtre détaillée montrant
-  chaque turbine, son **régime estimé** (% de charge, surcharge le cas échéant) et une explication
-  de la conduite selon le type. *(Pas encore disponible sur la vue mobile.)*
-
-## Faits saillants automatiques
-
-Un **bandeau textuel** en bas à droite affiche un résumé de l'état de la
-rivière pour la date sélectionnée (« Pleine crue printanière », « Plateau
-élevé », « Décrue amorcée », etc.) avec le contexte de la fonte au nord et
-des mouvements des réservoirs amont.
-
-Ce résumé est **calculé automatiquement à partir des chiffres bruts**, par
-règles métier (cascade de seuils + phrases pré-écrites). Pas de jargon, pas
-de chiffres dans la prose — les chiffres sont déjà dans les étiquettes et
-sparklines de l'animation. Le texte change avec la frame quand vous naviguez
-dans le temps.
+- **Sélecteur ** — bascule entre **Heure**, **Jour**, **Semaine** et **Mois**.
+- **Slider** — position libre dans le temps.
+- **Clic sur une étiquette ou un sparkline** — agrandit l'installation et affiche son détail
+  (débits, niveaux, production estimée, graphique grand format). Le curseur du graphique déplace
+  toute l'animation à l'instant choisi.
+- **Indicateur de turbines** *(vue bureau)* — sur une centrale agrandie, le type de turbine et le
+  nombre de groupes en fonction ; un clic ouvre le régime estimé de chaque groupe.
 
 ## Sources
 
@@ -172,10 +101,37 @@ Ces valeurs par turbine sont **estimées** (la répartition réelle entre groupe
 - **Code** ([HTML/CSS/JS de l'animation](index.html)) : [MIT](LICENSE)
 - **Données et image** : [CC BY 4.0](LICENSE-DATA.md) (Hydro-Québec)
 
-## Mise à jour
+## Installer comme application
 
-Animation régénérée manuellement à partir des fichiers ouverts d'Hydro-Québec.
-Instantané du 2026-05-31.
+Tu peux ajouter l'animation à l'écran d'accueil de ton téléphone ou au menu de
+ton ordinateur pour l'ouvrir comme une vraie app, sans barre d'adresse.
+
+### Sur Android (Chrome, Edge, Samsung Internet, Brave)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome.
+2. Une bannière « Ajouter à l'écran d'accueil » apparaît en bas. Sinon : menu **⋮ → Installer
+   l'application** (ou **Ajouter à l'écran d'accueil**).
+3. L'icône apparaît sur ton écran d'accueil, comme n'importe quelle app.
+
+### Sur iPhone / iPad (Safari uniquement)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/> dans **Safari**
+   (Chrome iOS ne supporte pas l'installation).
+2. Touche le bouton **Partager** (carré avec flèche vers le haut).
+3. Choisis **« Ajouter à l'écran d'accueil »**.
+
+### Sur ordinateur (Windows, macOS, Linux)
+
+1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome, Edge ou Brave.
+2. Une **icône d'installation** (un écran avec une flèche vers le bas) apparaît à droite
+   de la barre d'adresse → clic dessus.
+3. L'app est ajoutée au menu Démarrer (Windows), Launchpad (macOS) ou menu d'applications
+   (Linux) ; tu peux l'épingler à la barre des tâches / au Dock.
+
+### Désinstaller
+
+- **Mobile** : long-press sur l'icône → Désinstaller (Android) ou Supprimer l'app (iOS).
+- **Ordinateur** : ouvre l'app, clic sur les 3 points en haut à droite → Désinstaller.
 
 ---
 
