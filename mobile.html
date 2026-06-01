@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  Mise &agrave; jour&nbsp;: 2026-06-01 09:17<br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-01 11:43</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA installee">v2.5.0</span>
+  &middot; <span title="Version de la PWA installee">v2.5.1</span>
 </footer>
 
 <script>
@@ -200,6 +200,26 @@ let frame = 0;           // toujours = N-1 (derniere frame disponible)
 let views = {};          // { horaire, journalier, hebdomadaire } -> dataset ou null
 let dataStamp = null;    // manifest.generatedAt du dernier chargement (detecte les vrais changements)
 let lastFetchAt = -1e9;  // performance.now() du dernier fetch reussi (garde-fou anti-spam du re-fetch auto)
+
+// Affiche la date "Mise a jour" a partir du generatedAt du manifest (ISO UTC).
+// La date vient des DONNEES, pas du HTML statique : dans une PWA installee le HTML est
+// servi depuis le cache du SW et ne se rafraichit pas a chaque visite, alors que le
+// manifest est refetch. En lisant la date du manifest, l'etiquette suit la fraicheur
+// reelle des donnees. Conversion en heure locale Quebec (America/Montreal) independante
+// du fuseau de l'appareil.
+function setGeneratedAt(iso) {
+  const el = document.getElementById('generatedAt');
+  if (!el || !iso) return;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Montreal',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(d).reduce((o, p) => (o[p.type] = p.value, o), {});
+  const hh = parts.hour === '24' ? '00' : parts.hour;
+  el.textContent = 'Mise à jour : ' + parts.year + '-' + parts.month + '-' + parts.day + ' ' + hh + ':' + parts.minute;
+}
 
 // --- Helpers ---
 function statusClass(c, val) {
@@ -324,6 +344,7 @@ async function init() {
   try {
     views = await loadData();
     dataStamp = views._stamp;
+    setGeneratedAt(dataStamp);
 
     // Selection initiale : localStorage ou fallback Trenche (sur la vue Heure
     // qui contient toujours toutes les centrales).
@@ -366,6 +387,7 @@ async function refreshData() {
   if (!changed) return false;
   views = fresh;
   dataStamp = fresh._stamp;
+  setGeneratedAt(dataStamp);
   // Re-aligne selectedIdx (la liste des centrales devrait etre identique, mais
   // on se protege contre un changement d'ordre).
   if (selectedIdx >= 0 && views.horaire) {

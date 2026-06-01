@@ -133,9 +133,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.5.0</span>
+    <span title="Version de la PWA installee">v2.5.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-01 09:17</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-01 11:43</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -214,6 +214,28 @@ let isFetching = false;      // anti-rentrance pour le lazy load
 let dataStamp  = null;       // manifest.generatedAt du dernier chargement (detecte les vrais changements)
 let lastFetchAt = -1e9;      // performance.now() du dernier fetch reussi (garde-fou anti-spam)
 let autoRefreshing = false;  // re-fetch auto (visibilitychange) en cours
+
+// Affiche la date "Mise a jour" a partir du generatedAt du manifest (ISO UTC).
+// IMPORTANT : cette date vient des DONNEES (manifest), pas du HTML statique. Dans une
+// PWA installee, le HTML est servi depuis le cache du SW (stale-while-revalidate) et ne
+// se rafraichit pas a chaque visite, alors que autoRefresh() recharge le manifest. En
+// lisant la date du manifest, l'etiquette suit toujours la fraicheur reelle des donnees.
+// Conversion en heure locale Quebec (America/Montreal) independamment du fuseau de
+// l'appareil, pour rester coherent avec ce que produisait le rendu PowerShell.
+function setGeneratedAt(iso) {
+  const el = document.getElementById('generatedAt');
+  if (!el || !iso) return;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Montreal',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(d).reduce((o, p) => (o[p.type] = p.value, o), {});
+  const hh = parts.hour === '24' ? '00' : parts.hour;
+  el.textContent = 'Mise à jour : ' + parts.year + '-' + parts.month + '-' + parts.day + ' ' + hh + ':' + parts.minute;
+}
+
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
 const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan"];
 const iconImgs = {};
@@ -545,6 +567,7 @@ async function init() {
     periodeSel.value = initialPeriode;
     setPeriode(initialPeriode);
     dataStamp = manifest.generatedAt || null;
+    setGeneratedAt(dataStamp);
     lastFetchAt = performance.now();
   } catch (err) {
     console.error('Erreur de chargement initial', err);
@@ -582,6 +605,7 @@ async function autoRefresh() {
     if (sommaire.hebdomadaire) ALL.byPeriode.hebdomadaire = sommaire.hebdomadaire;
     if (sommaire.mensuel)      ALL.byPeriode.mensuel      = sommaire.mensuel;
     dataStamp = freshStamp;
+    setGeneratedAt(dataStamp);
     // Re-rend la vue active (ou un fallback dispo). setPeriode repositionne sur la
     // derniere frame, ce qui est le comportement attendu d'un rafraichissement.
     const curKey = (D && D.periode) || periodeSel.value || ALL.defaultPeriode || 'horaire';
