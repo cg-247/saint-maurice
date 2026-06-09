@@ -30,7 +30,7 @@
     // sert animation-centrales.html aussi via "/" (path qui se termine par "/"),
     // d'ou la double condition.
     var p = location.pathname;
-    var isLocal = p.endsWith('animation-centrales.html') || p.endsWith('/');
+    var isLocal = p.endsWith('animation-centrales.html') || (location.hostname === 'localhost' && p.endsWith('/'));
     location.replace(isLocal ? 'animation-mobile.html' : 'mobile.html');
   } catch (e) { /* localStorage indisponible (mode prive ?) : pas de redirection */ }
 })();
@@ -68,6 +68,7 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
 #modal-note{font-size:12px;color:#888;text-align:left;margin-top:8px;line-height:1.4}
 #modal-note:empty{display:none}
 #modal-note b{color:#555}
+#modal-table{font-size:13px;margin-bottom:6px}
 #modal-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
              font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-close:hover{color:#000}
@@ -133,15 +134,16 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.5.2</span>
+    <span title="Version de la PWA installee">v2.5.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-08 17:25</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 08:25</div>
 </div>
 <div id="modal">
   <div id="modal-card">
     <button id="modal-close" type="button" aria-label="Fermer">&times;</button>
     <div id="modal-title"></div>
     <div id="modal-stats"></div>
+    <div id="modal-table"></div>
     <canvas id="modal-canvas"></canvas>
     <div id="modal-note"></div>
   </div>
@@ -1403,6 +1405,7 @@ const modalClose = document.getElementById('modal-close');
 const modalTitle = document.getElementById('modal-title');
 const modalStats = document.getElementById('modal-stats');
 const modalNote  = document.getElementById('modal-note');
+const modalTable = document.getElementById('modal-table');
 const modalCv    = document.getElementById('modal-canvas');
 const modalCtx   = modalCv.getContext('2d');
 
@@ -1781,14 +1784,11 @@ function openTurbineModal(k) {
   const N = agg.N, kf = agg.k, arret = N - kf;
   let phrase;
   if (kf === 0) {
-    phrase = 'Cette centrale possède <b>' + N + ' turbines</b>, actuellement <b>toutes à l’arrêt</b>.';
+    phrase = "Cette centrale possède <b>" + N + " turbines</b>, actuellement <b>toutes à l'arrêt</b>.";
   } else if (arret === 0) {
-    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> et elles sont <b>toutes en fonction</b>, '
-           + 'à environ <b>' + Math.round(agg.pct*100) + ' %</b> de leur capacité.';
+    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> et elles sont <b>toutes en fonction</b>.';
   } else {
-    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> : <b>' + kf + ' en fonction</b> et <b>'
-           + arret + ' à l\'arrêt</b>. '
-           + 'Charge globale de la centrale : <b>' + Math.round(agg.pct*100) + ' %</b>.';
+    phrase = 'Cette centrale possède <b>' + N + ' turbines</b> : <b>' + kf + ' en fonction</b> et <b>' + arret + ' à l\'arrêt</b>.';
   }
   if (agg.surcharge) {
     phrase += ' <span style="color:#c25a00"><b>Surcharge</b> : les groupes en service dépassent leur régime nominal.</span>';
@@ -1800,32 +1800,48 @@ function openTurbineModal(k) {
   const plancherTxt = (c.famille_turbine === 'Francis') ? '50 %' : '25 %';
   let explic;
   if (c.famille_turbine === 'Francis') {
-    explic = 'Les turbines <b>Francis</b> ont une plage de bon rendement assez étroite : sous '
-           + '~' + plancherTxt + ' de leur débit nominal, elles vibrent et caviteront (usure). '
+    explic = 'Les turbines <b>Francis</b> ont une plage de rendement assez limitée : sous '
+           + '~' + plancherTxt + ' de leur débit nominal, elles vibrent et caviteront. '
            + 'Un opérateur évite donc de les faire tourner à bas régime — il préfère <b>arrêter '
-           + 'des groupes</b> et faire travailler les autres dans leur zone optimale (~85 %).';
+           + 'des turbines</b> et faire travailler les autres dans leur zone optimale (~85 %.)';
   } else {
-    explic = 'Les turbines <b>' + type + '</b> (famille Kaplan, pales orientables) gardent un bon '
-           + 'rendement sur une plage large, jusqu’à ~' + plancherTxt + ' du débit nominal. Elles '
-           + 'tolèrent les variations ; on arrête tout de même des groupes pour rester près de la '
-           + 'zone optimale (~85 %) quand le débit baisse.';
+    explic = "Les turbines <b>Kaplan</b> gardent un bon rendement sur une plage, jusqu'à ~" + plancherTxt + " du débit nominal. Elles tolèrent les variations. "
+           + 'On arrête tout de même des turbines pour rester près de la zone optimale (~85 %).';
   }
-  // Note sur la surcharge : un groupe peut depasser 100 % de son regime nominal de
-  // facon temporaire (reserve de surcharge ~+5 a +15 %), typiquement en crue quand on
-  // turbine au maximum avant de devoir deverser. Affiche le cas echeant ou en general.
   const noteSurcharge = agg.surcharge
-    ? '<br><b style="color:#c25a00">Au-delà de 100 % :</b> certaines turbines tournent ici en '
-      + '<b>surcharge</b>. Un groupe dispose d’une réserve d’environ +5 à +15 % au-dessus de son '
-      + 'régime nominal, utilisée temporairement (souvent en crue) pour turbiner le maximum avant '
-      + 'de devoir déverser — au prix d’un rendement moindre et d’une usure accrue.'
-    : '<br><span style="color:#888">À noter : en forte crue, un groupe peut tourner en légère '
-      + 'surcharge (~+10 % au-delà de 100 %) pour turbiner davantage avant de déverser.</span>';
-  modalNote.innerHTML =
-    '<b>Comment c’est géré :</b> ' + explic
-    + '<br>La charge est répartie également entre les groupes en service.'
-    + noteSurcharge
-    + '<br><i>Configuration estimée — la répartition réelle par turbine n’est pas mesurée.</i>';
+    ? '<br><b style="color:#c25a00">Surcharge</b> : certaines turbines dépassent leur régime nominal.'
+    : '<br>Une turbine peut tourner en légère surcharge (~+10 % au-delà de 100 %).';
+  modalNote.innerHTML = explic + noteSurcharge;
+  // Tableau puissance : chute spec, chute actuelle, debit turbine, rendement, formule P.
+  (function() {
+    const eta = (c.famille_turbine === 'Francis') ? 0.90 : 0.92;
+    const turb = c.turbsEff[frame];
+    const amontV = (c.amonts && c.amonts[frame] != null) ? c.amonts[frame] : null;
+    const avalV  = (c.avals  && c.avals[frame]  != null) ? c.avals[frame]  : null;
+    const hAct   = (amontV !== null && avalV !== null) ? Math.round((amontV - avalV) * 100) / 100 : null;
+    // Chute de reference estimee : H_ref = cap_mw * 1000 / (9.81 * cap * eta)
+    const hRef   = (c.cap_mw && c.cap) ? Math.round(c.cap_mw * 1000 / (9.81 * c.cap * eta) * 10) / 10 : null;
+    const pCalc  = (turb !== null && hAct !== null) ? Math.round(9.81 * turb * hAct * eta / 1000) : null;
+    const fmtN   = v => v != null ? v : '—';
+    const tdS    = 'style="padding:3px 10px 3px 0;color:#555;font-size:13px"';
+    const tdV    = 'style="padding:3px 10px 3px 0;font-weight:600;color:#1a1a2e;font-size:13px"';
+    const row = (label, val, unit) =>
+      '<tr><td ' + tdS + '>' + label + '</td><td ' + tdV + '>' + fmtN(val) + (unit ? ' <span style="font-weight:400;font-size:12px;color:#888">' + unit + '</span>' : '') + '</td></tr>';
+    const formuleTxt = (turb !== null && hAct !== null)
+      ? '9,81 &times; ' + turb + ' &times; ' + hAct + ' &times; ' + eta + ' / 1 000 = <b>' + fmtN(pCalc) + (c.cap_mw ? ' / ' + c.cap_mw + ' MW (' + Math.round(pCalc/c.cap_mw*100) + ' %)' : ' MW') + '</b>'
+      : '9,81 &times; Q &times; H &times; &eta;';
+    const tbl =
+      '<table style="margin-top:10px;border-collapse:collapse">' +
 
+      row('Hauteur chute', hRef, 'm') +
+      row('Niveau (amont &minus; aval)', hAct !== null ? hAct : null, hAct !== null ? 'm (' + amontV + ' &minus; ' + avalV + ')' : 'm') +
+      row('Rendement &eta;', eta, '') +
+      '<tr><td ' + tdS + '>Puissance estim&eacute;e  <i style="font-size:11px;color:#aaa">P = 9,81 &times; Q &times; H &times; &eta;</i></td>' +
+      '<td colspan="2" style="padding:3px 0;font-size:13px">' + formuleTxt + '</td></tr>' +
+      '</table>';
+
+    modalTable.innerHTML = tbl;
+  })();
   modal.classList.add('open');
   requestAnimationFrame(drawTurbineModal);
 }
