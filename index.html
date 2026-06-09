@@ -134,9 +134,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.5.4</span>
+    <span title="Version de la PWA installee">v2.5.5</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 14:38</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 17:22</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -2059,6 +2059,9 @@ window.addEventListener('resize', ()=>{
     }
     return;
   }
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    window.location.reload();
+  });
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
   });

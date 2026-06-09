@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 14:38</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 17:22</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA installee">v2.5.4</span>
+  &middot; <span title="Version de la PWA installee">v2.5.5</span>
 </footer>
 
 <script>
@@ -898,6 +898,9 @@ init();
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
 // ou en file:// : ne doit jamais bloquer l'affichage.
 if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    window.location.reload();
+  });
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
   });
