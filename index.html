@@ -134,9 +134,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.5.3</span>
+    <span title="Version de la PWA installee">v2.5.4</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 12:22</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-09 13:12</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -417,7 +417,8 @@ function rebuildHoraireFromLoadedMonths() {
   const first = months[0]._data;
   const centrales = first.centrales.map(c => Object.assign({}, c, {
     debits: c.debits.slice(), turbs: c.turbs.slice(), devs: c.devs.slice(),
-    mws: c.mws.slice(), trends: c.trends.slice(), stables: c.stables.slice()
+    mws: c.mws.slice(), trends: c.trends.slice(), stables: c.stables.slice(),
+    amonts: (c.amonts || []).slice(), avals: (c.avals || []).slice()
   }));
   const reservoirs = (first.reservoirs || []).map(r => Object.assign({}, r, {
     niveaux: r.niveaux.slice(), devs: r.devs.slice(), apports: r.apports.slice()
@@ -1826,18 +1827,19 @@ function openTurbineModal(k) {
     const tdS    = 'style="padding:3px 10px 3px 0;color:#555;font-size:13px"';
     const tdV    = 'style="padding:3px 10px 3px 0;font-weight:600;color:#1a1a2e;font-size:13px"';
     const row = (label, val, unit) =>
-      '<tr><td ' + tdS + '>' + label + '</td><td ' + tdV + '>' + fmtN(val) + (unit ? ' <span style="font-weight:400;font-size:12px;color:#888">' + unit + '</span>' : '') + '</td></tr>';
+      '<tr><td ' + tdS + '>' + label + '</td><td ' + tdV + '>' + fmtN(val) + (unit ? ' ' + unit : '') + '</td></tr>';
     const formuleTxt = (turb !== null && hAct !== null)
-      ? '9,81 &times; ' + turb + ' &times; ' + hAct + ' &times; ' + eta + ' / 1 000 = <b>' + fmtN(pCalc) + (c.cap_mw ? ' / ' + c.cap_mw + ' MW (' + Math.round(pCalc/c.cap_mw*100) + ' %)' : ' MW') + '</b>'
+      ? fmtN(pCalc) + (c.cap_mw ? ' / ' + c.cap_mw + ' MW (' + Math.round(pCalc/c.cap_mw*100) + ' %)' : ' MW')
       : '9,81 &times; Q &times; H &times; &eta;';
     const tbl =
       '<table style="margin-top:10px;border-collapse:collapse">' +
 
+      row('D&eacute;bit turbin&eacute;', turb, 'm&sup3;/s') +
       row('Hauteur chute', hRef, 'm') +
       row('Niveau (amont &minus; aval)', hAct !== null ? hAct : null, hAct !== null ? 'm (' + amontV + ' &minus; ' + avalV + ')' : 'm') +
       row('Rendement &eta;', eta, '') +
-      '<tr><td ' + tdS + '>Puissance estim&eacute;e  <i style="font-size:11px;color:#aaa">P = 9,81 &times; Q &times; H &times; &eta;</i></td>' +
-      '<td colspan="2" style="padding:3px 0;font-size:13px">' + formuleTxt + '</td></tr>' +
+      '<tr><td ' + tdS + '>Puissance estim&eacute;e<br><span style="font-size:11px;color:#aaa">(P = 9,81 &times; Q &times; H &times; &eta; / 1 000)</span></td>' +
+      '<td colspan="2" ' + tdV + '>' + formuleTxt + '</td></tr>' +
       '</table>';
 
     modalTable.innerHTML = tbl;
