@@ -134,9 +134,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.5.6</span>
+    <span title="Version de la PWA installee">v2.6.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-12 14:31</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-12 16:39</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -239,7 +239,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -270,6 +270,7 @@ let frame = 0, playing = false, timer = null;
 let modalIdx = -1;     // index centrale dans la modale (-1 = ferme)
 let modalResIdx = -1;  // index reservoir dans la modale (-1 = ferme)
 let modalTurbIdx = -1; // index centrale dans la modale TURBINES (-1 = ferme)
+let modalNivResIdx = -1; // index reservoir dans la modale NIVEAU (-1 = ferme)
 
 // Mode etendu par centrale ou reservoir : compactMode[key] = true => etendu, sinon compact (defaut).
 // Compact centrale = nom + debit total. Etendu centrale = toutes les lignes + sparkline.
@@ -654,6 +655,7 @@ function drawLeftSegments(ctx, segments, x, y, defaultFont) {
       curX += ctx.measureText(s.text).width;
     }
   }
+  return curX;
 }
 
 function fmt2(v) {
@@ -1162,20 +1164,33 @@ function draw(i) {
         const devTxt = devStale ? 'n/d' : (devEff + ' m³/s');
         drawLeftSegments(ctx, [
           { icon: 'deverse', size: fsIcon },
-          { text: devTxt, color: valCol }
-        ], leftX, ly + lhrFull*0.32, fontTotal);
+          { text: devTxt, color: '#555' }
+        ], leftX, ly + lhrFull*0.29, fontTotal);
       }
 
-      // Lignes 2+ (apport, sparkline) : visibles seulement quand etendu.
+      // Lignes 2+ (apport, niveau, sparkline) : visibles seulement quand etendu.
       if (expandedR) {
-        // Ligne 2 : apport.
+        // Ligne 2 : niveau amont.
+        if (nivEff !== null) {
+          const nivTxt = nivStale ? 'n/d' : (nivEff.toFixed(2) + ' m');
+          const nivEndX = drawLeftSegments(ctx, [
+            { icon: 'niveau', size: fsIcon },
+            { text: nivTxt, color: 'rgba(110,110,110,.95)' }
+          ], leftX, ly + lhrFull*0.47, fontDetail);
+          ctx.font = 'bold ' + fsName + 'px "Segoe UI",Arial,sans-serif';
+          ctx.fillStyle = '#5a7a9a';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.fillText(' ▸', nivEndX, ly + lhrFull*0.47);
+        }
+
+        // Ligne 3 : apport.
         if (apportEff !== null) {
           ctx.save();
           if (apportStale) ctx.globalAlpha = 0.45;
           drawLeftSegments(ctx, [
             { icon: 'apport', size: fsIcon },
-            { text: apportEff + ' m³/s', color: valCol }
-          ], leftX, ly + lhrFull*0.50, fontDetail);
+            { text: apportEff + ' m³/s', color: 'rgba(110,110,110,.95)' }
+          ], leftX, ly + lhrFull*0.63, fontDetail);
           ctx.restore();
         }
 
@@ -1367,6 +1382,9 @@ function go(i) {
   if (typeof modalResIdx !== 'undefined' && modalResIdx >= 0 && typeof drawBigChartRes === 'function') {
     drawBigChartRes();
   }
+  if (typeof modalNivResIdx !== 'undefined' && modalNivResIdx >= 0 && typeof drawBigChartNivRes === 'function') {
+    drawBigChartNivRes();
+  }
   if (typeof modalTurbIdx !== 'undefined' && modalTurbIdx >= 0 && typeof drawTurbineModal === 'function') {
     drawTurbineModal();
   }
@@ -1485,6 +1503,21 @@ function hitTestReservoirHeader(xImg, yImg) {
   return -1;
 }
 // Zone sparkline d'un reservoir etendu (45 px de haut, 4 px marge bas).
+function hitTestReservoirNiveauArrow(xImg, yImg) {
+  if (!D.reservoirs) return -1;
+  const lwr = D.labelWRes, lhrFull = D.labelHRes;
+  for (let k = 0; k < D.reservoirs.length; k++) {
+    const r = D.reservoirs[k];
+    if (r.labelX === null || r.labelY === null) continue;
+    if (compactMode['res:' + r.nom] !== true) continue;
+    if (r.minNiv == null) continue;
+    const lineY = r.labelY + lhrFull * 0.47;
+    const x0 = r.labelX, x1 = r.labelX + lwr;
+    const y0 = lineY - 10, y1 = lineY + 10;
+    if (xImg >= x0 && xImg <= x1 && yImg >= y0 && yImg <= y1) return k;
+  }
+  return -1;
+}
 function hitTestReservoirSparkline(xImg, yImg) {
   if (!D.reservoirs) return -1;
   const lwr = D.labelWRes, lhrFull = D.labelHRes;
@@ -1509,6 +1542,7 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   if (hitTestLabelHeader(x, y) !== -1)         { cursor = 'pointer'; }
   else if (hitTestReservoirHeader(x, y) !== -1) { cursor = 'pointer'; }
   else if (hitTestTurbineIcon(x, y) !== -1)     { cursor = 'pointer'; }
+  else if (hitTestReservoirNiveauArrow(x, y) !== -1) { cursor = 'pointer'; }
   else {
     const kSpark = hitTestSparkline(x, y);
     if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) cursor = 'pointer';
@@ -1539,6 +1573,9 @@ hoverLayer.addEventListener('click', (ev)=>{
   // Priorite 3 : clic sur l'indicateur turbine d'une centrale etendue -> modal turbines.
   const kTurb = hitTestTurbineIcon(x, y);
   if (kTurb !== -1) { openTurbineModal(kTurb); return; }
+  // Priorite 3b : clic sur triangle niveau d'un reservoir etendu -> modal niveau.
+  const kNivArrow = hitTestReservoirNiveauArrow(x, y);
+  if (kNivArrow !== -1) { openModalNivRes(kNivArrow); return; }
   // Priorite 4 : clic sur la sparkline d'une centrale etendue -> ouvre la modale.
   const kSpark = hitTestSparkline(x, y);
   if (kSpark !== -1 && isExpanded(D.centrales[kSpark])) { openModal(kSpark); return; }
@@ -1726,8 +1763,8 @@ function drawBigChart() {
 
 function openModal(k) {
   modalIdx = k;
-  modalTurbIdx = -1; modalResIdx = -1;
-  modalNote.innerHTML = '';
+  modalTurbIdx = -1; modalResIdx = -1; modalNivResIdx = -1;
+  modalNote.innerHTML = ''; modalTable.innerHTML = '';
   const c = D.centrales[k];
   modalTitle.textContent = c.nom + ' — débit total';
   const s = computeStats(c.debits);
@@ -1747,14 +1784,15 @@ function closeModal() {
   modalIdx = -1;
   modalResIdx = -1;
   modalTurbIdx = -1;
+  modalNivResIdx = -1;
 }
 
 // ----- Modale grand graphique pour un RESERVOIR : courbes deversement + apport -----
 function openModalRes(k) {
   modalResIdx = k;
   modalIdx = -1;
-  modalTurbIdx = -1;
-  modalNote.innerHTML = '';
+  modalTurbIdx = -1; modalNivResIdx = -1;
+  modalNote.innerHTML = ''; modalTable.innerHTML = '';
   const r = D.reservoirs[k];
   modalTitle.textContent = r.nom + ' — déversement & précipitation';
   // Stats sur le deversement (signal principal du reservoir).
@@ -2016,11 +2054,142 @@ function drawBigChartRes() {
   cx.fillStyle = '#333';      cx.fillText('Précipitation', pad.l + 32, pad.t + 18);
 }
 
+function openModalNivRes(k) {
+  modalNivResIdx = k;
+  modalIdx = -1;
+  modalResIdx = -1;
+  modalTurbIdx = -1;
+  modalNote.innerHTML = '';
+  modalTable.innerHTML = '';
+  const r = D.reservoirs[k];
+  const cur = r.niveauxEff[frame];
+  modalTitle.textContent = r.nom + ' — niveau du reservoir';
+  const minV = r.minNiv != null ? r.minNiv.toFixed(2) + ' m' : '—';
+  const maxV = r.maxNiv != null ? r.maxNiv.toFixed(2) + ' m' : '—';
+  const curV = cur != null ? cur.toFixed(2) + ' m' : '—';
+  modalStats.textContent =
+    'Courant : ' + curV + '  ·  ' +
+    'Min : ' + minV + '  ·  ' +
+    'Max : ' + maxV;
+  // Note : date de debut de l'historique extraite du timestamp du min
+  if (r.minNivTs) {
+    const d = r.minNivTs.substring(0, 10).replace(/\//g, '-');
+    modalNote.innerHTML = 'Donn&eacute;es accumul&eacute;es depuis le ' + d + '. Min et max se mettent &agrave; jour automatiquement.';
+  }
+  modal.classList.add('open');
+  requestAnimationFrame(drawBigChartNivRes);
+}
+
+function drawBigChartNivRes() {
+  if (modalNivResIdx < 0) return;
+  const r = D.reservoirs[modalNivResIdx];
+  const w = modalCv.width  = modalCv.clientWidth;
+  const h = modalCv.height = modalCv.clientHeight;
+  const cx = modalCtx;
+  const pad = { l: 68, r: 20, t: 28, b: 36 };
+  cx.clearRect(0, 0, w, h);
+
+  const niveaux = r.niveauxEff;
+  let yMin = Infinity, yMax = -Infinity;
+  for (const v of niveaux) { if (v == null) continue; if (v < yMin) yMin = v; if (v > yMax) yMax = v; }
+  if (r.minNiv != null && r.minNiv < yMin) yMin = r.minNiv;
+  if (r.maxNiv != null && r.maxNiv > yMax) yMax = r.maxNiv;
+  if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+  const spread = Math.max(yMax - yMin, 0.5);
+  const yBot = yMin - spread * 0.08;
+  const yTop = yMax + spread * 0.08;
+
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const xSpan = Math.max(N - 1, 1);
+  const xOf = i => pad.l + (i / xSpan) * innerW;
+  const yOf = v => pad.t + (1 - (v - yBot) / (yTop - yBot)) * innerH;
+
+  // Bande futur
+  const xFut = xOf(frame + 1);
+  if (xFut < pad.l + innerW) {
+    cx.fillStyle = 'rgba(150,150,160,.18)';
+    cx.fillRect(xFut, pad.t, pad.l + innerW - xFut, innerH);
+  }
+
+  // Grille horizontale + labels Y
+  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+  cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
+  cx.textAlign = 'right'; cx.textBaseline = 'middle';
+  for (let g = 0; g <= 5; g++) {
+    const y = pad.t + (g / 5) * innerH;
+    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+    const val = yTop - (g / 5) * (yTop - yBot);
+    cx.fillText(val.toFixed(2) + ' m', pad.l - 6, y);
+  }
+
+  // Ticks X
+  cx.fillStyle = '#666'; cx.textAlign = 'center'; cx.textBaseline = 'top';
+  for (let g = 0; g <= 4; g++) {
+    const i = Math.round((g / 4) * (N - 1));
+    cx.fillText(D.timestamps[i], xOf(i), h - pad.b + 6);
+  }
+
+  // Ligne MIN historique (rouge pointille)
+  if (r.minNiv != null) {
+    const yM = yOf(r.minNiv);
+    cx.save();
+    cx.strokeStyle = '#c0392b'; cx.lineWidth = 1.4;
+    cx.setLineDash([6, 4]);
+    cx.beginPath(); cx.moveTo(pad.l, yM); cx.lineTo(pad.l + innerW, yM); cx.stroke();
+    cx.restore();
+    cx.fillStyle = '#c0392b'; cx.font = 'bold 10px "Segoe UI",Arial';
+    cx.textAlign = 'right'; cx.textBaseline = 'bottom';
+    cx.fillText('min ' + r.minNiv.toFixed(2) + ' m', pad.l + innerW - 4, yM - 2);
+  }
+
+  // Ligne MAX historique (vert pointille)
+  if (r.maxNiv != null) {
+    const yM = yOf(r.maxNiv);
+    cx.save();
+    cx.strokeStyle = '#1a6e2a'; cx.lineWidth = 1.4;
+    cx.setLineDash([6, 4]);
+    cx.beginPath(); cx.moveTo(pad.l, yM); cx.lineTo(pad.l + innerW, yM); cx.stroke();
+    cx.restore();
+    cx.fillStyle = '#1a6e2a'; cx.font = 'bold 10px "Segoe UI",Arial';
+    cx.textAlign = 'right'; cx.textBaseline = 'top';
+    cx.fillText('max ' + r.maxNiv.toFixed(2) + ' m', pad.l + innerW - 4, yM + 2);
+  }
+
+  // Courbe niveau (bleu)
+  const blueStroke = '#1a3060';
+  cx.beginPath(); cx.strokeStyle = blueStroke; cx.lineWidth = 2.4;
+  let started = false;
+  for (let i = 0; i < N; i++) {
+    const v = niveaux[i]; if (v == null) { started = false; continue; }
+    const xx = xOf(i), yy = yOf(v);
+    if (!started) { cx.moveTo(xx, yy); started = true; } else { cx.lineTo(xx, yy); }
+  }
+  cx.stroke();
+
+  // Curseur + valeur courante
+  const xCur = xOf(frame);
+  cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(xCur, pad.t); cx.lineTo(xCur, pad.t + innerH); cx.stroke();
+  const nCur = niveaux[frame];
+  if (nCur != null) {
+    cx.fillStyle = blueStroke;
+    cx.beginPath(); cx.arc(xCur, yOf(nCur), 4, 0, 2 * Math.PI); cx.fill();
+    cx.fillStyle = '#222'; cx.font = 'bold 12px "Segoe UI",Arial';
+    const txt = nCur.toFixed(2) + ' m';
+    const txtW = cx.measureText(txt).width;
+    const fitsRight = (xCur + 6 + txtW) <= (pad.l + innerW - 2);
+    cx.textAlign = fitsRight ? 'left' : 'right';
+    cx.textBaseline = 'bottom';
+    cx.fillText(txt, xCur + (fitsRight ? 6 : -6), yOf(nCur) - 4);
+  }
+
+}
 modalClose.addEventListener('click', closeModal);
 modal.addEventListener('click', (ev)=>{ if (ev.target === modal) closeModal(); });
-document.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape' && (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1)) closeModal(); });
+document.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape' && (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1 || modalNivResIdx !== -1)) closeModal(); });
 modalCv.addEventListener('click', (ev)=>{
-  if (modalIdx < 0 && modalResIdx < 0) return;
+  if (modalIdx < 0 && modalResIdx < 0 && modalNivResIdx < 0) return;
   const r = modalCv.getBoundingClientRect();
   const xPix = (ev.clientX - r.left) * (modalCv.width / r.width);
   const pad = { l: 60, r: 20 };
@@ -2030,11 +2199,13 @@ modalCv.addEventListener('click', (ev)=>{
   stop(); go(f);
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
+  else if (modalNivResIdx >= 0) drawBigChartNivRes();
 });
 
 window.addEventListener('resize', ()=>{
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
+  else if (modalNivResIdx >= 0) drawBigChartNivRes();
   else if (modalTurbIdx >= 0) drawTurbineModal();
 });
 
