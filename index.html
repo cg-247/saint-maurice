@@ -9,11 +9,11 @@
 // la page mobile, qui ajoute ?desktop=1 -> on memorise ce choix dans localStorage et
 // on ne redirige plus.
 //
-// On utilise screen.width (largeur physique du device, en CSS pixels) plutot que
-// window.innerWidth : sans balise <meta viewport>, iOS Safari rend la page avec une
-// largeur virtuelle de 980px par defaut, ce qui ferait passer innerWidth bien au-dessus
-// de 768 meme sur un iPhone. screen.width donne la vraie taille physique (375 sur
-// iPhone SE, 390 sur 13/14, 430 sur Pro Max) -> detection fiable.
+// Detection mobile : on calcule la largeur en CSS pixels independamment du navigateur.
+// - iOS Safari sans <meta viewport> : innerWidth = 980 (virtuel), screen.width = CSS pixels reels.
+// - Android Chrome sans <meta viewport> : screen.width = pixels physiques (ex. 1080 sur Galaxy S),
+//   il faut diviser par devicePixelRatio pour obtenir les CSS pixels (ex. 1080/2.625 = 411).
+// On prend le minimum des deux methodes apres normalisation -> fiable sur iOS et Android.
 (function () {
   try {
     var params = new URLSearchParams(location.search);
@@ -23,7 +23,10 @@
       return; // pas de redirection cette fois, et plus jamais (tant que la clef existe)
     }
     if (localStorage.getItem(STORE) === '1') return;
-    var w = Math.min(screen.width || 9999, window.innerWidth || 9999);
+    var dpr = window.devicePixelRatio || 1;
+    var sw  = (screen.width  || 9999) / dpr;
+    var iw  = (window.innerWidth || 9999) / dpr;
+    var w   = Math.min(sw, iw);
     if (w > 768) return;
     // En local on a animation-centrales.html (mobile = animation-mobile.html),
     // sur GitHub Pages on a index.html (mobile = mobile.html). Le serveur local
@@ -134,9 +137,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.6.0</span>
+    <span title="Version de la PWA installee">v2.7.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-14 17:56</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-15 09:37</div>
 </div>
 <div id="modal">
   <div id="modal-card">

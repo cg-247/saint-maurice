@@ -2,7 +2,7 @@
 
 ## Voir l'animation sur les débits
 
-→ **URL** : <https://cg-247.github.io/saint-maurice/>
+→ **URL** : <https://cg-247.github.io/saint-maurice/index.html>
 
 Animation interactive du **bassin Saint-Maurice** (Québec) : débits, production électrique
 estimée et niveaux des réservoirs, à partir des données ouvertes publiées par Hydro-Québec.
@@ -108,21 +108,21 @@ ton ordinateur pour l'ouvrir comme une vraie app, sans barre d'adresse.
 
 ### Sur Android (Chrome, Edge, Samsung Internet, Brave)
 
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome.
+1. Ouvre <https://cg-247.github.io/saint-maurice/index.html> dans Chrome.
 2. Une bannière « Ajouter à l'écran d'accueil » apparaît en bas. Sinon : menu **⋮ → Installer
    l'application** (ou **Ajouter à l'écran d'accueil**).
 3. L'icône apparaît sur ton écran d'accueil, comme n'importe quelle app.
 
 ### Sur iPhone / iPad (Safari uniquement)
 
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans **Safari**
+1. Ouvre <https://cg-247.github.io/saint-maurice/index.html> dans **Safari**
    (Chrome iOS ne supporte pas l'installation).
 2. Touche le bouton **Partager** (carré avec flèche vers le haut).
 3. Choisis **« Ajouter à l'écran d'accueil »**.
 
 ### Sur ordinateur (Windows, macOS, Linux)
 
-1. Ouvre <https://cg-247.github.io/saint-maurice/> dans Chrome, Edge ou Brave.
+1. Ouvre <https://cg-247.github.io/saint-maurice/index.html> dans Chrome, Edge ou Brave.
 2. Une **icône d'installation** (un écran avec une flèche vers le bas) apparaît à droite
    de la barre d'adresse → clic dessus.
 3. L'app est ajoutée au menu Démarrer (Windows), Launchpad (macOS) ou menu d'applications
