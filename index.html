@@ -75,6 +75,17 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
 #modal-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
              font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-close:hover{color:#000}
+#modal-info{position:fixed;inset:0;background:rgba(10,10,20,.78);z-index:101;
+            display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+#modal-info.open{display:flex}
+#modal-info-card{position:relative;background:#fff;border-radius:8px;padding:20px 24px 24px;
+                 width:min(90vw,640px);max-height:min(80vh,700px);overflow-y:auto;
+                 box-shadow:0 10px 40px rgba(0,0,0,.55)}
+#modal-info-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-right:32px}
+#modal-info-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
+                  font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
+#modal-info-close:hover{color:#000}
+#modal-info-body{font-size:13px}
 #ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
       position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
       padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
@@ -137,9 +148,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.7.0</span>
+    <span title="Version de la PWA installee">v2.8.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-18 13:49</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-18 17:07</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -149,6 +160,13 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <div id="modal-table"></div>
     <canvas id="modal-canvas"></canvas>
     <div id="modal-note"></div>
+  </div>
+</div>
+<div id="modal-info">
+  <div id="modal-info-card">
+    <button id="modal-info-close" type="button" aria-label="Fermer">&times;</button>
+    <div id="modal-info-title"></div>
+    <div id="modal-info-body"></div>
   </div>
 </div>
 <div id="ctrl">
@@ -242,7 +260,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -274,6 +292,11 @@ let modalIdx = -1;     // index centrale dans la modale (-1 = ferme)
 let modalResIdx = -1;  // index reservoir dans la modale (-1 = ferme)
 let modalTurbIdx = -1; // index centrale dans la modale TURBINES (-1 = ferme)
 let modalNivResIdx = -1; // index reservoir dans la modale NIVEAU (-1 = ferme)
+let modalInfoCIdx = -1;  // index centrale dans la modale INFO CEHQ (-1 = ferme)
+let modalInfoRIdx = -1;  // index reservoir dans la modale INFO CEHQ (-1 = ferme)
+// Positions pixel (coords image) de l'icone info dessinees par draw() -- hit-test
+const infoCentBounds = [];  // [{ x, y, r }] par centrale (index = index dans D.centrales)
+const infoResBounds  = [];  // [{ x, y, r }] par reservoir
 
 // Mode etendu par centrale ou reservoir : compactMode[key] = true => etendu, sinon compact (defaut).
 // Compact centrale = nom + debit total. Etendu centrale = toutes les lignes + sparkline.
@@ -829,18 +852,32 @@ function draw(i) {
 
     // Ligne 0 : icone "rosace centrale" + nom de la centrale en gras + trait de separation.
     const fsCentrIcon = Math.max(12, Math.round(fsName * 1.40));
-    drawLeftSegments(ctx, [
+    const nameEndX = drawLeftSegments(ctx, [
       { icon: 'centrale', size: fsCentrIcon },
-      { text: c.nom, color: '#111' }
+      { text: c.nomAffiche || c.nom, color: '#111' }
     ], leftX, ly + lh*0.071, fontName);
+
+    // Icone info (i) entre le nom et la fleche pliage.
+    const infoSzC = Math.max(13, Math.round(fsName * 1.20));
+    const infoImC = iconImgs['info'];
+    const fsArrow = Math.max(18, Math.round(28 * sx));
+    // Fleche positionnee a droite, info juste a sa gauche.
+    const arrowXC = lx + lwC - 6*sx;
+    const rowYC = ly + lh*0.071;
+    const infoXC = arrowXC - Math.round(fsArrow*0.5) - infoSzC*0.5 - 5*sx;
+    if (infoImC && infoImC.complete) {
+      ctx.drawImage(infoImC, infoXC - infoSzC/2, rowYC - infoSzC/2, infoSzC, infoSzC);
+    }
+    // Stocker les bornes pour le hit-test (coords image = diviser par sx/sy).
+    const ciIdx = D.centrales.indexOf(c);
+    infoCentBounds[ciIdx] = { x: (infoXC) / sx, y: rowYC / sy, r: (infoSzC * 0.65) / sx };
 
     // Indicateur pliage : fleche dans le coin haut-droit, plus grosse que le nom.
     // Compact : ▾ (cliquer pour etendre). Etendu : ▴ (cliquer pour replier).
-    const fsArrow = Math.max(18, Math.round(28 * sx));
     ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
     ctx.fillStyle = '#1a1a2e';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(expanded ? '▴' : '▾', lx + lwC - 6*sx, ly + lh*0.071);
+    ctx.fillText(expanded ? '▴' : '▾', arrowXC, rowYC);
     const sepY = ly + lh*0.159;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
@@ -1147,11 +1184,26 @@ function draw(i) {
         { icon: 'barrage', size: fsResIcon },
         { text: r.nom, color: '#111' }
       ], leftX, ly + lhrFull*0.10, fontName);
+
+      // Icone info (i) entre le nom et la fleche pliage (reservoir).
+      const infoSzR = Math.max(13, Math.round(fsName * 1.20));
+      const infoImR = iconImgs['info'];
       const fsArrow = Math.max(18, Math.round(28 * sx));
+      const arrowXR = lx + lwr - 6*sx;
+      const rowYR = ly + lhrFull*0.10;
+      const infoXR = arrowXR - Math.round(fsArrow*0.5) - infoSzR*0.5 - 5*sx;
+      if (infoImR && infoImR.complete && r.cehq) {
+        ctx.drawImage(infoImR, infoXR - infoSzR/2, rowYR - infoSzR/2, infoSzR, infoSzR);
+      }
+      const riIdx = D.reservoirs.indexOf(r);
+      infoResBounds[riIdx] = r.cehq
+        ? { x: infoXR / sx, y: rowYR / sy, r: (infoSzR * 0.65) / sx }
+        : null;
+
       ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
       ctx.fillStyle = '#1a1a2e';
       ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.fillText(expandedR ? '▴' : '▾', lx + lwr - 6*sx, ly + lhrFull*0.10);
+      ctx.fillText(expandedR ? '▴' : '▾', arrowXR, rowYR);
       const sepY = ly + lhrFull*0.22;
       ctx.beginPath();
       ctx.moveTo(leftX, sepY);
@@ -1428,6 +1480,10 @@ const modalTitle = document.getElementById('modal-title');
 const modalStats = document.getElementById('modal-stats');
 const modalNote  = document.getElementById('modal-note');
 const modalTable = document.getElementById('modal-table');
+const modalInfoEl    = document.getElementById('modal-info');
+const modalInfoTitle = document.getElementById('modal-info-title');
+const modalInfoBody  = document.getElementById('modal-info-body');
+const modalInfoClose = document.getElementById('modal-info-close');
 const modalCv    = document.getElementById('modal-canvas');
 const modalCtx   = modalCv.getContext('2d');
 
@@ -1488,6 +1544,29 @@ function hitTestLabelHeader(xImg, yImg) {
 }
 // Pour les reservoirs : zone TOTALE de l'etiquette (compact ou etendu) cliquable.
 // Comme le rectangle change de hauteur selon l'etat, on prend la zone visible reelle.
+// Hit-test icone info des centrales (cercle de rayon r en coords image).
+function hitTestInfoCentrale(xImg, yImg) {
+  if (!D || !D.centrales) return -1;
+  for (let k = 0; k < D.centrales.length; k++) {
+    const b = infoCentBounds[k];
+    if (!b) continue;
+    const dx = xImg - b.x, dy = yImg - b.y;
+    if (Math.sqrt(dx*dx + dy*dy) <= b.r) return k;
+  }
+  return -1;
+}
+// Hit-test icone info des reservoirs.
+function hitTestInfoReservoir(xImg, yImg) {
+  if (!D || !D.reservoirs) return -1;
+  for (let k = 0; k < D.reservoirs.length; k++) {
+    const b = infoResBounds[k];
+    if (!b) continue;
+    const dx = xImg - b.x, dy = yImg - b.y;
+    if (Math.sqrt(dx*dx + dy*dy) <= b.r) return k;
+  }
+  return -1;
+}
+
 function hitTestReservoirHeader(xImg, yImg) {
   if (!D.reservoirs) return -1;
   const lwr = D.labelWRes, lhrFull = D.labelHRes;
@@ -1542,9 +1621,11 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   if (!D) { hoverLayer.style.cursor = 'default'; return; }
   const { x, y } = imgCoordsFromEv(ev);
   let cursor = 'default';
-  if (hitTestLabelHeader(x, y) !== -1)         { cursor = 'pointer'; }
-  else if (hitTestReservoirHeader(x, y) !== -1) { cursor = 'pointer'; }
-  else if (hitTestTurbineIcon(x, y) !== -1)     { cursor = 'pointer'; }
+  if (hitTestInfoCentrale(x, y) !== -1)        { cursor = 'pointer'; }
+  else if (hitTestInfoReservoir(x, y) !== -1)  { cursor = 'pointer'; }
+  else if (hitTestLabelHeader(x, y) !== -1)    { cursor = 'pointer'; }
+  else if (hitTestReservoirHeader(x, y) !== -1){ cursor = 'pointer'; }
+  else if (hitTestTurbineIcon(x, y) !== -1)    { cursor = 'pointer'; }
   else if (hitTestReservoirNiveauArrow(x, y) !== -1) { cursor = 'pointer'; }
   else {
     const kSpark = hitTestSparkline(x, y);
@@ -1556,6 +1637,12 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
 hoverLayer.addEventListener('click', (ev)=>{
   if (!D) return;
   const { x, y } = imgCoordsFromEv(ev);
+  // Priorite 0 : clic sur icone info d'une centrale ou reservoir -> modale info.
+  const kInfoC = hitTestInfoCentrale(x, y);
+  if (kInfoC !== -1) { openInfoModalCentrale(kInfoC); return; }
+  const kInfoR = hitTestInfoReservoir(x, y);
+  if (kInfoR !== -1) { openInfoModalReservoir(kInfoR); return; }
+
   // Priorite 1 : clic sur en-tete d'une centrale -> bascule compact/etendu.
   const kHeader = hitTestLabelHeader(x, y);
   if (kHeader !== -1) {
@@ -1782,6 +1869,158 @@ function openModal(k) {
   // Laisse le navigateur appliquer les dimensions avant de mesurer canvas
   requestAnimationFrame(drawBigChart);
 }
+// ===== MODALE INFO CEHQ (centrales et reservoirs) =====
+function buildCehqTable(src) {
+  const tdL = 'style="padding:3px 14px 3px 0;color:#555;font-size:13px;white-space:nowrap;vertical-align:top"';
+  const tdV = 'style="padding:3px 18px 3px 0;font-weight:600;color:#1a1a2e;font-size:13px;vertical-align:top"';
+  const tdNote = 'style="padding:1px 0 5px;color:#888;font-size:11px;font-style:italic" colspan="4"';
+  const secH = 'style="font-size:13px;font-weight:700;color:#1a1a2e;' +
+               'padding:20px 0 5px;border-top:2px solid #ddd"';
+  const row2 = (l1, v1, l2, v2) =>
+    '<tr><td ' + tdL + '>' + l1 + '</td><td ' + tdV + '>' + v1 + '</td>' +
+         '<td ' + tdL + '>' + l2 + '</td><td ' + tdV + '>' + v2 + '</td></tr>';
+  const row1 = (l1, v1) =>
+    '<tr><td ' + tdL + '>' + l1 + '</td><td ' + tdV + ' colspan="3">' + v1 + '</td></tr>';
+  const noteRow = (txt) => '<tr><td ' + tdNote + '>' + txt + '</td></tr>';
+  const secRow = (label) => '<tr><td ' + secH + ' colspan="4">' + label + '</td></tr>';
+  const fmtMillion = v => v != null ? (v / 1e6).toFixed(1).replace('.', ',') + ' Mm³' : '—';
+  const fmtHa = v => v != null ? v.toLocaleString('fr-CA') + ' ha' : '—';
+  const fmtKm2 = v => v != null ? v.toLocaleString('fr-CA') + ' km²' : '—';
+  const fmtM = v => v != null ? String(v).replace('.', ',') + ' m' : '—';
+  const fmtStr = v => v || '—';
+  const classeDesc = {
+    'A': 'Grande hauteur ou grande capacité',
+    'B': 'Hauteur ou capacité importante',
+    'C': 'Hauteur ou capacité modérée',
+    'D': 'Petit ouvrage'
+  };
+  const conseqDesc = {
+    'Tres important': 'Pertes de vies probables, dommages majeurs en aval',
+    'Considerable':   'Pertes de vies possibles, dommages significatifs',
+    'Important':      'Pertes de vies peu probables, dommages notables',
+    'Moyen':          'Aucune perte de vie anticipée, dommages limités'
+  };
+  const entries = src.barrages ? src.barrages : [src];
+  const multi = entries.length > 1;
+  // Helpers pills (définis une seule fois hors du forEach)
+  const classeKeys = ['A','B','C','D'];
+  const classeColors = { 'A':'#b91c1c', 'B':'#c2410c', 'C':'#0369a1', 'D':'#15803d' };
+  const conseqKeys = ['Tres important','Considerable','Important','Moyen'];
+  const conseqLabels = { 'Tres important':'Très important', 'Considerable':'Considérable', 'Important':'Important', 'Moyen':'Moyen' };
+  const conseqColors = { 'Tres important':'#7f1d1d', 'Considerable':'#b91c1c', 'Important':'#d97706', 'Moyen':'#15803d' };
+  const pillBase = 'display:inline-block;padding:3px 11px;border-radius:20px;font-size:12px;font-weight:700;margin:2px 3px 2px 0;';
+  const pillActive = (col) => pillBase + 'background:' + col + ';color:#fff;';
+  const pillInactive = pillBase + 'background:#f0f0f0;color:#aaa;';
+  const pillRow = (label, pills, note) =>
+    '<tr><td style="padding:12px 10px 4px 0;color:#555;font-size:13px;white-space:nowrap;vertical-align:middle">' + label + '</td>' +
+    '<td colspan="3" style="padding:10px 0 6px">' + pills +
+    (note ? '<div style="font-size:11px;color:#666;font-style:italic;margin-top:2px">' + note + '</div>' : '') +
+    '</td></tr>';
+  // Génère le contenu d'un panneau barrage
+  function barragePanel(b) {
+    const annee = b.annee_construction != null
+      ? (b.annee_modification != null ? b.annee_construction + ' (mod. ' + b.annee_modification + ')' : String(b.annee_construction))
+      : '—';
+    const municipalite = b.municipalite || src.municipalite || null;
+    const classeVal = b.classe || '';
+    const conseqVal = b.niveau_consequences || '';
+    let classePills = '';
+    classeKeys.forEach(function(k) {
+      const col = classeColors[k] || '#555';
+      classePills += '<span style="' + (k === classeVal ? pillActive(col) : pillInactive) + '">' + k + '</span>';
+    });
+    let conseqPills = '';
+    conseqKeys.forEach(function(k) {
+      const col = conseqColors[k] || '#555';
+      const label = conseqLabels[k] || k;
+      conseqPills += '<span style="' + (k === conseqVal ? pillActive(col) : pillInactive) + '">' + label + '</span>';
+    });
+    return '<table style="border-collapse:collapse;width:100%">' +
+      secRow('Général') +
+      row2('Année construction', annee, 'Municipalité', fmtStr(municipalite)) +
+
+      pillRow('Classe', classePills, classeDesc[classeVal] || '') +
+      pillRow('Conséquences rupture', conseqPills, conseqDesc[conseqVal] || '') +
+      '<tr><td colspan="4" style="padding-bottom:10px"></td></tr>' +
+      secRow('Technique') +
+      row2('Hauteur du barrage', fmtM(b.hauteur_aval_m), 'Largeur du barrage', fmtM(b.longueur_m)) +
+      (b.hauteur_retenue_m != null ? row1('Hauteur retenue', fmtM(b.hauteur_retenue_m)) : '') +
+      row2('Bassin versant', fmtKm2(b.sup_bassin_km2), 'Superficie réservoir', fmtHa(b.sup_reservoir_ha)) +
+      row1('Capacité retenue', fmtMillion(b.capacite_retenue_m3)) +
+      '</table>';
+  }
+  // ID unique pour isoler les onglets (évite collisions si deux modales ouvertes)
+  const tabNs = 'cehq-tab-' + Math.random().toString(36).slice(2, 7);
+  let html = '';
+  if (!multi) {
+    html = barragePanel(entries[0]);
+  } else {
+    // Barre d'onglets
+    const tabBarStyle = 'display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid #e5e7eb;padding-bottom:0;';
+    const tabActiveStyle = 'padding:7px 16px;border-radius:6px 6px 0 0;font-size:13px;font-weight:700;cursor:pointer;background:#1a1a2e;color:#fff;border:none;margin-bottom:-2px;';
+    const tabInactiveStyle = 'padding:7px 16px;border-radius:6px 6px 0 0;font-size:13px;font-weight:600;cursor:pointer;background:#f3f4f6;color:#555;border:none;margin-bottom:-2px;';
+    let tabs = '<div style="' + tabBarStyle + '">';
+    let panels = '';
+    entries.forEach(function(b, bi) {
+      const label = b.nom_barrage || ('Barrage ' + (bi + 1));
+      const panelId = tabNs + '-panel-' + bi;
+      const btnId   = tabNs + '-btn-'   + bi;
+      const isFirst = bi === 0;
+      tabs += '<button id="' + btnId + '" onclick="(function(){'  +
+        'var ns=\'' + tabNs + '\',n=' + entries.length + ';' +
+        'for(var i=0;i<n;i++){' +
+          'document.getElementById(ns+\'-panel-\'+i).style.display=i===' + bi + '?\'block\':\'none\';' +
+          'document.getElementById(ns+\'-btn-\'+i).style.cssText=i===' + bi + '?\'' + tabActiveStyle.replace(/'/g, "\\'") + '\':\'' + tabInactiveStyle.replace(/'/g, "\\'") + '\';}' +
+        '})()" style="' + (isFirst ? tabActiveStyle : tabInactiveStyle) + '">' + label + '</button>';
+      panels += '<div id="' + panelId + '" style="display:' + (isFirst ? 'block' : 'none') + '">' + barragePanel(b) + '</div>';
+    });
+    tabs += '</div>';
+    html = tabs + panels;
+  }
+  return html;
+}
+
+function openInfoModalCentrale(k) {
+  modalInfoCIdx = k; modalInfoRIdx = -1;
+  const c = D.centrales[k];
+  modalInfoTitle.innerHTML = '<img src="assets/icons/centrale.png" style="height:1.1em;vertical-align:middle;margin-right:6px">' +
+    c.nom + ' — données barrage';
+  if (c.cehq) {
+    const nomRes = c.cehq.nom_reservoir || (c.cehq.barrages ? '' : (c.cehq.nom_barrage || ''));
+    const src = '<div style="font-size:11px;color:#999;margin-top:10px;border-top:1px solid #eee;padding-top:8px">' +
+      'Source : Répertoire des barrages CEHQ (MELCCFP)' +
+      (c.cehq.no_barrage ? ' • N° ' + (c.cehq.barrages ? c.cehq.barrages.map(b=>b.no_barrage).join(', ') : c.cehq.no_barrage) : '') +
+      '</div>';
+    modalInfoBody.innerHTML = buildCehqTable(c.cehq) + src;
+  } else {
+    modalInfoBody.innerHTML = '<p style="color:#888;font-size:13px">Données CEHQ non disponibles pour cette centrale.</p>';
+  }
+  modalInfoEl.classList.add('open');
+}
+
+function openInfoModalReservoir(k) {
+  modalInfoRIdx = k; modalInfoCIdx = -1;
+  const r = D.reservoirs[k];
+  modalInfoTitle.innerHTML = '<img src="assets/icons/barrage.png" style="height:1.1em;vertical-align:middle;margin-right:6px">' +
+    r.nom + ' — données réservoir';
+  if (r.cehq) {
+    const src = '<div style="font-size:11px;color:#999;margin-top:10px;border-top:1px solid #eee;padding-top:8px">' +
+      'Source : Répertoire des barrages CEHQ (MELCCFP)' +
+      (r.cehq.no_barrage ? ' • N° ' + r.cehq.no_barrage : '') +
+      (r.cehq.barrages ? ' • N° ' + r.cehq.barrages.map(b=>b.no_barrage).join(', ') : '') +
+      '</div>';
+    modalInfoBody.innerHTML = buildCehqTable(r.cehq) + src;
+  } else {
+    modalInfoBody.innerHTML = '<p style="color:#888;font-size:13px">Données CEHQ non disponibles pour ce réservoir.</p>';
+  }
+  modalInfoEl.classList.add('open');
+}
+
+function closeInfoModal() {
+  modalInfoEl.classList.remove('open');
+  modalInfoCIdx = -1; modalInfoRIdx = -1;
+}
+
 function closeModal() {
   modal.classList.remove('open');
   modalIdx = -1;
@@ -2189,8 +2428,15 @@ function drawBigChartNivRes() {
 
 }
 modalClose.addEventListener('click', closeModal);
+modalInfoClose.addEventListener('click', closeInfoModal);
+modalInfoEl.addEventListener('click', (ev) => { if (ev.target === modalInfoEl) closeInfoModal(); });
 modal.addEventListener('click', (ev)=>{ if (ev.target === modal) closeModal(); });
-document.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape' && (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1 || modalNivResIdx !== -1)) closeModal(); });
+document.addEventListener('keydown', (ev)=>{
+  if (ev.key === 'Escape') {
+    if (modalInfoCIdx !== -1 || modalInfoRIdx !== -1) { closeInfoModal(); return; }
+    if (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1 || modalNivResIdx !== -1) closeModal();
+  }
+});
 modalCv.addEventListener('click', (ev)=>{
   if (modalIdx < 0 && modalResIdx < 0 && modalNivResIdx < 0) return;
   const r = modalCv.getBoundingClientRect();

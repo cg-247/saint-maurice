@@ -18,6 +18,8 @@ La barre de contrôle en bas permet de naviguer dans le temps :
   toute l'animation à l'instant choisi.
 - **Indicateur de turbines** *(vue bureau)* — sur une centrale agrandie, le type de turbine et le
   nombre de groupes en fonction ; un clic ouvre le régime estimé de chaque groupe.
+- **Icône ℹ** — sur chaque étiquette (centrale ou réservoir), ouvre une fiche technique avec les
+  données du barrage : classe de conséquences, hauteur, capacité de retenue, année de construction (source : CEHQ).
 
 ## Sources
 
@@ -40,6 +42,11 @@ calculée, niveau, déversement) directement sur cette représentation géograph
 Les mesures proviennent de [**Hydro-Québec — Données ouvertes**](https://www.hydroquebec.com/documents-donnees/donnees-ouvertes/) :
 fichiers JSON horaires des stations hydrométriques et hydrométéorologiques, mis à jour
 quotidiennement. Licence des données : [Creative Commons BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.fr).
+
+Les fiches techniques des barrages (classe de conséquences, hauteur, capacité de retenue,
+année de construction) proviennent du [**Répertoire des barrages du CEHQ**](https://www.cehq.gouv.qc.ca/barrages/default.asp)
+(Centre d'expertise hydrique du Québec, MELCCFP). Ces données sont accessibles publiquement
+dans le cadre du programme de suivi de la sécurité des barrages au Québec.
 
 ### Icônes
 
