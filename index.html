@@ -46,8 +46,7 @@
 <meta name="theme-color" content="#1a1a2e">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
-     font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:10px 10px 70px;min-height:100vh}
+body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:0;height:100vh;overflow:hidden}
 #titlebox{position:absolute;top:calc(7.4% - 1cm);left:50%;transform:translateX(-50%);
           text-align:center;color:#1a1a2e;pointer-events:none;z-index:2;width:90%}
 #titlebox h1{font-size:clamp(16px, 1.55vw, 28px);letter-spacing:.3px;font-weight:700}
@@ -56,7 +55,7 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
 #titlebox #subtitle:empty{display:none}
 #titlebox #ts{font-size:clamp(13px, 1.22vw, 22px);color:#000;font-weight:600;margin-top:4px;min-height:24px}
 #wrap{position:relative;display:inline-block;max-width:100%}
-#img{display:block;max-width:100%;height:auto}
+#img{display:block;max-width:100%;max-height:calc(100vh - 54px);width:auto;height:auto;object-fit:contain}
 #ov{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
 #hover-layer{position:absolute;top:0;left:0;width:100%;height:100%;cursor:default;z-index:3}
 #modal{position:fixed;inset:0;background:rgba(10,10,20,.78);z-index:100;
@@ -148,9 +147,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.8.0</span>
+    <span title="Version de la PWA installee">v2.9.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-26 14:19</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-06-26 17:11</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -295,15 +294,57 @@ let modalNivResIdx = -1; // index reservoir dans la modale NIVEAU (-1 = ferme)
 let modalInfoCIdx = -1;  // index centrale dans la modale INFO CEHQ (-1 = ferme)
 let modalInfoRIdx = -1;  // index reservoir dans la modale INFO CEHQ (-1 = ferme)
 // Positions pixel (coords image) de l'icone info dessinees par draw() -- hit-test
-const infoCentBounds = [];  // [{ x, y, r }] par centrale (index = index dans D.centrales)
-const infoResBounds  = [];  // [{ x, y, r }] par reservoir
+const infoCentBounds  = [];  // [{ x, y, r }] par centrale
+const infoResBounds   = [];  // [{ x, y, r }] par reservoir
+const mapToggleBounds    = [];  // [{ x0,y0,x1,y1 } | null] triangle toggle m3/s sur la carte (centrales)
+const mapToggleBoundsRes = [];  // idem pour les reservoirs
+const infoLabelOverride  = {};  // surcharge position icone info, cle = "ic:idx" ou "ir:idx"
 
-// Mode etendu par centrale ou reservoir : compactMode[key] = true => etendu, sinon compact (defaut).
-// Compact centrale = nom + debit total. Etendu centrale = toutes les lignes + sparkline.
-// Compact reservoir = nom + niveau + deversement. Etendu reservoir = + apport + sparkline niveau.
-const compactMode = {};
-function isExpanded(c) { return compactMode[c.id] === true; }
-function isExpandedRes(r) { return compactMode['res:' + r.nom] === true; }
+function debitLabelPos(kind, idx) {
+  if (kind === 'c') { const c = D.centrales[idx]; return { x: c.debitLabelX, y: c.debitLabelY }; }
+  else              { const r = D.reservoirs[idx]; return { x: r.debitLabelX, y: r.debitLabelY }; }
+}
+function infoLabelPos(kind, idx) {
+  if (kind === 'ic') { const c = D.centrales[idx]; return { x: c.infoLabelX, y: c.infoLabelY }; }
+  else                { const r = D.reservoirs[idx]; return { x: r.infoLabelX, y: r.infoLabelY }; }
+}
+
+// Etat par centrale : 'hidden' (defaut), 'expanded'.
+// Les reservoirs conservent leur propre logique compact/etendu (inchange).
+const labelState = {};   // labelState[c.id] = 'hidden' | 'expanded'
+const labelAlpha = {};   // labelAlpha[c.id] = 0.0..1.0 (animation fondu)
+const labelAnim  = {};   // labelAnim[c.id]  = { start, from, to, rafId }
+const FADE_MS = 180;
+
+function getLabelState(c) { return labelState[c.id] || 'hidden'; }
+function isExpanded(c)    { return getLabelState(c) === 'expanded'; }
+function isVisible(c)     { return getLabelState(c) !== 'hidden' || (labelAlpha[c.id] || 0) > 0; }
+
+// Reservoirs : meme logique, cle = 'res:' + r.nom
+const compactMode = {};  // conserve pour compatibilite (non utilise)
+function isExpandedRes(r)  { return labelState['res:' + r.nom] === 'expanded'; }
+function isVisibleRes(r)   { const k = 'res:' + r.nom; return labelState[k] === 'expanded' || (labelAlpha[k] || 0) > 0; }
+
+function setLabelState(c, newState) {
+  const key = c.id !== undefined ? c.id : ('res:' + c.nom);
+  const cur = labelState[key] || 'hidden';
+  if (cur === newState) return;
+  const fromAlpha = labelAlpha[key] !== undefined ? labelAlpha[key] : (cur === 'expanded' ? 1 : 0);
+  const toAlpha   = newState === 'expanded' ? 1 : 0;
+  labelState[key] = newState;
+  if (labelAnim[key] && labelAnim[key].rafId) cancelAnimationFrame(labelAnim[key].rafId);
+  const anim = { start: null, from: fromAlpha, to: toAlpha, rafId: null };
+  labelAnim[key] = anim;
+  function step(ts) {
+    if (!anim.start) anim.start = ts;
+    const t = Math.min(1, (ts - anim.start) / FADE_MS);
+    labelAlpha[key] = anim.from + (anim.to - anim.from) * t;
+    draw(frame);
+    if (t < 1) { anim.rafId = requestAnimationFrame(step); }
+    else        { anim.rafId = null; }
+  }
+  anim.rafId = requestAnimationFrame(step);
+}
 
 // Pour une serie [v0, null, null, v3, null] -> renvoie { eff: [v0,v0,v0,v3,v3], stale: [false,true,true,false,true] }.
 // Si une valeur est null sans valeur connue avant, eff[i] reste null et stale[i] reste false (rien a afficher).
@@ -782,16 +823,92 @@ function draw(i) {
     }
     const col = ratioColor(ratio);
     const ix = c.iconX * sx, iy = c.iconY * sy;
+
+    // Anneau coloré autour de la rosace du JPG de fond
+    if (c.rosaceX !== null && c.rosaceY !== null) {
+      const ringR = Math.round(D.legend.iconSize * sx * 0.62);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(c.rosaceX * sx, c.rosaceY * sy, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = col.f;
+      ctx.lineWidth = Math.max(2.5, 4 * sx);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     const lx = c.labelX * sx, ly = c.labelY * sy;
     // Largeur d'etiquette specifique a la centrale si definie (ex. nom long), sinon valeur par defaut.
     const lwC = (c.labelW || D.labelW) * sx;
 
-    // Hauteur effective : reduite a 36 % en mode compact (nom + debit total uniquement).
-    const expanded = isExpanded(c);
-    const lhEff = expanded ? lh : lh * 0.36;
+    // Debit total + triangle toggle au cote du nom de la centrale.
+    // Toujours dessine, independamment de l'etat de l'etiquette.
+    const debMap = c.debitsEff[i];
+    const ciPos = debitLabelPos('c', D.centrales.indexOf(c));
+    if (debMap !== null && ciPos.x !== null && ciPos.y !== null) {
+      const fsCap = Math.max(8, Math.round(13 * sx));
+      const fsUnit = Math.max(6, Math.round(10 * sx));  // m³/s 25% plus petit que le chiffre
+      ctx.save();
+      if (c.debitsStale[i]) ctx.globalAlpha = 0.45;
 
-    // Ligne de rappel icon -> etiquette (pointillee). Calcul base sur lhEff
-    // pour que la ligne s'arrete sur le bord visible du rectangle.
+      ctx.fillStyle = '#111';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      const debX = ciPos.x * sx, debY = ciPos.y * sy;
+      // Chiffre en grand
+      ctx.font = 'bold ' + fsCap + 'px "Segoe UI",Arial,sans-serif';
+      const numTxt = String(debMap);
+      ctx.fillText(numTxt, debX, debY);
+      const numW = ctx.measureText(numTxt).width;
+      // Unite m³/s plus petite, alignee en bas avec le chiffre
+      ctx.font = 'bold ' + fsUnit + 'px "Segoe UI",Arial,sans-serif';
+      const unitTxt = ' m³/s';
+      ctx.fillText(unitTxt, debX + numW, debY + (fsCap - fsUnit));
+      const unitW = ctx.measureText(unitTxt).width;
+      // Triangle toggle : meme taille que le triangle de l'etiquette (fsArrow = 28*sx).
+      const debW = numW + unitW;
+      const triChar = isVisible(c) ? '▴' : '▾';
+      const fsTriMap = Math.max(18, Math.round(28 * sx));
+      ctx.font = 'bold ' + fsTriMap + 'px "Segoe UI",Arial,sans-serif';
+      ctx.fillStyle = isVisible(c) ? '#1a1a2e' : '#555577';
+      const triX = debX + debW + 1 * sx;
+      const triW = ctx.measureText(triChar).width;
+      ctx.fillText(triChar, triX, debY + (fsCap - fsTriMap) * 0.5);
+      ctx.restore();
+      const ciIdx2 = D.centrales.indexOf(c);
+      mapToggleBounds[ciIdx2] = {
+        x0: triX / sx, y0: (debY - 2*sx) / sy,
+        x1: (triX + triW + 6*sx) / sx, y1: (debY + fsCap + 2*sx) / sy
+      };
+    } else {
+      const ciIdx2 = D.centrales.indexOf(c);
+      mapToggleBounds[ciIdx2] = null;
+    }
+
+    // Icone info (i) sur la carte (toujours visible, independante de l'etiquette).
+    const fsArrow = Math.max(18, Math.round(28 * sx));
+    const fsInfo  = Math.max(14, Math.round(22 * sx));
+    const infoSzC = fsInfo;
+    const infoImC = iconImgs['info'];
+    const ciIdx = D.centrales.indexOf(c);
+    const infoPosC = infoLabelPos('ic', ciIdx);
+    if (infoPosC.x !== null && infoImC && infoImC.complete) {
+      const infoXC = infoPosC.x * sx, infoYC = infoPosC.y * sy;
+      ctx.drawImage(infoImC, infoXC - infoSzC/2, infoYC - infoSzC/2, infoSzC, infoSzC);
+      infoCentBounds[ciIdx] = { x: infoPosC.x, y: infoPosC.y, r: (infoSzC * 0.55) / sx };
+    } else {
+      infoCentBounds[ciIdx] = null;
+    }
+
+    // Etat : expanded = toujours pleine hauteur. Cache si alpha == 0.
+    const expanded = isExpanded(c);
+    const lhEff = lh;
+    const alpha  = labelAlpha[c.id] !== undefined ? labelAlpha[c.id] : (expanded ? 1 : 0);
+    if (alpha <= 0) continue;  // saute le rendu etiquette si completement cachee
+
+    // Alpha fondu : applique sur toute l'etiquette + pointille + pastille.
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Ligne de rappel icon -> etiquette (pointillee).
     const lcx = lx + lwC/2, lcy = ly + lhEff/2;
     const dx = ix - lcx,   dy  = iy - lcy;
     let ex = lcx, ey = lcy;
@@ -807,36 +924,17 @@ function draw(i) {
     ctx.beginPath(); ctx.arc(ix,iy,4*sx,0,2*Math.PI);
     ctx.fillStyle=col.f; ctx.fill();
 
-    // (XXX MW) au cote du nom de la centrale sur l'image (position depuis config)
-    if (c.cap_mw !== null) {
-      const fsCap = Math.max(8, Math.round(13 * sx));
-      let capX, capY;
-      if (c.mwLabelX !== null && c.mwLabelY !== null) {
-        capX = c.mwLabelX * sx;
-        capY = c.mwLabelY * sy;
-      } else {
-        capX = ix + (c.nom.length * 4 * sx) + 8 * sx;
-        capY = iy - 8 * sy;
-      }
-      ctx.font = fsCap+'px "Segoe UI",Arial,sans-serif';
-      ctx.fillStyle = 'rgba(80,80,80,.95)';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('(' + c.cap_mw + ' MW)', capX, capY);
-    }
-
     // Fond etiquette : utilise lhEff pour vraiment liberer de l'espace en mode compact.
     ctx.fillStyle='#fff';
     ctx.fillRect(lx,ly,lwC,lhEff);
-    // Barre coloree gauche (elargie pour bien voir le statut)
-    const barW = 12 * sx;
-    ctx.fillStyle=col.f; ctx.fillRect(lx,ly,barW,lhEff);
+    const barW = 0;
     // Bordure
     ctx.strokeStyle='rgba(80,80,80,.6)'; ctx.lineWidth=.9*sx;
     ctx.strokeRect(lx,ly,lwC,lhEff);
 
     const leftX = lx + barW + 6 * sx;
     const fsName      = Math.max(11, Math.round(17 * sx));
-    const fsTotal     = Math.max(10, Math.round(20 * sx));
+    const fsTotal     = Math.max(10, Math.round(17 * sx));
     const fsIcon      = Math.max(12, Math.round(30 * sx));
     const fsIconDev   = Math.max(14, Math.round(25 * sx));   // meme taille que sur les reservoirs
     const fsDetail    = Math.max(10, Math.round(16 * sx));
@@ -850,34 +948,20 @@ function draw(i) {
     // Couleurs pour les valeurs : intensite reduite pour mettre le nom en evidence
     const valCol = '#555';
 
-    // Ligne 0 : icone "rosace centrale" + nom de la centrale en gras + trait de separation.
+    // Ligne 0 : icone rosace + nom de la centrale en gras.
     const fsCentrIcon = Math.max(12, Math.round(fsName * 1.40));
     const nameEndX = drawLeftSegments(ctx, [
       { icon: 'centrale', size: fsCentrIcon },
       { text: c.nomAffiche || c.nom, color: '#111' }
     ], leftX, ly + lh*0.071, fontName);
 
-    // Icone info (i) entre le nom et la fleche pliage.
-    const infoSzC = Math.max(13, Math.round(fsName * 1.20));
-    const infoImC = iconImgs['info'];
-    const fsArrow = Math.max(18, Math.round(28 * sx));
-    // Fleche positionnee a droite, info juste a sa gauche.
+    // Indicateur fermeture dans le coin haut-droit : toujours ▴ (ferme l'etiquette).
     const arrowXC = lx + lwC - 6*sx;
     const rowYC = ly + lh*0.071;
-    const infoXC = arrowXC - Math.round(fsArrow*0.5) - infoSzC*0.5 - 5*sx;
-    if (infoImC && infoImC.complete) {
-      ctx.drawImage(infoImC, infoXC - infoSzC/2, rowYC - infoSzC/2, infoSzC, infoSzC);
-    }
-    // Stocker les bornes pour le hit-test (coords image = diviser par sx/sy).
-    const ciIdx = D.centrales.indexOf(c);
-    infoCentBounds[ciIdx] = { x: (infoXC) / sx, y: rowYC / sy, r: (infoSzC * 0.65) / sx };
-
-    // Indicateur pliage : fleche dans le coin haut-droit, plus grosse que le nom.
-    // Compact : ▾ (cliquer pour etendre). Etendu : ▴ (cliquer pour replier).
     ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
     ctx.fillStyle = '#1a1a2e';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(expanded ? '▴' : '▾', arrowXC, rowYC);
+    ctx.fillText('▴', arrowXC, rowYC);
     const sepY = ly + lh*0.159;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
@@ -899,8 +983,8 @@ function draw(i) {
       ctx.restore();
     }
 
-    // Lignes 2-4 + sparkline : visibles seulement quand la centrale est etendue.
-    if (isExpanded(c)) {
+    // Lignes 2-4 + sparkline : toujours visibles (plus de mode compact).
+    if (true) {
       // Ligne 2 : detail (engrenage vert + valeur) + (verre + valeur), icones PNG
       const turbEff = c.turbsEff[i];
       const devEff  = c.devsEff[i];
@@ -1113,6 +1197,7 @@ function draw(i) {
         }
       }
     }
+    ctx.restore();  // fin du globalAlpha pour cette etiquette
   }
 
   // ---- RESERVOIRS ----
@@ -1131,21 +1216,79 @@ function draw(i) {
       const apportEff   = r.apportsEff[i];
       const apportStale = r.apportsStale[i];
 
-      const expandedR = isExpandedRes(r);
-      // Reservoirs : compact = nom + deversement (~65 px sur 145). Hauteur dynamique
-      // pour eviter tout blanc inutile sous le contenu.
-      const lhr = expandedR ? lhrFull : lhrFull * 0.45;
-
       const ix = r.iconX * sx, iy = r.iconY * sy;
       const lx = r.labelX * sx, ly = r.labelY * sy;
 
-      // Ligne de rappel pointillee bleue (calcul avec lhr effectif). Couleur basee
-      // sur la presence du deversement (donnee principale du reservoir maintenant).
-      const lcx = lx + lwr/2, lcy = ly + lhr/2;
+      const fsName  = Math.max(11, Math.round(17 * sx));
+      const fsTotal = Math.max(10, Math.round(17 * sx));
+      const fsIcon  = Math.max(12, Math.round(30 * sx));
+      const fsDetail = Math.max(10, Math.round(16 * sx));
+      const fontName  = 'bold ' + fsName  + 'px "Segoe UI",Arial,sans-serif';
+      const fontTotal = 'bold ' + fsTotal + 'px "Segoe UI",Arial,sans-serif';
+      const fontDetail = fsDetail + 'px "Segoe UI",Arial,sans-serif';
+      const fsArrow = Math.max(18, Math.round(28 * sx));
+      const fsCap   = Math.max(8,  Math.round(13 * sx));  // meme taille que les centrales
+      const fsUnit  = Math.max(6,  Math.round(10 * sx));
+
+      // Texte deversement + triangle toggle sur la carte (toujours visible).
+      const riIdx = D.reservoirs.indexOf(r);
+      const riPos = debitLabelPos('r', riIdx);
+      if (devEff !== null && riPos.x !== null && riPos.y !== null) {
+        const devMapX = riPos.x * sx, devMapY = riPos.y * sy;
+        ctx.save();
+        if (devStale) ctx.globalAlpha = 0.45;
+        ctx.fillStyle = '#111';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        const devNumTxt = String(devEff);
+        ctx.font = 'bold ' + fsCap + 'px "Segoe UI",Arial,sans-serif';
+        ctx.fillText(devNumTxt, devMapX, devMapY);
+        const devNumW = ctx.measureText(devNumTxt).width;
+        ctx.font = 'bold ' + fsUnit + 'px "Segoe UI",Arial,sans-serif';
+        const devUnitTxt = ' m³/s';
+        ctx.fillText(devUnitTxt, devMapX + devNumW, devMapY + (fsCap - fsUnit));
+        const devUnitW = ctx.measureText(devUnitTxt).width;
+        const triCharR = isVisibleRes(r) ? '▴' : '▾';
+        ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
+        ctx.fillStyle = isVisibleRes(r) ? '#1a1a2e' : '#555577';
+        const triRX = devMapX + devNumW + devUnitW + 1 * sx;
+        const triRW = ctx.measureText(triCharR).width;
+        ctx.fillText(triCharR, triRX, devMapY + (fsCap - fsArrow) * 0.5);
+        ctx.restore();
+        mapToggleBoundsRes[riIdx] = {
+          x0: triRX / sx, y0: (devMapY - 2*sx) / sy,
+          x1: (triRX + triRW + 6*sx) / sx, y1: (devMapY + fsCap + 2*sx) / sy
+        };
+      } else {
+        mapToggleBoundsRes[riIdx] = null;
+      }
+
+      // Icone info (i) sur la carte (toujours visible, independante de l'etiquette).
+      const fsInfo  = Math.max(14, Math.round(22 * sx));
+      const infoSzR = fsInfo;
+      const infoImR = iconImgs['info'];
+      const infoPosR = infoLabelPos('ir', riIdx);
+      if (infoPosR.x !== null && infoImR && infoImR.complete) {
+        const infoXR2 = infoPosR.x * sx, infoYR2 = infoPosR.y * sy;
+        ctx.drawImage(infoImR, infoXR2 - infoSzR/2, infoYR2 - infoSzR/2, infoSzR, infoSzR);
+        infoResBounds[riIdx] = { x: infoPosR.x, y: infoPosR.y, r: (infoSzR * 0.55) / sx };
+      } else {
+        infoResBounds[riIdx] = null;
+      }
+
+      // Alpha fondu reservoir.
+      const resKey = 'res:' + r.nom;
+      const alphaR = labelAlpha[resKey] !== undefined ? labelAlpha[resKey] : (isExpandedRes(r) ? 1 : 0);
+      if (alphaR <= 0) continue;
+
+      ctx.save();
+      ctx.globalAlpha = alphaR;
+
+      // Ligne de rappel pointillee bleue.
+      const lcx = lx + lwr/2, lcy = ly + lhrFull/2;
       const dx = ix - lcx, dy = iy - lcy;
       let ex = lcx, ey = lcy;
-      if (Math.abs(dx) > Math.abs(dy) * (lwr/lhr)) { ex = dx>0 ? lx+lwr : lx; }
-      else                                          { ey = dy>0 ? ly+lhr : ly; }
+      if (Math.abs(dx) > Math.abs(dy) * (lwr/lhrFull)) { ex = dx>0 ? lx+lwr : lx; }
+      else                                              { ey = dy>0 ? ly+lhrFull : ly; }
       ctx.save();
       ctx.setLineDash([3*sx, 3*sx]);
       ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ix,iy);
@@ -1154,56 +1297,34 @@ function draw(i) {
       ctx.stroke();
       ctx.restore();
 
-      // Petite pastille sur l'icone.
+      // Pastille icone.
       ctx.beginPath(); ctx.arc(ix,iy,4*sx,0,2*Math.PI);
       ctx.fillStyle = devEff === null ? grayAcc : accent;
       ctx.fill();
 
-      // Fond etiquette + bordure (pas de barre statut sur les reservoirs).
+      // Fond etiquette + bordure (toujours pleine hauteur).
       ctx.fillStyle='#fff';
-      ctx.fillRect(lx, ly, lwr, lhr);
+      ctx.fillRect(lx, ly, lwr, lhrFull);
       ctx.strokeStyle = 'rgba(80,80,80,.6)'; ctx.lineWidth = .9*sx;
-      ctx.strokeRect(lx, ly, lwr, lhr);
+      ctx.strokeRect(lx, ly, lwr, lhrFull);
 
       const barW = 0;
       const leftX = lx + 8 * sx;
-      const fsName  = Math.max(11, Math.round(17 * sx));
-      const fsTotal = Math.max(10, Math.round(20 * sx));
-      const fsIcon  = Math.max(12, Math.round(30 * sx));
-      const fsDetail = Math.max(10, Math.round(16 * sx));
-      const fontName  = 'bold ' + fsName  + 'px "Segoe UI",Arial,sans-serif';
-      const fontTotal = 'bold ' + fsTotal + 'px "Segoe UI",Arial,sans-serif';
-      const fontDetail = fsDetail + 'px "Segoe UI",Arial,sans-serif';
-      const valCol = '#555';
 
-      // Nom + fleche pliage en haut, suivi du trait separateur.
-      // Positions calibrees pour lhrFull = 145 (ratios different des centrales car moins de lignes).
-      // Icone "barrage" a meme taille que l'icone "centrale" cote centrale.
+      // Nom + icone barrage.
       const fsResIcon = Math.max(12, Math.round(fsName * 1.40));
       drawLeftSegments(ctx, [
         { icon: 'barrage', size: fsResIcon },
         { text: r.nom, color: '#111' }
       ], leftX, ly + lhrFull*0.10, fontName);
 
-      // Icone info (i) entre le nom et la fleche pliage (reservoir).
-      const infoSzR = Math.max(13, Math.round(fsName * 1.20));
-      const infoImR = iconImgs['info'];
-      const fsArrow = Math.max(18, Math.round(28 * sx));
+      // Triangle fermeture (toujours ▴).
       const arrowXR = lx + lwr - 6*sx;
       const rowYR = ly + lhrFull*0.10;
-      const infoXR = arrowXR - Math.round(fsArrow*0.5) - infoSzR*0.5 - 5*sx;
-      if (infoImR && infoImR.complete && r.cehq) {
-        ctx.drawImage(infoImR, infoXR - infoSzR/2, rowYR - infoSzR/2, infoSzR, infoSzR);
-      }
-      const riIdx = D.reservoirs.indexOf(r);
-      infoResBounds[riIdx] = r.cehq
-        ? { x: infoXR / sx, y: rowYR / sy, r: (infoSzR * 0.65) / sx }
-        : null;
-
       ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
       ctx.fillStyle = '#1a1a2e';
       ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.fillText(expandedR ? '▴' : '▾', arrowXR, rowYR);
+      ctx.fillText('▴', arrowXR, rowYR);
       const sepY = ly + lhrFull*0.22;
       ctx.beginPath();
       ctx.moveTo(leftX, sepY);
@@ -1212,9 +1333,7 @@ function draw(i) {
       ctx.lineWidth = 0.8*sx;
       ctx.stroke();
 
-      // Ligne 1 : deversement (donnee principale).
-      // Si la valeur est stale (last-known), on ecrit "n/d" plutot que d'afficher
-      // une valeur ancienne palie. Si vraiment aucune donnee jamais recue, on saute.
+      // Ligne 1 : deversement.
       if (devEff !== null) {
         const devTxt = devStale ? 'n/d' : (devEff + ' m³/s');
         drawLeftSegments(ctx, [
@@ -1223,8 +1342,8 @@ function draw(i) {
         ], leftX, ly + lhrFull*0.29, fontTotal);
       }
 
-      // Lignes 2+ (apport, niveau, sparkline) : visibles seulement quand etendu.
-      if (expandedR) {
+      // Lignes 2+ (apport, niveau, sparkline) : toujours visibles (plus de compact).
+      if (true) {
         // Ligne 2 : niveau amont.
         if (nivEff !== null) {
           const nivTxt = nivStale ? 'n/d' : (nivEff.toFixed(2) + ' m');
@@ -1350,6 +1469,7 @@ function draw(i) {
           }
         }
       }
+      ctx.restore();  // fin globalAlpha etiquette reservoir
     }
   }
 
@@ -1361,31 +1481,83 @@ function draw(i) {
     const lgIs = Math.max(14, Math.round(D.legend.iconSize * sx));
     const lgFs = Math.max(10, Math.round(D.legend.fontSize * sx));
     const lgFont = lgFs + 'px "Segoe UI",Arial,sans-serif';
+    const lgFontBold = 'bold ' + lgFs + 'px "Segoe UI",Arial,sans-serif';
+    const lgFontBoldLg = 'bold ' + Math.round(lgFs * 1.25) + 'px "Segoe UI",Arial,sans-serif';
     const lgCol  = '#1a3060';
     const lgGap = Math.max(8, Math.round(12 * sx));
-    // Ligne 1 : Debit total
+    const lgResX = lgX - Math.round(340 * sx);  // bloc Reservoir a gauche du bloc Centrale
+
+    // -- BLOC RESERVOIR --
+    const lgResAttrX = lgResX + Math.round(140 * sx);
+    const lgResAttrY = lgY - Math.round(50 * sy) + Math.round(50 * sy);
+    drawLeftSegments(ctx, [
+      { icon: 'barrage', size: lgIs },
+      { gap: lgGap },
+      { text: 'Réservoir', color: lgCol, font: lgFontBoldLg }
+    ], lgResAttrX, lgResAttrY - lgLh, lgFontBoldLg);
+    drawLeftSegments(ctx, [
+      { icon: 'niveau', size: lgIs },
+      { gap: lgGap },
+      { text: 'Niveau (m)', color: lgCol }
+    ], lgResAttrX, lgResAttrY, lgFont);
+    drawLeftSegments(ctx, [
+      { icon: 'apport', size: lgIs },
+      { gap: lgGap },
+      { text: 'Précipitation (m³/s)', color: lgCol }
+    ], lgResAttrX, lgResAttrY + lgLh, lgFont);
+    drawLeftSegments(ctx, [
+      { icon: 'deverse', size: Math.round(lgIs * 1.25) },
+      { gap: lgGap },
+      { text: 'Déversé (m³/s)', color: lgCol }
+    ], lgResAttrX, lgResAttrY + 2 * lgLh, lgFont);
+
+    // -- BLOC CENTRALE --
+    const lgIsDev = Math.round(lgIs * 1.25);
+    const lgColGap = Math.max(16, Math.round(24 * sx));  // espace entre col 2 et col 3
     drawLeftSegments(ctx, [
       { icon: 'debit', size: lgIs },
       { gap: lgGap },
       { text: 'Débit total (m³/s)', color: lgCol }
     ], lgX, lgY, lgFont);
-    // Ligne 2 : Turbine + Deverse sur la meme ligne (deverse legerement plus gros)
-    const lgIsDev = Math.round(lgIs * 1.25);
-    drawLeftSegments(ctx, [
+    const lgLine2EndX = drawLeftSegments(ctx, [
       { icon: 'turbine-vert', size: lgIs },
       { gap: lgGap },
-      { text: 'Turbiné', color: lgCol },
-      { gap: Math.max(14, Math.round(20 * sx)) },
-      { icon: 'deverse', size: lgIsDev },
-      { gap: lgGap },
-      { text: 'Déversé (m³/s)', color: lgCol }
+      { text: 'Turbiné (m³/s)', color: lgCol }
     ], lgX, lgY + lgLh, lgFont);
-    // Ligne 3 : Production
     drawLeftSegments(ctx, [
       { icon: 'eclair', size: lgIs },
       { gap: lgGap },
-      { text: 'Électricité généré en megawatt', color: lgCol }
+      { text: 'Élec. générée (MW)', color: lgCol }
     ], lgX, lgY + 2 * lgLh, lgFont);
+
+    // -- COLONNE STATUTS (cercles de couleur) --
+    // Alignée à droite de la ligne 2 (Turbiné + Déversé), à la hauteur de la ligne 1 (Débit total)
+    const lgStatX = lgLine2EndX + lgColGap + Math.round(20 * sx);
+    const lgStatY = lgY - lgLh;
+    const lgRing  = Math.max(6, Math.round(lgIs * 0.45));  // rayon de l'anneau
+    const lgRingW = Math.max(2, Math.round(lgRing * 0.35)); // épaisseur de l'anneau
+    const lgStatGap = Math.max(6, Math.round(10 * sx));
+    const statColors = [
+      { color: 'rgba(46,160,67,.92)',  label: 'Bas' },
+      { color: 'rgba(210,170,0,.92)', label: 'Modéré' },
+      { color: 'rgba(230,110,0,.92)', label: 'Élevé' },
+      { color: 'rgba(200,30,30,.92)', label: 'Fort' }
+    ];
+    statColors.forEach((s, k) => {
+      const sy2 = lgStatY + k * lgLh;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(lgStatX + lgRing, sy2, lgRing, 0, Math.PI * 2);
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = lgRingW;
+      ctx.stroke();
+      ctx.restore();
+      ctx.font = lgFont;
+      ctx.fillStyle = lgCol;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.label, lgStatX + lgRing * 2 + lgStatGap, sy2);
+    });
   }
 }
 
@@ -1519,7 +1691,7 @@ function hitTestTurbineIcon(xImg, yImg) {
   const barW = 12;
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
-    if (!isExpanded(c) || !c.nb_groupes) continue;
+    if (!isExpanded(c) || !c.nb_groupes) continue;  // garde : etiquette visible + config turbine
     const lwC = c.labelW || D.labelW;
     const x0 = c.labelX + barW + 4;
     const x1 = c.labelX + lwC - 4;             // toute la largeur de la ligne indicateur
@@ -1529,16 +1701,26 @@ function hitTestTurbineIcon(xImg, yImg) {
   }
   return -1;
 }
-// Zone cliquable pour basculer compact/etendu : haut du label (nom + debit total).
+// Zone cliquable pour fermer l'etiquette : toute la zone du header (nom).
 function hitTestLabelHeader(xImg, yImg) {
   const lh = D.labelH;
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
+    if (!isVisible(c)) continue;
     const lwC = c.labelW || D.labelW;
     if (xImg >= c.labelX && xImg <= c.labelX + lwC &&
-        yImg >= c.labelY && yImg <= c.labelY + lh * 0.36) {
+        yImg >= c.labelY && yImg <= c.labelY + lh * 0.20) {
       return k;
     }
+  }
+  return -1;
+}
+// Triangle toggle sur la carte (apres m3/s) : ouvre ou ferme l'etiquette.
+function hitTestMapToggle(xImg, yImg) {
+  for (let k = 0; k < D.centrales.length; k++) {
+    const b = mapToggleBounds[k];
+    if (!b) continue;
+    if (xImg >= b.x0 && xImg <= b.x1 && yImg >= b.y0 && yImg <= b.y1) return k;
   }
   return -1;
 }
@@ -1573,14 +1755,21 @@ function hitTestReservoirHeader(xImg, yImg) {
   for (let k = 0; k < D.reservoirs.length; k++) {
     const r = D.reservoirs[k];
     if (r.iconX === null || r.iconY === null || r.labelX === null || r.labelY === null) continue;
-    const expandedR = (compactMode['res:' + r.nom] === true);
-    const lhr = expandedR ? lhrFull : lhrFull * 0.36;
-    // Zone cliquable : haut du label (~36 % de la hauteur pleine).
-    const hitH = lhrFull * 0.36;
+    if (!isVisibleRes(r)) continue;
+    const hitH = lhrFull * 0.22;
     if (xImg >= r.labelX && xImg <= r.labelX + lwr &&
         yImg >= r.labelY && yImg <= r.labelY + hitH) {
       return k;
     }
+  }
+  return -1;
+}
+// Triangle toggle sur la carte pour les reservoirs.
+function hitTestMapToggleRes(xImg, yImg) {
+  for (let k = 0; k < D.reservoirs.length; k++) {
+    const b = mapToggleBoundsRes[k];
+    if (!b) continue;
+    if (xImg >= b.x0 && xImg <= b.x1 && yImg >= b.y0 && yImg <= b.y1) return k;
   }
   return -1;
 }
@@ -1591,7 +1780,7 @@ function hitTestReservoirNiveauArrow(xImg, yImg) {
   for (let k = 0; k < D.reservoirs.length; k++) {
     const r = D.reservoirs[k];
     if (r.labelX === null || r.labelY === null) continue;
-    if (compactMode['res:' + r.nom] !== true) continue;
+    if (!isExpandedRes(r)) continue;
     if (r.minNiv == null) continue;
     const lineY = r.labelY + lhrFull * 0.47;
     const x0 = r.labelX, x1 = r.labelX + lwr;
@@ -1608,7 +1797,7 @@ function hitTestReservoirSparkline(xImg, yImg) {
   for (let k = 0; k < D.reservoirs.length; k++) {
     const r = D.reservoirs[k];
     if (r.iconX === null || r.iconY === null || r.labelX === null || r.labelY === null) continue;
-    if (compactMode['res:' + r.nom] !== true) continue;   // sparkline visible seulement si etendu
+    if (!isExpandedRes(r)) continue;   // sparkline visible seulement si etendu
     const x0 = r.labelX + 4;
     const x1 = r.labelX + lwr - 4;
     const y0 = r.labelY + lhrFull - sparkH - sparkBottomMargin;
@@ -1621,11 +1810,13 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   if (!D) { hoverLayer.style.cursor = 'default'; return; }
   const { x, y } = imgCoordsFromEv(ev);
   let cursor = 'default';
-  if (hitTestInfoCentrale(x, y) !== -1)        { cursor = 'pointer'; }
-  else if (hitTestInfoReservoir(x, y) !== -1)  { cursor = 'pointer'; }
-  else if (hitTestLabelHeader(x, y) !== -1)    { cursor = 'pointer'; }
-  else if (hitTestReservoirHeader(x, y) !== -1){ cursor = 'pointer'; }
-  else if (hitTestTurbineIcon(x, y) !== -1)    { cursor = 'pointer'; }
+  if (hitTestInfoCentrale(x, y) !== -1)            { cursor = 'pointer'; }
+  else if (hitTestInfoReservoir(x, y) !== -1)      { cursor = 'pointer'; }
+  else if (hitTestMapToggle(x, y) !== -1)          { cursor = 'pointer'; }
+  else if (hitTestMapToggleRes(x, y) !== -1)       { cursor = 'pointer'; }
+  else if (hitTestLabelHeader(x, y) !== -1)        { cursor = 'pointer'; }
+  else if (hitTestReservoirHeader(x, y) !== -1)    { cursor = 'pointer'; }
+  else if (hitTestTurbineIcon(x, y) !== -1)      { cursor = 'pointer'; }
   else if (hitTestReservoirNiveauArrow(x, y) !== -1) { cursor = 'pointer'; }
   else {
     const kSpark = hitTestSparkline(x, y);
@@ -1643,21 +1834,30 @@ hoverLayer.addEventListener('click', (ev)=>{
   const kInfoR = hitTestInfoReservoir(x, y);
   if (kInfoR !== -1) { openInfoModalReservoir(kInfoR); return; }
 
-  // Priorite 1 : clic sur en-tete d'une centrale -> bascule compact/etendu.
+  // Priorite 0b : clic sur le triangle toggle sur la carte -> ouvre ou ferme l'etiquette.
+  const kToggle = hitTestMapToggle(x, y);
+  if (kToggle !== -1) {
+    const c = D.centrales[kToggle];
+    setLabelState(c, isVisible(c) ? 'hidden' : 'expanded');
+    return;
+  }
+  // Priorite 1 : clic sur l'en-tete de l'etiquette -> ferme l'etiquette.
   const kHeader = hitTestLabelHeader(x, y);
   if (kHeader !== -1) {
     const c = D.centrales[kHeader];
-    compactMode[c.id] = !isExpanded(c);
-    draw(frame);
+    setLabelState(c, 'hidden');
     return;
   }
-  // Priorite 2 : clic sur en-tete d'un reservoir -> bascule compact/etendu.
+  // Priorite 1b : clic sur le triangle toggle reservoir sur la carte.
+  const kToggleRes = hitTestMapToggleRes(x, y);
+  if (kToggleRes !== -1) {
+    setLabelState(D.reservoirs[kToggleRes], isVisibleRes(D.reservoirs[kToggleRes]) ? 'hidden' : 'expanded');
+    return;
+  }
+  // Priorite 2 : clic sur en-tete d'un reservoir -> ferme l'etiquette.
   const kRes = hitTestReservoirHeader(x, y);
   if (kRes !== -1) {
-    const r = D.reservoirs[kRes];
-    const key = 'res:' + r.nom;
-    compactMode[key] = !(compactMode[key] === true);
-    draw(frame);
+    setLabelState(D.reservoirs[kRes], 'hidden');
     return;
   }
   // Priorite 3 : clic sur l'indicateur turbine d'une centrale etendue -> modal turbines.
@@ -2486,6 +2686,7 @@ window.addEventListener('resize', ()=>{
     navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
   });
 })();
+
 </script>
 </body>
 </html>
