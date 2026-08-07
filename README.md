@@ -225,8 +225,10 @@ publiée pour ce réservoir — il n'est donc pas animé.)*
 
 - **Production électrique** : `P (MW) = ρ · g · Q_turb · H · η / 10⁶`, avec η = 0,90
   (rendement turbine + génératrice).
-- **Couleur de l'anneau** : ratio `(débit − min historique) / (max − min)` — vert < 25 %,
-  jaune 25-50 %, orange 50-75 %, rouge ≥ 75 %.
+- **Couleur de l'anneau** : ratio `(débit − min historique) / (max − min)` — vert < 40 %,
+  jaune 40-65 %, orange 65-85 %, rouge ≥ 85 %. Les seuils ne sont pas des quartiles
+  égaux : ils sont décalés vers le haut pour que le rouge signale un débit réellement
+  inhabituel (haut 15 % de l'amplitude historique) plutôt qu'une exploitation courante.
 
 **Estimé** — une reconstruction plausible, pas une mesure. Hydro-Québec publie le débit
 turbiné *total* d'une centrale, jamais le détail par groupe. À partir de ce total, du type

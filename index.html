@@ -149,7 +149,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     &middot;
     <span title="Version de la PWA installee">v2.9.2</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-07 11:30</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-07 12:51</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -693,10 +693,14 @@ document.addEventListener('visibilitychange', () => {
 
 function ratioColor(r) {
   // Couleur basee sur (current - min) / (max - min) en %
+  //
+  // Seuils cales sur le suivi de crue (et non en quartiles egaux) : un debit a
+  // 75 % du range historique est courant, pas alarmant. Le rouge est reserve au
+  // top 15 % du range, le vert couvre l'exploitation courante (< 40 %).
   if (r === null || r === undefined) return {f:'rgba(120,120,120,.88)',s:'#555'};
-  if (r < 25) return {f:'rgba(46,160,67,.92)',  s:'#1a6e2a'};   // vert
-  if (r < 50) return {f:'rgba(210,170,0,.92)',  s:'#7a6200'};   // jaune
-  if (r < 75) return {f:'rgba(230,110,0,.92)',  s:'#7a3a00'};   // orange
+  if (r < 40) return {f:'rgba(46,160,67,.92)',  s:'#1a6e2a'};   // vert
+  if (r < 65) return {f:'rgba(210,170,0,.92)',  s:'#7a6200'};   // jaune
+  if (r < 85) return {f:'rgba(230,110,0,.92)',  s:'#7a3a00'};   // orange
   return            {f:'rgba(200,30,30,.92)',   s:'#6a0000'};   // rouge
 }
 
