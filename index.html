@@ -109,15 +109,13 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 #topRight a{color:#1a3060;text-decoration:underline;font-weight:600}
 #topRight a:hover{color:#0a1a40}
 /* Bandeau resume riviere : ancre par le HAUT, juste au-dessus de DISTANCE.
-   L'en-tete "Faits saillants de ..." reste a la meme hauteur quel que soit le jour.
-   Le texte descend sous l'en-tete. Le bord gauche s'aligne approximativement avec
-   la fermeture du mot "DISTANCE (km)". */
-#riverSummary{position:absolute;right:1.5%;top:86%;
+   Plus d'en-tete date : le texte occupe directement la place, donc on remonte
+   l'ancrage de la hauteur qu'occupait le titre (86% -> 88%). Le bord gauche
+   s'aligne approximativement avec la fermeture du mot "DISTANCE (km)". */
+#riverSummary{position:absolute;right:1.5%;top:88%;
               width:42%;z-index:4;
               color:#1a1a2e;
               font-size:clamp(11px, 0.92vw, 17px);line-height:1.4;text-align:left}
-#riverSummary .when{display:block;font-weight:700;color:#1a3060;
-                    font-size:clamp(12px, 1.05vw, 19px);letter-spacing:.3px;margin-bottom:4px}
 #riverSummary b,#riverSummary strong{color:#000;font-weight:700}
 /* Date de derniere mise a jour, posee en bas-gauche du schema (dans #wrap).
    Position symetrique du #riverSummary (qui est en bas-droite, top:86%). */
@@ -147,9 +145,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA installee">v2.10.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.10.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-07 16:33</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-07 18:18</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -445,7 +443,7 @@ function setPeriode(key) {
     const a = (key === 'hebdomadaire') ? startOfWeek(first) : first;
     const b = (key === 'hebdomadaire') ? startOfWeek(last)  : last;
     const labelKey = { horaire: 'Heure', journalier: 'Jour', hebdomadaire: 'Semaine', mensuel: 'Mois' }[key] || key;
-    perEl.textContent = '(periode : ' + a + ' au ' + b + ') [' + labelKey + ']';
+    perEl.textContent = '(période : ' + a + ' au ' + b + ') [' + labelKey + ']';
   }
   // Sous-titre : explique ce que les chiffres affiches representent. En vue
   // Heure, les ts horaires sont deja explicites (instantane), donc rien.
@@ -642,7 +640,7 @@ async function init() {
     lastFetchAt = performance.now();
   } catch (err) {
     console.error('Erreur de chargement initial', err);
-    if (riverBox) riverBox.innerHTML = '<span class="when">Erreur de chargement</span>' + (err.message || err);
+    if (riverBox) riverBox.innerHTML = '<b>Erreur de chargement</b> ' + (err.message || err);
   }
 }
 init();
@@ -1588,24 +1586,12 @@ function go(i) {
   if (sliderTs) sliderTs.textContent = ts;
   fi.textContent = (frame+1)+' / '+N;
   draw(frame);
-  // Bandeau resume general de la riviere (3 vues, change avec la frame).
-  // Prefixe : "Faits saillants de [date]" (Heure/Jour) ou "Faits saillants de la
-  // semaine [dimanche]" (Semaine). Date sans heure, semaine sans plage.
+  // Bandeau resume general de la riviere (4 vues, change avec la frame).
+  // Pas d'en-tete : la date est deja visible dans la barre de controle et le
+  // texte commence par une accroche en gras, qui joue le role de titre.
   if (riverBox && D.riverSummaries) {
     const txt = D.riverSummaries[frame];
-    let label;
-    if (D.periode === 'hebdomadaire') {
-      const startOfWeek = ts.split(' ')[0];
-      label = 'Faits saillants de la semaine ' + startOfWeek;
-    } else if (D.periode === 'horaire') {
-      label = 'Faits saillants de ' + ts.split(' ')[0];
-    } else if (D.periode === 'mensuel') {
-      label = 'Faits saillants du mois ' + ts;
-    } else {
-      label = 'Faits saillants de ' + ts;
-    }
-    const labelEsc = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    riverBox.innerHTML = '<span class="when">' + labelEsc + '</span>' + _renderInlineMarkdown(txt || '');
+    riverBox.innerHTML = _renderInlineMarkdown(txt || '');
   }
   if (typeof modalIdx !== 'undefined' && modalIdx >= 0 && typeof drawBigChart === 'function') {
     drawBigChart();
@@ -2509,7 +2495,7 @@ function openModalNivRes(k) {
   modalTable.innerHTML = '';
   const r = D.reservoirs[k];
   const cur = r.niveauxEff[frame];
-  modalTitle.textContent = r.nom + ' — niveau du reservoir';
+  modalTitle.textContent = r.nom + ' — niveau du réservoir';
   const minV = r.minNiv != null ? r.minNiv.toFixed(2) + ' m' : '—';
   const maxV = r.maxNiv != null ? r.maxNiv.toFixed(2) + ' m' : '—';
   const curV = cur != null ? cur.toFixed(2) + ' m' : '—';
