@@ -140,10 +140,44 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
       position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
       padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
+/* Mode "barre ancree au viewport visuel" (voir pinVisualViewport plus bas).
+   Active uniquement sur telephone : la barre passe en position absolue dans le
+   document et c'est le JS qui la repositionne a chaque zoom/scroll, car
+   position:fixed suit le viewport de MISE EN PAGE sur iOS Safari, pas le
+   viewport VISUEL -> des qu'on pince pour zoomer, la barre sort de l'ecran.
+   transform-origin bottom left + scale compensent le zoom pour que la barre
+   garde une taille lisible a l'ecran quel que soit le facteur. */
+body.vv-pinned #ctrl{position:absolute;left:0;right:auto;bottom:auto;
+                     transform-origin:0 100%;will-change:transform,top,width}
 @supports (padding: env(safe-area-inset-bottom)) {
   #ctrl{bottom:env(safe-area-inset-bottom);
         padding-bottom:calc(8px + env(safe-area-inset-bottom) * .35)}
+  /* En mode epingle, c'est GAP_SCREEN_PX (en JS) qui degage la zone gestuelle :
+     le padding lie a la safe-area ferait double emploi et epaissirait la barre. */
+  body.vv-pinned #ctrl{padding-bottom:8px}
 }
+/* Taille de police stable en mode epingle : la barre est mise a l'echelle
+   inverse du zoom par le JS, donc les tailles CSS doivent etre fixes en px et
+   non dependre du viewport (sinon l'apparence change entre portrait et paysage,
+   ou la largeur virtuelle est rendue a un facteur different). */
+body.vv-pinned #ctrl{font-size:13px}
+/* Barre compacte en mode epingle : elle est superposee au schema, donc elle doit
+   rester basse. Sans ca, le slider fixe a 360 px force le retour a la ligne des
+   7 controles et la barre atteint ~200 px de haut sur un ecran de 390 px.
+   Le slider devient fluide et occupe la largeur restante. On garde tous les
+   boutons de navigation (c'est le geste principal : reculer dans les dates) mais
+   on reduit "Debut" et "Maintenant" a leur seul pictogramme, et on retire le
+   selecteur de vitesse, sans objet quand on navigue au doigt. Le mini-horodatage
+   reste : c'est lui qui indique la date pendant qu'on deplace le curseur. */
+body.vv-pinned #ctrl{gap:6px;padding:6px 8px;flex-wrap:nowrap}
+body.vv-pinned #sliderWrap{flex:1 1 auto;min-width:0}
+body.vv-pinned #slider{width:100%;min-width:0}
+body.vv-pinned #ctrl button{padding:8px 10px;font-size:14px;white-space:nowrap}
+body.vv-pinned #fi{display:none}
+body.vv-pinned #speed{display:none}
+/* Boutons extremes reduits a leur pictogramme : le libelle est remplace en JS
+   (le texte et l'icone sont dans le meme noeud, un simple font-size:0 masquerait
+   aussi le pictogramme). Voir pinVisualViewport. */
 /* Cible tactile des controles : 44 px est le minimum recommande par Apple. Le
    slider a 16 px de haut etait difficile a saisir, surtout pres du bord bas.
    touch-action:none sur le slider : sans ca, iOS interprete le glissement
@@ -229,9 +263,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.11.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.11.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 08:58</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 09:25</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -2727,6 +2761,87 @@ window.addEventListener('resize', ()=>{
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
   else if (modalTurbIdx >= 0) drawTurbineModal();
 });
+
+// ---------------------------------------------------------------------------
+// Barre de controle toujours visible sur telephone, meme zoome
+// ---------------------------------------------------------------------------
+// Probleme : sur iOS Safari, position:fixed est ancre au viewport de MISE EN
+// PAGE, pas au viewport VISUEL. Quand on pince pour zoomer sur le schema, la
+// barre reste collee au document agrandi et sort de l'ecran. env(safe-area-*)
+// ne corrige pas ca : il ne traite que la bande du home indicator.
+//
+// Solution : on passe la barre en position:absolute et on la repositionne a
+// chaque evenement de visualViewport (zoom, defilement, rotation). On la place
+// au bas du viewport visuel, remontee d'une marge pour ne pas tomber dans la
+// zone gestuelle du systeme, et on compense le zoom par un scale inverse pour
+// qu'elle garde la meme taille apparente a l'ecran.
+//
+// N'est active QUE sur telephone (meme critere de taille que l'injection du
+// meta viewport). Sur ordinateur, la barre reste en position:fixed classique.
+(function () {
+  var vv = window.visualViewport;
+  if (!vv) return;  // navigateur sans visualViewport : on garde position:fixed
+
+  // Meme critere que le meta viewport : deux mesures basses exigees, car
+  // screen.width peut etre une valeur fictive figee selon l'environnement.
+  var dpr3 = window.devicePixelRatio || 1;
+  if ((screen.width || 9999) / dpr3 > 900) return;
+  if ((window.innerWidth || 9999) / dpr3 > 1100) return;
+
+  var ctrl = document.getElementById('ctrl');
+  if (!ctrl) return;
+  document.body.classList.add('vv-pinned');
+
+  // Libelles raccourcis : sur une seule ligne, "Debut" et "Maintenant" font
+  // deborder la barre. On ne garde que le pictogramme ; le titre reste comme
+  // infobulle et pour l'accessibilite.
+  (function () {
+    var pairs = [['btnStart', '⏮'], ['btnEnd', '⏭']];
+    for (var i = 0; i < pairs.length; i++) {
+      var b = document.getElementById(pairs[i][0]);
+      if (b) { b.setAttribute('aria-label', b.textContent.trim()); b.textContent = pairs[i][1]; }
+    }
+  })();
+
+  // Marge au-dessus du bord bas du viewport visuel, en pixels ECRAN. Couvre la
+  // zone ou iOS capte les swipes (home indicator ~34 px) avec un peu d'air.
+  var GAP_SCREEN_PX = 20;
+
+  var raf = 0;
+  function place() {
+    raf = 0;
+    var scale = vv.scale || 1;
+    // Coordonnees du viewport visuel, exprimees en pixels CSS du document.
+    var visW = vv.width;
+    var visH = vv.height;
+    var left = vv.offsetLeft;
+    var top  = vv.offsetTop;
+    // La barre est mise a l'echelle inverse du zoom : sa hauteur reelle en
+    // pixels CSS vaut donc h/scale. On la pose a GAP_SCREEN_PX du bas de
+    // l'ecran, converti en pixels CSS (division par scale).
+    var gapCss = GAP_SCREEN_PX / scale;
+    var hCss = ctrl.offsetHeight;
+    ctrl.style.width = (visW * scale) + 'px';           // largeur ecran, avant scale inverse
+    ctrl.style.transform = 'scale(' + (1 / scale) + ')';
+    ctrl.style.left = left + 'px';
+    // transform-origin est en bas a gauche : le haut de l'element doit donc etre
+    // positionne de facon que son BAS tombe au bon endroit apres mise a l'echelle.
+    ctrl.style.top = (top + visH - gapCss - hCss) + 'px';
+  }
+  function schedule() {
+    if (raf) return;
+    raf = requestAnimationFrame(place);
+  }
+
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
+  window.addEventListener('orientationchange', function () { setTimeout(schedule, 250); });
+  window.addEventListener('resize', schedule);
+  // Le contenu de la barre change de hauteur quand les elements passent a la
+  // ligne (flex-wrap) : on replace aussi apres coup.
+  if (window.ResizeObserver) { new ResizeObserver(schedule).observe(ctrl); }
+  schedule();
+})();
 
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
 // ou en file:// : ne doit jamais bloquer l'affichage.
