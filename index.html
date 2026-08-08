@@ -37,6 +37,47 @@
     location.replace(isLocal ? 'animation-mobile.html' : 'mobile.html');
   } catch (e) { /* localStorage indisponible (mode prive ?) : pas de redirection */ }
 })();
+
+// Zone sure iOS (encoche + "home indicator") pour la version BUREAU consultee sur
+// telephone. Probleme corrige : la barre de controle est en position:fixed
+// bottom:0, donc elle tombe dans la bande de ~34 px que iOS reserve au home
+// indicator. Dans cette bande, le systeme capte les swipes en priorite -> le
+// slider "bloque" ou, pire, le geste ferme l'application.
+//
+// Les CSS env(safe-area-inset-*) ne renvoient une valeur non nulle QUE si le
+// viewport declare viewport-fit=cover. Or on ne veut pas de <meta viewport>
+// statique : sans lui, iOS Safari utilise une largeur virtuelle de 980 px, ce qui
+// permet justement de pincer pour zoomer et de se deplacer dans le schema. Ajouter
+// width=device-width casserait la mise en page bureau.
+//
+// Solution : on injecte le meta seulement sur ecran tactile, en reprenant
+// explicitement la largeur virtuelle de 980 px (au lieu de device-width) et en
+// autorisant le zoom jusqu'a 10x. On garde donc le comportement actuel, avec
+// viewport-fit=cover en plus pour activer les env().
+(function () {
+  try {
+    if (document.querySelector('meta[name="viewport"]')) return;
+    // Critere = TAILLE D'ECRAN, pas type de pointeur. Les media queries de
+    // pointage sont peu fiables : un poste sans ecran tactile peut rapporter
+    // any-pointer:coarse et maxTouchPoints>0 (cas observe sur ce projet en Edge
+    // headless), ce qui appliquerait le mode tactile au vrai bureau.
+    //
+    // On exige que les DEUX mesures soient petites, et non leur minimum : en
+    // environnement de test, screen.width peut etre une valeur fictive figee
+    // (800 en Edge headless quelle que soit la fenetre) alors que innerWidth
+    // reflete la vraie largeur. Un seul signal bas ne doit donc pas suffire.
+    // Sur un vrai telephone les deux sont bas ; sur un bureau, innerWidth est
+    // large et desamorce l'injection.
+    var dpr2 = window.devicePixelRatio || 1;
+    var wScr = (screen.width || 9999) / dpr2;
+    var wWin = (window.innerWidth || 9999) / dpr2;
+    if (wScr > 900 || wWin > 1100) return;
+    var m = document.createElement('meta');
+    m.name = 'viewport';
+    m.content = 'width=980, initial-scale=1, minimum-scale=0.2, maximum-scale=10, user-scalable=yes, viewport-fit=cover';
+    document.head.appendChild(m);
+  } catch (e) { /* pas de viewport dynamique : on retombe sur bottom:0 */ }
+})();
 </script>
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
@@ -47,12 +88,13 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:0;height:100vh;overflow:hidden}
-#titlebox{position:absolute;top:calc(7.4% - 1cm);left:50%;transform:translateX(-50%);
+/* L'en-tete ne compte plus que 2 lignes ("Saint-Maurice" + date) depuis le
+   retrait de la periode et du sous-titre "Debit max atteint sur la periode".
+   Le decalage negatif de 1cm servait a compenser la 3e ligne : on le reduit
+   pour que le bloc descende a la place qu'occupait le sous-titre. */
+#titlebox{position:absolute;top:calc(7.4% - 0.35cm);left:50%;transform:translateX(-50%);
           text-align:center;color:#1a1a2e;pointer-events:none;z-index:2;width:90%}
 #titlebox h1{font-size:clamp(16px, 1.55vw, 28px);letter-spacing:.3px;font-weight:700}
-#titlebox h1 #periode{font-size:clamp(9px, 0.78vw, 14px);color:rgba(26,26,46,.55);font-weight:400;margin-left:8px;letter-spacing:0}
-#titlebox #subtitle{font-size:clamp(11px, 1vw, 17px);color:rgba(26,26,46,.70);font-weight:500;font-style:italic;margin-top:2px;min-height:0;letter-spacing:.1px}
-#titlebox #subtitle:empty{display:none}
 #titlebox #ts{font-size:clamp(13px, 1.22vw, 22px);color:#000;font-weight:600;margin-top:4px;min-height:24px}
 #wrap{position:relative;display:inline-block;max-width:100%}
 #img{display:block;max-width:100%;max-height:calc(100vh - 54px);width:auto;height:auto;object-fit:contain}
@@ -85,10 +127,39 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
                   font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-info-close:hover{color:#000}
 #modal-info-body{font-size:13px}
+/* Barre de controle collee en bas. Sur iPhone (et Android a barre gestuelle), les
+   ~34 px du bas sont reserves au "home indicator" : iOS y capte les swipes en
+   priorite, donc un slider pose a bottom:0 se retrouve dans une zone ou le geste
+   ferme l'app au lieu de deplacer le curseur. On decale donc la barre de la
+   hauteur de la zone sure (env(safe-area-inset-bottom), 0 sur desktop) et on
+   ajoute un padding-bottom equivalent pour que le fond couvre toujours le bord.
+   Necessite viewport-fit=cover, ajoute dynamiquement en JS (voir plus bas) : on
+   ne met PAS de <meta viewport> statique, sinon on perdrait le pinch-zoom qui
+   sert a consulter la version bureau sur telephone. */
 #ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
       position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
       padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
+@supports (padding: env(safe-area-inset-bottom)) {
+  #ctrl{bottom:env(safe-area-inset-bottom);
+        padding-bottom:calc(8px + env(safe-area-inset-bottom) * .35)}
+}
+/* Cible tactile des controles : 44 px est le minimum recommande par Apple. Le
+   slider a 16 px de haut etait difficile a saisir, surtout pres du bord bas.
+   touch-action:none sur le slider : sans ca, iOS interprete le glissement
+   horizontal comme un pan/scroll de la page et le curseur ne suit pas le doigt.
+   Condition combinee (pointeur grossier ET petit ecran ET fenetre etroite) :
+   any-pointer:coarse seul se declenche sur des postes de bureau sans ecran
+   tactile. On ajoute max-width (largeur du viewport) en plus de max-device-width
+   (largeur de l'ecran) car cette derniere peut etre une valeur fictive figee
+   dans certains environnements. Le seuil de 1100px tient compte de la largeur
+   virtuelle de 980 px qu'iOS applique en l'absence de meta viewport. */
+@media (any-pointer: coarse) and (max-device-width: 900px) and (max-width: 1100px) {
+  #slider{height:28px;touch-action:none}
+  #ctrl button{padding:9px 18px}
+  #ctrl select{padding:8px 10px}
+  #ctrl{gap:12px}
+}
 button{padding:5px 16px;font-size:13px;border-radius:6px;border:none;cursor:pointer;
        background:#4a6fa5;color:#fff;transition:background .15s}
 button:hover{background:#5a82bf}
@@ -98,7 +169,14 @@ button:hover{background:#5a82bf}
 select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
        color:#eee;border:1px solid #555;cursor:pointer}
 #fi{font-size:12px;color:#778;min-width:80px;text-align:right}
-#disclaimer{position:absolute;left:1.5%;top:1%;
+/* Disclaimer : pose en bas-gauche, sous #generatedAt, avec 1 ligne vide entre
+   les deux. #generatedAt est ancre a 85.4% (meme hauteur que la 1re ligne des
+   faits saillants) ; on descend donc de 2 lignes (sa ligne + 1 vide) a
+   line-height 1.3, soit ~1.7% de la hauteur de #wrap par ligne : 85.4 + 3.5 = 88.9%
+   (valeur ajustee a la mesure pour tomber sur exactement 1 ligne vide).
+   font-size : repli seulement, la taille reelle est imposee en JS (= lgFs, la
+   taille du texte courant de la legende). Idem pour #generatedAt plus bas. */
+#disclaimer{position:absolute;left:1.5%;top:88.9%;
             font-size:clamp(11px, 0.95vw, 17px);color:#1a1a2e;text-align:left;pointer-events:auto;z-index:4;
             max-width:50%;line-height:1.3;font-style:italic;opacity:.78}
 #disclaimer a{color:#1a3060;text-decoration:underline;font-weight:600}
@@ -110,16 +188,23 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 #topRight a:hover{color:#0a1a40}
 /* Bandeau resume riviere : ancre par le HAUT, juste au-dessus de DISTANCE.
    Plus d'en-tete date : le texte occupe directement la place, donc on remonte
-   l'ancrage de la hauteur qu'occupait le titre (86% -> 88%). Le bord gauche
-   s'aligne approximativement avec la fermeture du mot "DISTANCE (km)". */
-#riverSummary{position:absolute;right:1.5%;top:88%;
+   l'ancrage de la hauteur qu'occupait le titre (86% -> 88%). Remonte ensuite
+   de 2 lignes de texte (~1.3vh chacune a ce corps et line-height 1.4) pour
+   degager le bas du schema : 88% -> 85.4%. Le bord gauche s'aligne
+   approximativement avec la fermeture du mot "DISTANCE (km)".
+   font-size : valeur de repli seulement. La taille reelle est imposee en JS
+   (riverBox.style.fontSize = lgFs) pour coller exactement au texte de la
+   legende, qui suit l'echelle de l'image et non la largeur de fenetre. */
+#riverSummary{position:absolute;right:1.5%;top:85.4%;
               width:42%;z-index:4;
               color:#1a1a2e;
               font-size:clamp(11px, 0.92vw, 17px);line-height:1.4;text-align:left}
 #riverSummary b,#riverSummary strong{color:#000;font-weight:700}
 /* Date de derniere mise a jour, posee en bas-gauche du schema (dans #wrap).
-   Position symetrique du #riverSummary (qui est en bas-droite, top:86%). */
-#generatedAt{position:absolute;left:1.5%;top:96%;
+   Alignee sur la 1re ligne du #riverSummary (bas-droite, top:85.4%) pour que les
+   deux blocs demarrent a la meme hauteur de part et d'autre du schema.
+   font-size : repli seulement, taille reelle imposee en JS (= lgFs). */
+#generatedAt{position:absolute;left:1.5%;top:85.4%;
              font-size:clamp(13px, 1.1vw, 20px);color:#0a0a1a;
              font-family:"Segoe UI",Arial,sans-serif;font-style:italic;
              pointer-events:none;z-index:4;opacity:1;letter-spacing:.2px;font-weight:500}
@@ -131,8 +216,7 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <canvas id="ov"></canvas>
   <div id="hover-layer"></div>
   <div id="titlebox">
-    <h1 id="titre">D&#233;bit d&#8217;eau - Saint-Maurice<span id="periode"></span></h1>
-    <div id="subtitle"></div>
+    <h1 id="titre">Saint-Maurice</h1>
     <div id="ts">&#8212;</div>
   </div>
   <div id="riverSummary"></div>
@@ -145,9 +229,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.10.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.11.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 07:59</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 08:58</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -431,26 +515,9 @@ function setPeriode(key) {
   // Bascule par defaut sur la frame la plus recente, comme l'init.
   frame = N - 1;
   slider.value = frame;
-  // Re-render et MAJ du label de periode dans le titre.
-  // En hebdomadaire, le timestamp est une plage 'dim -> sam' ; on n'affiche que le
-  // dimanche de debut pour rester lisible (l'intervalle complet est visible dans le
-  // label tsLabel quand on bouge le slider).
-  const perEl = document.getElementById('periode');
-  if (perEl && D.timestamps && D.timestamps.length) {
-    const startOfWeek = (s) => s.split(' ')[0];
-    const first = D.timestamps[0];
-    const last  = D.timestamps[D.timestamps.length - 1];
-    const a = (key === 'hebdomadaire') ? startOfWeek(first) : first;
-    const b = (key === 'hebdomadaire') ? startOfWeek(last)  : last;
-    const labelKey = { horaire: 'Heure', journalier: 'Jour', hebdomadaire: 'Semaine', mensuel: 'Mois' }[key] || key;
-    perEl.textContent = '(période : ' + a + ' au ' + b + ') [' + labelKey + ']';
-  }
-  // Sous-titre : explique ce que les chiffres affiches representent. En vue
-  // Heure, les ts horaires sont deja explicites (instantane), donc rien.
-  const subEl = document.getElementById('subtitle');
-  if (subEl) {
-    subEl.textContent = (key === 'horaire') ? '' : 'Débit max atteint sur la période';
-  }
+  // L'en-tete est desormais fixe ("Saint-Maurice Debit d'eau" + date) : plus de
+  // label de periode ni de sous-titre a mettre a jour ici. La periode reste
+  // lisible via le selecteur de vue et le timestamp affiche sous le titre.
   if (typeof go === 'function') go(frame);
 }
 
@@ -1485,6 +1552,19 @@ function draw(i) {
     const lgFont = lgFs + 'px "Segoe UI",Arial,sans-serif';
     const lgFontBold = 'bold ' + lgFs + 'px "Segoe UI",Arial,sans-serif';
     const lgFontBoldLg = 'bold ' + Math.round(lgFs * 1.25) + 'px "Segoe UI",Arial,sans-serif';
+    // Textes hors canvas alignes sur la taille du texte courant de la legende
+    // (ex. "Niveau (m)"). La legende est dessinee sur le canvas et suit l'echelle
+    // de l'image (lgFs = 16 * sx, sans plafond), alors que ces blocs utilisaient
+    // des clamp() indexes sur la largeur de fenetre et plafonnes (17px / 20px) :
+    // les tailles divergeaient au-dela de ~1920 px de large. On les pilote donc
+    // ici avec la meme valeur lgFs, pour qu'elles restent identiques a toute
+    // resolution. Les clamp() du CSS ne servent plus que de repli avant le
+    // premier rendu du canvas.
+    if (riverBox) riverBox.style.fontSize = lgFs + 'px';
+    const discEl = document.getElementById('disclaimer');
+    if (discEl) discEl.style.fontSize = lgFs + 'px';
+    const genEl = document.getElementById('generatedAt');
+    if (genEl) genEl.style.fontSize = lgFs + 'px';
     const lgCol  = '#1a3060';
     const lgGap = Math.max(8, Math.round(12 * sx));
     const lgResX = lgX - Math.round(340 * sx);  // bloc Reservoir a gauche du bloc Centrale
@@ -1607,7 +1687,7 @@ function go(i) {
   }
 }
 
-// Bascule de periode (le label dans le titre est mis a jour par setPeriode)
+// Bascule de periode (setPeriode reconstruit la vue et repositionne le slider)
 periodeSel.addEventListener('change', () => {
   stop();
   setPeriode(periodeSel.value);
