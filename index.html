@@ -140,6 +140,26 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
       position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
       padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
+/* Bouton Actualiser : en PWA installee (display:standalone) il n'y a plus de
+   barre d'adresse, donc plus de bouton recharger du navigateur. Ce bouton
+   rejoue exactement autoRefresh() (re-fetch manifest + donnees si changement).
+   L'etat .busy fait tourner le chevron pendant le re-fetch ; .ok/.same donnent
+   un retour immediat meme quand rien n'a change (sinon un clic sans effet
+   visible passe pour un bug). */
+#btnRefresh .ico{display:inline-block}
+#btnRefresh.busy{opacity:.75;pointer-events:none}
+#btnRefresh.busy .ico{animation:spinRefresh .8s linear infinite}
+@keyframes spinRefresh{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){
+  #btnRefresh.busy .ico{animation:none}
+}
+/* Toast de retour : discret, au-dessus de la barre, disparait tout seul. */
+#refreshToast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%) translateY(8px);
+  z-index:30;background:rgba(26,26,46,.96);color:#e8e8f0;border:1px solid #2a2a4e;
+  border-radius:8px;padding:8px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease}
+#refreshToast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#refreshToast.err{border-color:#7a3a3a;color:#ffbdbd}
 /* Mode "barre ancree au viewport visuel" (voir pinVisualViewport plus bas).
    Active uniquement sur telephone : la barre passe en position absolue dans le
    document et c'est le JS qui la repositionne a chaque zoom/scroll, car
@@ -175,6 +195,9 @@ body.vv-pinned #slider{width:100%;min-width:0}
 body.vv-pinned #ctrl button{padding:8px 10px;font-size:14px;white-space:nowrap}
 body.vv-pinned #fi{display:none}
 body.vv-pinned #speed{display:none}
+/* Pas de bouton Actualiser en mode epingle : sur telephone c'est le
+   pull-to-refresh qui remplit ce role, et la barre manque de place. */
+body.vv-pinned #btnRefresh{display:none}
 /* Boutons extremes reduits a leur pictogramme : le libelle est remplace en JS
    (le texte et l'icone sont dans le meme noeud, un simple font-size:0 masquerait
    aussi le pictogramme). Voir pinVisualViewport. */
@@ -255,6 +278,17 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
 #hover-layer{z-index:5}
 #disclaimer,#generatedAt,#topRight{z-index:1}
 #riverSummary{z-index:6}
+/* ...MAIS les LIENS de ces blocs doivent rester cliquables. #hover-layer couvre
+   100 % du schema pour capter les clics sur les centrales ; a z-index 5 il passe
+   devant l'habillage (z-index 1) et avale les clics sur "Mobile", "Details &
+   sources" et "Commentaires" : liens visibles, mais inertes.
+   PAS de correctif par z-index ici : remonter les liens imposerait un z-index sur
+   leur parent (ou de le passer en auto), ce qui change l'ordre de PEINTURE et
+   ramene le bug de 2.11.2 (le disclaimer repasse devant le detail deplie de
+   Grand-Mere, seule etiquette qui descend jusqu'a cette zone).
+   L'empilement visuel reste donc EXACTEMENT celui de 2.11.2 ; c'est uniquement le
+   routage du clic qui est corrige, en JS (voir "Clics sur les liens d'habillage"
+   plus bas). */
 </style>
 </head>
 <body>
@@ -276,9 +310,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.11.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.11.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 09:47</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-08 10:40</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -319,8 +353,10 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
     <option value="50">Rapide</option>
     <option value="16">Tr&#232;s rapide</option>
   </select>
+  <button id="btnRefresh" title="Actualiser les donn&eacute;es (Ctrl+R / F5)"><span class="ico">&#8635;</span> Actualiser</button>
   <span id="fi"></span>
 </div>
+<div id="refreshToast" role="status" aria-live="polite"></div>
 <script>
 // Lien vers la version mobile : en local (output/), le fichier s'appelle animation-mobile.html ;
 // sur GitHub Pages, il est renomme mobile.html. On adapte si on detecte le mode local.
@@ -765,15 +801,30 @@ init();
 // SILENCIEUSEMENT le manifest (bypass SW via forceNetwork). Si generatedAt a change,
 // on recharge sommaire + mois courant et on re-rend la vue active. Sinon : rien.
 // Garde-fous : pas de re-entrance, pas pendant le lazy-load, au plus 1 fois / 30 s.
-async function autoRefresh() {
-  if (autoRefreshing || isFetching) return;
-  if (performance.now() - lastFetchAt < 30000) return;
+//
+// opts.manual = true (clic sur "Actualiser") : leve le throttle de 30 s et
+// attend la fin du lazy-load au lieu d'abandonner, car un clic explicite doit
+// toujours aboutir. Retourne 'updated' | 'same' pour permettre un retour visuel
+// (l'appel automatique, lui, ignore la valeur de retour et reste silencieux).
+async function autoRefresh(opts) {
+  const manual = !!(opts && opts.manual);
+  if (autoRefreshing) return 'busy';
+  if (isFetching && !manual) return 'busy';
+  if (!manual && performance.now() - lastFetchAt < 30000) return 'same';
   autoRefreshing = true;
   try {
+    // Clic manuel pendant un lazy-load : on patiente plutot que d'abandonner.
+    // Borne a ~5 s pour ne jamais laisser le bouton tourner indefiniment.
+    if (manual && isFetching) {
+      const until = performance.now() + 5000;
+      while (isFetching && performance.now() < until) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
     const fresh = await fetchJson('data/manifest.json', { forceNetwork: true });
     lastFetchAt = performance.now();
     const freshStamp = fresh.generatedAt || null;
-    if (freshStamp != null && freshStamp === dataStamp) return; // rien de neuf
+    if (freshStamp != null && freshStamp === dataStamp) return 'same'; // rien de neuf
     // Donnees changees : recharge sommaire + mois courant en bypass cache.
     manifest = fresh;
     const latest = manifest.latestMonth;
@@ -793,8 +844,12 @@ async function autoRefresh() {
     // derniere frame, ce qui est le comportement attendu d'un rafraichissement.
     const curKey = (D && D.periode) || periodeSel.value || ALL.defaultPeriode || 'horaire';
     setPeriode(ALL.byPeriode[curKey] ? curKey : (['horaire','journalier','hebdomadaire','mensuel'].find(k => ALL.byPeriode[k]) || 'horaire'));
+    return 'updated';
   } catch (e) {
-    /* hors-ligne ou erreur reseau : on garde les donnees actuelles, silencieux */
+    /* hors-ligne ou erreur reseau : on garde les donnees actuelles.
+       Appel automatique : silencieux. Appel manuel : on propage pour que le
+       bouton puisse afficher "Hors-ligne" au lieu de mentir avec "Deja a jour". */
+    if (manual) throw e;
   } finally {
     autoRefreshing = false;
   }
@@ -802,6 +857,52 @@ async function autoRefresh() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') autoRefresh();
 });
+
+// --- Bouton "Actualiser" ---
+// En PWA installee (display:standalone) il n'y a pas de barre d'adresse, donc
+// pas de bouton recharger. Ce bouton comble ce manque SANS recharger la page :
+// il rejoue autoRefresh({manual:true}), donc pas de flash ni de perte de la
+// position courante dans l'animation. Ctrl+R / F5 restent geres par le systeme.
+(function setupRefreshButton() {
+  const btn   = document.getElementById('btnRefresh');
+  const toast = document.getElementById('refreshToast');
+  if (!btn) return;
+  let toastTimer = null;
+
+  function showToast(msg, isError) {
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.toggle('err', !!isError);
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.classList.remove('show'); }, 2200);
+  }
+
+  btn.addEventListener('click', async () => {
+    btn.classList.add('busy');
+    btn.setAttribute('aria-busy', 'true');
+    try {
+      const res = await autoRefresh({ manual: true });
+      showToast(res === 'updated' ? 'Données mises à jour' : 'Déjà à jour', false);
+    } catch (e) {
+      showToast('Hors-ligne : données inchangées', true);
+    } finally {
+      btn.classList.remove('busy');
+      btn.removeAttribute('aria-busy');
+    }
+  });
+
+  // Ctrl+R / Cmd+R en PWA : le raccourci n'est pas toujours transmis a la
+  // fenetre standalone selon la plateforme. On l'intercepte pour offrir le
+  // meme geste qu'au navigateur, en re-fetch a chaud plutot qu'en reload.
+  document.addEventListener('keydown', (e) => {
+    const k = (e.key || '').toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'r' && !e.shiftKey) {
+      e.preventDefault();
+      btn.click();
+    }
+  });
+})();
 
 function ratioColor(r) {
   // Couleur basee sur (current - min) / (max - min) en %
@@ -1924,6 +2025,10 @@ function hitTestReservoirSparkline(xImg, yImg) {
   return -1;
 }
 hoverLayer.addEventListener('mousemove', (ev)=>{
+  // Survol d'un lien d'habillage joignable : curseur main, comme un vrai lien.
+  // Meme regle que pour le clic (voir linkAtClientPoint) : ignore si une
+  // etiquette depliee recouvre le lien.
+  if (linkAtClientPoint(ev)) { hoverLayer.style.cursor = 'pointer'; return; }
   if (!D) { hoverLayer.style.cursor = 'default'; return; }
   const { x, y } = imgCoordsFromEv(ev);
   let cursor = 'default';
@@ -1942,7 +2047,56 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   }
   hoverLayer.style.cursor = cursor;
 });
+// --- Clics sur les liens d'habillage ("Mobile", "Details & sources", ...) ---
+// #hover-layer couvre tout le schema a z-index 5 et passe devant ces liens
+// (z-index 1 depuis 2.11.2), qui restaient visibles mais inertes.
+// Corriger ca par z-index obligerait a remonter leur bloc parent au-dessus du
+// canvas, ce qui ramenerait le bug que 2.11.2 a corrige : le disclaimer
+// repasserait devant le detail deplie de Grand-Mere. On garde donc l'ordre de
+// peinture intact et on reroute uniquement le CLIC : si les coordonnees du
+// pointeur tombent sur un <a> de l'habillage, on l'active et on s'arrete la.
+// (hitTest en geometrie plutot qu'en elementFromPoint : la couche masque les
+// liens, donc elementFromPoint retournerait toujours #hover-layer.)
+// Une etiquette DEPLIEE au-dessus du lien doit garder la priorite : elle masque
+// visuellement le lien (le canvas est peint par-dessus l'habillage depuis
+// 2.11.2), donc le clic doit aller a l'etiquette, pas au lien cache dessous.
+// C'est le cas du detail de Grand-Mere qui recouvre le disclaimer.
+function labelCoversImgPoint(x, y) {
+  if (!D) return false;
+  const lh = D.labelH;
+  for (const c of D.centrales) {
+    if (!isVisible(c)) continue;
+    const lwC = c.labelW || D.labelW;
+    if (x >= c.labelX && x <= c.labelX + lwC &&
+        y >= c.labelY && y <= c.labelY + lh) return true;
+  }
+  return false;
+}
+function linkAtClientPoint(ev) {
+  const cx = ev.clientX, cy = ev.clientY;
+  const sel = '#disclaimer a, #topRight a';
+  for (const a of document.querySelectorAll(sel)) {
+    const r = a.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+      // Lien recouvert par une etiquette depliee -> on laisse passer au schema.
+      const p = imgCoordsFromEv(ev);
+      if (labelCoversImgPoint(p.x, p.y)) return null;
+      return a;
+    }
+  }
+  return null;
+}
 hoverLayer.addEventListener('click', (ev)=>{
+  // Priorite absolue : un lien d'habillage sous le pointeur. Avant le garde
+  // "if (!D)" pour que les liens marchent meme si les donnees n'ont pas charge.
+  const a = linkAtClientPoint(ev);
+  if (a) {
+    ev.preventDefault();
+    // .click() rejoue le comportement natif : target=_blank, mailto:, etc.
+    a.click();
+    return;
+  }
   if (!D) return;
   const { x, y } = imgCoordsFromEv(ev);
   // Priorite 0 : clic sur icone info d'une centrale ou reservoir -> modale info.
