@@ -310,9 +310,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.12.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.13.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 15:38</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 19:44</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -424,7 +424,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","ruissellement"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","pluie"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -944,6 +944,80 @@ document.addEventListener('visibilitychange', () => {
   });
 })();
 
+// ----- Palette des SERIES : une grandeur = une teinte, partout -----
+// SOURCE UNIQUE de verite pour la couleur des courbes (sparklines centrales ET
+// reservoirs, modales, legende, version mobile). Avant centralisation, les teintes
+// etaient ecrites en dur dans 6 endroits et le meme vert portait trois sens
+// differents : turbine (centrale), apport (reservoir) et "debit bas" (pastille de
+// statut). Deux etiquettes voisines sur la meme image affichaient donc le meme
+// echantillon de couleur pour des grandeurs sans rapport.
+//
+// Regle : ne JAMAIS ecrire une couleur de serie en dur ailleurs — ajouter la
+// grandeur ici, sinon la prochaine serie reintroduit l'ambiguite.
+//
+// Le 'total' est l'exception volontaire : il prend la couleur du STATUT
+// (ratioColor) parce que c'est lui qui porte l'alerte de crue.
+//
+// L'echelle de statut (vert -> jaune -> orange -> rouge de ratioColor) garde son
+// vert : c'est un registre different (intensite de risque, pas une grandeur
+// mesuree), donc aucune confusion avec le vert 'turbine'.
+const SERIES = {
+  // Eau qui passe par les turbines. Garde le vert : coherent avec l'icone
+  // turbine-vert.png utilisee sur la meme ligne d'etiquette.
+  turbine: { line: 'rgba(46,160,67,.85)',  solid: '#1a6e2a', label: 'Turbiné' },
+  // Eau qui passe par les deversoirs. Etait GRIS sur les centrales et BLEU sur
+  // les reservoirs pour la meme grandeur : unifie en bleu. Le gris redevient
+  // reserve au neutre / donnee absente.
+  deverse: { line: 'rgba(40,110,200,.90)', solid: '#1a3060', label: 'Déversé' },
+  // Eau naturelle entrant depuis le bassin versant (CONSEQUENCE de la pluie).
+  // Quitte le vert (qui signifiait deja 'turbine') pour un cyan/sarcelle, distinct
+  // du bleu deversement tout en restant dans la famille "eau".
+  apport:  { line: 'rgba(0,150,160,.90)',  solid: '#0a6a72', label: 'Apport naturel' },
+  // Pluie tombee (CAUSE de l'apport). Bleu plus pale que le deversement : la cause
+  // precede la consequence, elle est volontairement moins appuyee.
+  pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
+  // Donnee absente / serie neutre.
+  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
+};
+
+// Epaisseur d'un trait de stem-plot en fonction de la densite de points.
+// Sans ca, en vue Jour (129 frames sur ~200 px de sparkline) les traits de 1,3 px
+// se touchent et le stem-plot se lit comme une aire pleine : on perd l'information
+// "1 barre = 1 mesure publiee" qui justifie ce type de trace. On plafonne donc
+// l'epaisseur au pas horizontal disponible, avec une marge de 30 % pour garder un
+// blanc visible entre deux barres voisines.
+function stemWidth(plotW, nPts, base) {
+  if (nPts <= 1) return base;
+  const pas = plotW / (nPts - 1);
+  return Math.max(0.4, Math.min(base, pas * 0.7));
+}
+
+// Extrait la serie complete de pluie 24 h (mm) d'une zone meteo, + son max.
+// D.meteo est indexe [frame][zone], alors que les sparklines ont besoin d'une serie
+// par frame : on transpose une fois par etiquette au lieu de refaire la recherche
+// de zone a chaque point.
+//
+// Le max est celui de la FENETRE courante (et non de l'historique complet comme
+// pour l'apport) : la pluie est deja bornee par nature (0 a ~80 mm/24h) et un
+// episode ancien tres pluvieux ecraserait toutes les averses recentes. Ici on veut
+// voir le relief de la periode affichee.
+function pluieSerie(zoneKey) {
+  if (!zoneKey || !D.meteo || !D.meteo.zones || !D.meteo.frames) return null;
+  const zi = D.meteo.zones.findIndex(z => z.key === zoneKey);
+  if (zi < 0) return null;
+  const out = new Array(D.meteo.frames.length).fill(null);
+  let mx = 0;
+  for (let k = 0; k < D.meteo.frames.length; k++) {
+    const fr = D.meteo.frames[k];
+    if (!fr || !fr[zi]) continue;
+    const v = fr[zi].p24;
+    if (v == null) continue;
+    out[k] = v;
+    if (v > mx) mx = v;
+  }
+  return mx > 0 ? { vals: out, max: mx } : null;
+}
+
 function ratioColor(r) {
   // Couleur basee sur (current - min) / (max - min) en %
   //
@@ -1137,19 +1211,22 @@ function draw(i) {
       // Pas d'en-tete "Intensite" : les anneaux se lisent d'eux-memes et la colonne
       // demarre donc a la hauteur des en-tetes. 'N/D' plutot que 'Non disponible'
       // pour resserrer la largeur.
+      // Les teintes sont lues via ratioColor() aux bornes de chaque palier, pour que
+      // la legende suive automatiquement tout futur ajustement des seuils/couleurs
+      // de statut au lieu de diverger silencieusement.
       { lignes: [
-          { ring: 'rgba(46,160,67,.92)',   text: 'Bas' },
-          { ring: 'rgba(210,170,0,.92)',   text: 'Modéré' },
-          { ring: 'rgba(230,110,0,.92)',   text: 'Élevé' },
-          { ring: 'rgba(200,30,30,.92)',   text: 'Fort' },
-          { ring: 'rgba(120,120,120,.88)', text: 'N/D' }
+          { ring: ratioColor(0).f,    text: 'Bas' },
+          { ring: ratioColor(50).f,   text: 'Modéré' },
+          { ring: ratioColor(75).f,   text: 'Élevé' },
+          { ring: ratioColor(95).f,   text: 'Fort' },
+          { ring: ratioColor(null).f, text: 'N/D' }
         ] },
       // 'Apport naturel' n'est pas un en-tete de categorie (contrairement a Reservoir
       // et Centrale qui coiffent plusieurs mesures) : c'est une mesure au meme titre
       // que 'Pluie'. Les deux sont donc des lignes normales, sans gras.
       { lignes: [
-          { icon: 'ruissellement', text: 'Apport naturel (m³/s)', exp: '1' },
-          { icon: 'apport',        text: 'Pluie (mm/24h)' }
+          { icon: 'apport', text: 'Apport naturel (m³/s)', exp: '1' },
+          { icon: 'pluie',  text: 'Pluie (mm/24h)' }
         ] }
     ];
     const lgNotes = [
@@ -1616,7 +1693,7 @@ function draw(i) {
         // cette publication en petit a cote — plus informatif qu'une opacite reduite,
         // qui signale l'anciennete sans la quantifier.
         const segs = [
-          { icon: 'ruissellement', size: fsIconDev },
+          { icon: 'apport', size: fsIconDev },
           { text: cApport + ' m³/s', color: 'rgba(110,110,110,.95)' }
         ];
         if (c.apportsStale && c.apportsStale[i]) {
@@ -1639,7 +1716,7 @@ function draw(i) {
       }
       if (cPluie24 !== null) {
         drawLeftSegments(ctx, [
-          { icon: 'apport', size: fsIconDev },
+          { icon: 'pluie', size: fsIconDev },
           { text: cPluie24 + ' mm/24h', color: 'rgba(110,110,110,.95)' }
         ], leftX, ly + lh*0.6458, fontDetail);
       }
@@ -1712,7 +1789,49 @@ function draw(i) {
         ctx.fillText(compactX(tsFirst), plotX + 1 * sx, xAxisY);
         ctx.textAlign = 'right';
         ctx.fillText(compactX(tsLast), plotX + plotW - 1 * sx, xAxisY);
-        // Trace turbine (vert) puis deverse (gris) en arriere-plan, puis le
+        // NB : la PLUIE n'est volontairement PAS tracee dans la sparkline. Elle est
+        // en mm (pas en m3/s), donc elle exigerait une 3e echelle dans un graphe de
+        // 31 px de haut ou l'apport en occupe deja une 2e — illisible. La pluie est
+        // affichee en clair sur la ligne texte ci-dessus, et tracee dans la MODALE
+        // (panneau dedie sous le graphe des debits), ou la place existe.
+
+        // ---- APPORT NATUREL (cyan, stem-plot, echelle Y PROPRE) ----
+        // Trace ensuite : fond de decor du bas, les debits passent dessus.
+        //
+        // Pourquoi une echelle separee : l'apport et le debit sont tous deux en m3/s,
+        // mais leur rapport varie de 0,5 % (Shawinigan) a 97 % (Chute-Allard) selon le
+        // site. Sur l'axe partage des debits, l'apport serait ecrase sur la ligne du bas
+        // pour la moitie des centrales et confondu avec la courbe de debit pour l'autre.
+        // On le normalise donc sur son propre max historique (c.maxApport, calcule au
+        // render sur tout l'historique) et on le plafonne a 40 % de la hauteur du plot :
+        // il occupe le bas du graphe sans jamais masquer les debits.
+        //
+        // Consequence assumee : un 2e axe implicite, non etiquete (31 px de tracage ne
+        // permettent pas d'etiqueter deux axes). La lecture quantitative existe deja
+        // au-dessus, sur la ligne texte 'apport N m3/s' de l'etiquette — la sparkline
+        // ne sert ici qu'a montrer le RYTHME des arrivees d'eau.
+        //
+        // On lit c.apports (brut) et non c.apportsEff (dernier connu reporte) : l'apport
+        // est publie 1x/jour, donc apportsEff donnerait 24 barres identiques cote a cote
+        // pour une seule mesure reelle. Le stem doit marquer la mesure, pas sa persistance.
+        if (c.apports && c.maxApport) {
+          const apBandH = plotH * 0.40;
+          const apBaseY = plotY + plotH;          // pose sur l'axe X
+          ctx.strokeStyle = SERIES.apport.line;
+          ctx.lineWidth = stemWidth(plotW, N, 1.3 * sx);
+          ctx.beginPath();
+          for (let k = 0; k < N; k++) {
+            const v = c.apports[k];
+            if (v === null || v === undefined || v <= 0) continue;
+            const xx = plotX + (k / (N - 1)) * plotW;
+            const hh = Math.min(1, v / c.maxApport) * apBandH;
+            ctx.moveTo(xx, apBaseY);
+            ctx.lineTo(xx, apBaseY - hh);
+          }
+          ctx.stroke();
+        }
+
+        // Trace turbine (vert) puis deverse (bleu) en arriere-plan, puis le
         // debit total (couleur statut) par-dessus pour qu'il reste lisible.
         const drawSeries = (series, color, lw) => {
           ctx.beginPath();
@@ -1728,8 +1847,8 @@ function draw(i) {
           }
           ctx.stroke();
         };
-        drawSeries(c.turbs, 'rgba(46,160,67,.85)',   1.2 * sx);  // turbine vert
-        drawSeries(c.devs,  'rgba(110,110,110,.85)', 1.2 * sx);  // deverse gris
+        drawSeries(c.turbs, SERIES.turbine.line, 1.2 * sx);
+        drawSeries(c.devs,  SERIES.deverse.line, 1.2 * sx);
 
         // Construire les points debit total (en sautant les nulls).
         const pts = [];
@@ -1765,8 +1884,11 @@ function draw(i) {
   if (D.reservoirs && D.reservoirs.length) {
     const lwr = D.labelWRes * sx;
     const lhrFull = D.labelHRes * sy;
-    const accent = 'rgba(40,110,200,.95)';
-    const grayAcc = 'rgba(140,140,140,.95)';
+    // 'accent' = teinte du deversement (serie principale des reservoirs), tiree de
+    // la palette SERIES pour rester identique au deverse des centrales.
+    // 'grayAcc' = neutre, utilise quand la donnee est absente.
+    const accent = SERIES.deverse.line;
+    const grayAcc = SERIES.neutre.line;
 
     for (const r of D.reservoirs) {
       if (r.iconX === null || r.iconY === null || r.labelX === null || r.labelY === null) continue;
@@ -2008,7 +2130,7 @@ function draw(i) {
           // Meme traitement que les centrales : pas de grisage, date de publication
           // en petit quand la valeur est reportee (apport = 1 valeur/jour).
           const segsA = [
-            { icon: 'ruissellement', size: fsIcon },
+            { icon: 'apport', size: fsIcon },
             { text: apportEff + ' m³/s', color: 'rgba(110,110,110,.95)' }
           ];
           if (apportStale) {
@@ -2037,12 +2159,12 @@ function draw(i) {
         // du debit de plusieurs heures — c'est ce qui la rend utile en anticipation.
         if (pluie24 !== null) {
           drawLeftSegments(ctx, [
-            { icon: 'apport', size: fsIcon },
+            { icon: 'pluie', size: fsIcon },
             { text: pluie24 + ' mm/24h', color: 'rgba(110,110,110,.95)' }
           ], leftX, ly + lhrFull*0.732, fontDetail);
         }
 
-        // Sparkline DEVERSEMENT (bleu) + APPORT (vert), meme hauteur que les centrales.
+        // Sparkline DEVERSEMENT (bleu) + APPORT (cyan), meme hauteur que les centrales.
         const sparkH = 45 * sy;
         const sparkBottomMargin = 4 * sy;
         const fsAxis = Math.max(8, Math.round(10 * sx));
@@ -2097,17 +2219,19 @@ function draw(i) {
           ctx.fillText(compactX(tsFirst), plotX + 1 * sx, xAxisY);
           ctx.textAlign = 'right';
           ctx.fillText(compactX(tsLast), plotX + plotW - 1 * sx, xAxisY);
-          // ---- Courbe APPORT (vert) — stem-plot ----
+          // NB : la PLUIE n'est pas tracee ici (meme raison que pour les centrales :
+          // unite en mm, 3e echelle impossible dans 31 px). Elle est sur la ligne
+          // texte ci-dessus, et tracee dans la modale reservoir.
+          // ---- Courbe APPORT (cyan) — stem-plot ----
           // L'apport est une donnee meteo/journaliere discrete (1 valeur publiee par
           // jour par HQ). On la trace comme un trait vertical de la base (0) jusqu'a
           // la valeur, separement pour chaque mesure. Pas de connexion entre les
           // mesures — sinon le canvas interpole et suggere une evolution continue
           // que la donnee n'a pas. Idem rendu pour les 4 vues (Heure/Jour/Sem/Mois).
           // Trace en arriere-plan pour que la courbe deversement passe par-dessus.
-          const greenAccent = 'rgba(46,160,67,.85)';
           const y0 = yOf(yMin);   // base de l'echelle (souvent 0)
-          ctx.strokeStyle = greenAccent;
-          ctx.lineWidth = 1.3 * sx;
+          ctx.strokeStyle = SERIES.apport.line;
+          ctx.lineWidth = stemWidth(plotW, N, 1.3 * sx);
           ctx.beginPath();
           for (let k = 0; k < N; k++) {
             const v = r.apports[k];
@@ -2517,6 +2641,141 @@ function computeStats(arr) {
   for (const v of arr) { if (v == null) continue; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; n++; }
   return { min: n ? mn : null, max: n ? mx : null, avg: n ? sum / n : null, n };
 }
+// Choisit, parmi les 4 coins d'une zone de trace, celui ou un bloc (boxW x boxH)
+// masque le MOINS de donnees. Les series a eviter sont passees en `series` (tableau
+// de tableaux de valeurs) avec leur convertisseur Y.
+//
+// Une legende posee dans un coin fixe finit toujours par tomber sur la courbe : selon
+// la centrale et la periode affichee, les donnees occupent le haut (crue), le bas
+// (etiage) ou la droite (pic recent). D'ou le choix a chaque rendu.
+//
+// `avoidX` (optionnel) : abscisse a fuir a score egal — typiquement le curseur, pour
+// ne pas masquer la valeur que l'utilisateur est en train de lire.
+function pickCorner(zone, boxW, boxH, series, yOf, xOf, avoidX) {
+  const { x0, y0, w, h } = zone;
+  // 6 positions candidates : les 4 coins + les 2 CENTRES (haut et bas). Sur un
+  // hydrogramme, le centre haut est souvent la zone la plus degagee (les courbes
+  // culminent a la crue puis redescendent, laissant un creux au milieu) et les coins
+  // forcaient la legende contre une courbe alors qu'il y avait de la place au centre.
+  const cx0 = x0 + (w - boxW) / 2;
+  const cands = [
+    { x: x0 + 4,             y: y0 + 4 },
+    { x: cx0,                y: y0 + 4 },
+    { x: x0 + w - boxW - 4,  y: y0 + 4 },
+    { x: x0 + 4,             y: y0 + h - boxH - 4 },
+    { x: cx0,                y: y0 + h - boxH - 4 },
+    { x: x0 + w - boxW - 4,  y: y0 + h - boxH - 4 }
+  ];
+  const margin = 8;
+  for (const co of cands) {
+    let score = 0;
+    const bx0 = co.x - margin, bx1 = co.x + boxW + margin;
+    const by0 = co.y - margin, by1 = co.y + boxH + margin;
+    for (const serie of series) {
+      if (!serie) continue;
+      for (let i = 0; i < serie.length; i++) {
+        const v = serie[i];
+        if (v == null) continue;
+        const px = xOf(i), py = yOf(v);
+        if (px >= bx0 && px <= bx1 && py >= by0 && py <= by1) score++;
+      }
+    }
+    co.score = score;
+    co.distX = (avoidX == null) ? 0 : Math.abs((co.x + boxW / 2) - avoidX);
+  }
+  // Score croissant (moins de chevauchement), puis le plus loin de avoidX.
+  cands.sort((a, b) => (a.score - b.score) || (b.distX - a.distX));
+  return cands[0];
+}
+
+// Dessine le panneau PLUIE (1/3 du bas) d'une modale : cadre, axe Y, titre, legende,
+// barres, curseur. Factorise parce que les deux modales (centrale et reservoir) ont
+// exactement le meme panneau — le dupliquer garantissait qu'elles divergent.
+//
+// Orientation NORMALE (barres du bas vers le haut, 0 en bas) : l'inversion facon
+// hyetogramme n'a plus de raison d'etre depuis que la pluie a son cadre propre — elle
+// servait a la distinguer des debits quand les deux partageaient un seul graphe.
+function drawRainPanel(cx, pl, geo) {
+  const { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N } = geo;
+  if (!pl || rainInnerH <= 10) return;
+  const topY = rainTop;                    // haut du cadre = valeur max
+  const base = rainTop + rainInnerH;       // bas du cadre = 0, origine des barres
+
+  // Bande "futur", alignee sur celle du panneau des debits.
+  if (xFut < pad.l + innerW) {
+    cx.fillStyle = 'rgba(150,150,160,.18)';
+    cx.fillRect(xFut, topY, pad.l + innerW - xFut, rainInnerH);
+  }
+  // Cadre haut/bas.
+  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+  cx.beginPath();
+  cx.moveTo(pad.l, topY); cx.lineTo(pad.l + innerW, topY);
+  cx.moveTo(pad.l, base); cx.lineTo(pad.l + innerW, base);
+  cx.stroke();
+  // Axe Y : max en haut, 0 en bas. Le label du max est descendu d'un cran
+  // (textBaseline 'top' au lieu de 'middle') pour ne pas chevaucher le titre,
+  // qui occupe la ligne juste au-dessus du cadre.
+  cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
+  cx.textAlign = 'right';
+  cx.textBaseline = 'top';
+  cx.fillText(pl.max + ' mm', pad.l - 6, topY + 1);
+  cx.textBaseline = 'middle';
+  cx.fillText('0 mm', pad.l - 6, base);
+  // Titre du panneau, au-dessus du cadre (hors zone de trace).
+  cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
+  cx.textAlign = 'left'; cx.textBaseline = 'bottom';
+  cx.fillText('Pluie (mm/24h)', pad.l, topY - 5);
+  // Barres, du bas vers le haut.
+  cx.strokeStyle = SERIES.pluie.line;
+  cx.lineWidth = stemWidth(innerW, N, 3);
+  cx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const v = pl.vals[i];
+    if (v == null || v <= 0) continue;
+    const xx = pad.l + (i / geo.xSpan) * innerW;
+    cx.moveTo(xx, base);
+    cx.lineTo(xx, base - Math.min(1, v / pl.max) * rainInnerH);
+  }
+  cx.stroke();
+  // Curseur, prolonge depuis le panneau du haut pour lier les deux lectures.
+  cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(xCur, topY); cx.lineTo(xCur, base); cx.stroke();
+  // Valeur courante, si averse en cours.
+  const pCur = pl.vals[frame];
+  if (pCur != null && pCur > 0) {
+    const yP = base - Math.min(1, pCur / pl.max) * rainInnerH;
+    cx.fillStyle = SERIES.pluie.solid;
+    cx.beginPath(); cx.arc(xCur, yP, 3.5, 0, 2 * Math.PI); cx.fill();
+    cx.font = 'bold 11px "Segoe UI",Arial';
+    const pTxt = pCur + ' mm';
+    const fitsR = (xCur + 6 + cx.measureText(pTxt).width) <= (pad.l + innerW - 2);
+    cx.textAlign = fitsR ? 'left' : 'right';
+    cx.textBaseline = 'bottom';
+    cx.fillText(pTxt, xCur + (fitsR ? 6 : -6), yP - 3);
+  }
+  // Legende encadree, meme format que celle du panneau des debits. Coin choisi
+  // dynamiquement pour ne pas se poser sur les barres (une averse forte peut occuper
+  // n'importe quelle partie de la fenetre selon la periode affichee).
+  cx.font = '12px "Segoe UI",Arial';
+  const lbTxt = 'Pluie 24 h';
+  const swW = 22, swH = 7, padX = 8, padY = 6;
+  const bw = cx.measureText(lbTxt).width + swW + 8 + 2 * padX;
+  const bh = 18 + 2 * padY;
+  const rainYOf = v => base - Math.min(1, v / pl.max) * rainInnerH;
+  const rainXOf = i => pad.l + (i / geo.xSpan) * innerW;
+  const co = pickCorner({ x0: pad.l, y0: topY, w: innerW, h: rainInnerH },
+                        bw, bh, [pl.vals], rainYOf, rainXOf, xCur);
+  cx.fillStyle = 'rgba(255,255,255,.88)';
+  cx.fillRect(co.x, co.y, bw, bh);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(co.x, co.y, bw, bh);
+  cx.fillStyle = SERIES.pluie.line;
+  cx.fillRect(co.x + padX, co.y + padY + 3, swW, swH);
+  cx.fillStyle = '#333';
+  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  cx.fillText(lbTxt, co.x + padX + swW + 8, co.y + padY);
+}
+
 function drawBigChart() {
   if (modalIdx < 0) return;
   const c = D.centrales[modalIdx];
@@ -2524,8 +2783,22 @@ function drawBigChart() {
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
-  const pad = { l: 60, r: 20, t: 10, b: 36 };
+  // Marge droite elargie quand on a un apport a tracer : contrairement a la
+  // sparkline (31 px de haut, aucune place), la modale peut etiqueter un 2e axe —
+  // donc on le fait ici, c'est l'endroit ou l'apport se lit quantitativement.
+  const hasApport = !!(c.apports && c.maxApport);
+  const pad = { l: 60, r: hasApport ? 62 : 20, t: 10, b: 36 };
   cx.clearRect(0, 0, w, h);
+
+  // --- Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas ---
+  // La pluie est en mm, les debits en m3/s : les superposer imposerait une 2e echelle
+  // dans le meme cadre, avec un risque de lecture croisee. Deux panneaux distincts
+  // partageant le meme axe X laissent chaque grandeur sur une echelle sans ambiguite,
+  // tout en gardant la comparaison temporelle immediate — c'est la convention des
+  // hydrogrammes (debit) surmontes d'un hyetogramme (pluie) en hydrologie.
+  const plMod = pluieSerie(c.zoneMeteo);
+  const rainH = plMod ? 0.33 : 0;         // part de la hauteur utile pour la pluie
+  const rainGap = plMod ? 34 : 0;         // espace entre panneaux (titre du panneau bas)
 
   // Echelle Y : max combine des 3 series (debit total, turbine, deverse) +
   // tampon ~5 % pour laisser de la place aux labels en haut.
@@ -2537,7 +2810,11 @@ function drawBigChart() {
   const xPad = 3; // heures vides a droite
   const xSpan = (N - 1) + xPad;
   const innerW = w - pad.l - pad.r;
-  const innerH = h - pad.t - pad.b;
+  // Hauteur utile totale, puis repartition 2/3 - 1/3 (moins l'espace inter-panneaux).
+  const totalH = h - pad.t - pad.b;
+  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
+  const rainTop = pad.t + innerH + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
   const xOf = i => pad.l + (i / xSpan) * innerW;
   const yOf = v => pad.t + (1 - v / yMax) * innerH;
 
@@ -2557,14 +2834,25 @@ function drawBigChart() {
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
     cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
+  // Titre du panneau (symetrique de celui du panneau pluie en bas). Affiche seulement
+  // quand le 2e panneau existe : sans lui il n'y a rien a distinguer, et le titre de
+  // la modale dit deja "<centrale> — debit total".
+  if (plMod) {
+    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    cx.fillText('Débits (m³/s)', pad.l, pad.t + 2);
+  }
 
-  // Ticks X : 5 dates reparties
+  // Ticks X : 5 dates reparties. Les deux extremes sont alignes sur le bord
+  // (left/right) au lieu d'etre centres : le dernier libelle porte le suffixe
+  // '— jusqu'a HH:mm' en journee partielle et debordait hors du canvas.
   cx.fillStyle = '#666';
-  cx.textAlign = 'center'; cx.textBaseline = 'top';
+  cx.textBaseline = 'top';
   for (let g = 0; g <= 4; g++) {
     const i = Math.round((g / 4) * (N - 1));
-    const x = xOf(i);
-    cx.fillText(D.timestamps[i], x, h - pad.b + 6);
+    cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
+    const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
+    cx.fillText(D.timestamps[i], xt, h - pad.b + 6);
   }
 
   // Couleur de la courbe = couleur statut courant (basee sur ratio min/max)
@@ -2581,9 +2869,9 @@ function drawBigChart() {
     else stroke = '#6a0000';
   }
 
-  // Couleurs fixes turbine (vert) + deverse (gris).
-  const turbCol = 'rgba(46,160,67,.85)';
-  const devCol  = 'rgba(110,110,110,.85)';
+  // Couleurs des series, tirees de la palette centrale (cf. SERIES).
+  const turbCol = SERIES.turbine.line;
+  const devCol  = SERIES.deverse.line;
   const drawSeriesBig = (series, color, lw) => {
     cx.beginPath();
     cx.strokeStyle = color; cx.lineWidth = lw;
@@ -2595,6 +2883,38 @@ function drawBigChart() {
     }
     cx.stroke();
   };
+  // ---- APPORT NATUREL (cyan, stem-plot, 2e axe a DROITE) ----
+  // Meme raison qu'en sparkline : echelle propre, parce que le rapport apport/debit
+  // va de 0,5 % a 97 % selon la centrale. Ici on a la place d'etiqueter cet axe,
+  // donc la valeur est lisible (contrairement a la sparkline, volontairement muette).
+  // Bande basse a 40 % de la hauteur pour ne pas masquer les debits.
+  // c.apports (brut) et non apportsEff : 1 barre = 1 mesure reelle publiee.
+  if (hasApport) {
+    const apBandH = innerH * 0.40;
+    const apBaseY = pad.t + innerH;
+    const apOf = v => apBaseY - Math.min(1, v / c.maxApport) * apBandH;
+    cx.strokeStyle = SERIES.apport.line; cx.lineWidth = stemWidth(innerW, N, 2.2);
+    cx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const v = c.apports[i];
+      if (v == null || v <= 0) continue;
+      const xx = xOf(i);
+      cx.moveTo(xx, apBaseY);
+      cx.lineTo(xx, apOf(v));
+    }
+    cx.stroke();
+    // Axe droit : 0 en bas, maxApport au sommet de la bande. Teinte de la serie
+    // (et non le gris des ticks de gauche) pour que le rattachement soit evident.
+    cx.fillStyle = SERIES.apport.solid;
+    cx.font = '11px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'middle';
+    const axX = pad.l + innerW + 6;
+    cx.fillText('0', axX, apBaseY);
+    cx.fillText(Math.round(c.maxApport) + ' m³/s', axX, apOf(c.maxApport));
+    // Graduation a mi-bande, pour donner l'echelle sans surcharger.
+    cx.fillText(Math.round(c.maxApport / 2), axX, apOf(c.maxApport / 2));
+  }
+
   // Trace turbine puis deverse en arriere-plan, puis le debit total dominant par-dessus.
   drawSeriesBig(c.turbs, turbCol, 2.2);
   drawSeriesBig(c.devs,  devCol,  2.2);
@@ -2628,6 +2948,13 @@ function drawBigChart() {
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
   }
 
+  // ===== PANNEAU DU BAS : PLUIE 24 h (1/3 de la hauteur) =====
+  // Hyetogramme classique : barres verticales depuis le HAUT du panneau, l'usage en
+  // hydrologie (la pluie tombe du ciel). Axe X partage avec le panneau des debits,
+  // donc une averse se lit directement au-dessus de la reaction du debit qu'elle
+  // provoque 24-48 h plus tard (cf. point 29 de BESOIN.md).
+  drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan });
+
   // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
   // la courbe debit total. Mesure les dimensions du bloc, puis compte combien
   // de points de la courbe tombent dans chaque coin candidat.
@@ -2637,55 +2964,54 @@ function drawBigChart() {
   const wTotal = cx.measureText('Débit total').width;
   const wTurb  = cx.measureText('Turbiné').width;
   const wDev   = cx.measureText('Déversé').width;
+  // Entrees conditionnelles : apport (66 sites HQ sur 94) et pluie (selon zone meteo).
+  const lgApTxt = SERIES.apport.label + ' (échelle de droite)';
+  const wAp    = hasApport ? cx.measureText(lgApTxt).width : 0;
+  // La pluie a son propre panneau titre en bas : pas besoin d'une entree de legende
+  // ici, qui ferait doublon. On garde uniquement les series du panneau des debits.
+  const wPl = 0;
   cx.font = 'italic 11px "Segoe UI",Arial';
   const wNote  = cx.measureText(noteTxt).width;
-  const lgInnerW = Math.max(wTotal, wTurb, wDev) + lgSwW + 8;
+  const lgNbLignes = 3 + (hasApport ? 1 : 0);
+  const lgInnerW = Math.max(wTotal, wTurb, wDev, wAp, wPl) + lgSwW + 8;
   const boxW = Math.max(lgInnerW, wNote) + 2 * lgPadX;
-  const boxH = 3 * lgGapY + 14 + 2 * lgPadY; // 3 lignes legende + 1 ligne note
-  // 4 coins candidats (origine du bloc x,y dans la zone de plot).
-  const corners = [
-    { name: 'HG', x: pad.l + 4,                  y: pad.t + 4 },
-    { name: 'HD', x: pad.l + innerW - boxW - 4,  y: pad.t + 4 },
-    { name: 'BG', x: pad.l + 4,                  y: pad.t + innerH - boxH - 4 },
-    { name: 'BD', x: pad.l + innerW - boxW - 4,  y: pad.t + innerH - boxH - 4 }
-  ];
-  // Score : nombre de points de la courbe DEBIT TOTAL qui tombent dans le
-  // rectangle ELARGI d'une marge de 8 px (compte aussi les points qui frolent
-  // les bords). Le moins de chevauchement = meilleur coin. En cas d'egalite,
-  // on choisit le coin le plus eloigne du curseur courant (xCur) pour ne pas
-  // masquer la lecture en cours.
-  const margin = 8;
-  for (const co of corners) {
-    let score = 0;
-    const x0 = co.x - margin, x1 = co.x + boxW + margin;
-    const y0 = co.y - margin, y1 = co.y + boxH + margin;
-    for (let i2 = 0; i2 < N; i2++) {
-      const v = c.debits[i2]; if (v == null) continue;
-      const px = xOf(i2), py = yOf(v);
-      if (px >= x0 && px <= x1 && py >= y0 && py <= y1) score++;
-    }
-    co.score = score;
-    // Distance horizontale du centre du bloc au curseur courant (pour tie-break).
-    co.distXCur = Math.abs((co.x + boxW / 2) - xCur);
-  }
-  // Tri : score croissant, puis distXCur decroissant (preferer eloigne du curseur).
-  corners.sort((a, b) => (a.score - b.score) || (b.distXCur - a.distXCur));
-  const best = corners[0];
+  const boxH = lgNbLignes * lgGapY + 14 + 2 * lgPadY; // lignes legende + 1 ligne note
+  // Coin choisi dynamiquement pour masquer le moins de donnees possible.
+  // On teste les 3 series du panneau (total, turbine, deverse) et non le seul debit
+  // total comme avant : depuis que le deverse est passe en bleu vif, une legende
+  // posee "au-dessus du total" pouvait tomber en plein sur la courbe de deversement.
+  // Le titre du panneau occupant le coin haut-gauche quand il y a 2 panneaux, la
+  // zone de recherche demarre plus bas dans ce cas.
+  const lgTop = plMod ? pad.t + 18 : pad.t;
+  const best = pickCorner({ x0: pad.l, y0: lgTop, w: innerW, h: pad.t + innerH - lgTop },
+                          boxW, boxH, [c.debits, c.turbs, c.devs], yOf, xOf, xCur);
+  // Fond opaque sous le bloc : le choix du coin minimise le chevauchement mais ne
+  // l'elimine pas (avec 4-5 series, tous les coins sont parfois traverses). Sans
+  // fond, le texte de la legende se melait aux courbes et devenait illisible.
+  cx.fillStyle = 'rgba(255,255,255,.88)';
+  cx.fillRect(best.x, best.y, boxW, boxH);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(best.x, best.y, boxW, boxH);
   // Tracage du bloc.
   const lgX = best.x + lgPadX;
   const lgY0 = best.y + lgPadY;
   const lgTxtX = lgX + lgSwW + 8;
   cx.font = '12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'top';
-  cx.fillStyle = stroke;  cx.fillRect(lgX, lgY0 + 3,            lgSwW, lgSwH);
-  cx.fillStyle = '#333';  cx.fillText('Débit total',  lgTxtX, lgY0);
-  cx.fillStyle = turbCol; cx.fillRect(lgX, lgY0 + lgGapY + 3,   lgSwW, lgSwH);
-  cx.fillStyle = '#333';  cx.fillText('Turbiné',      lgTxtX, lgY0 + lgGapY);
-  cx.fillStyle = devCol;  cx.fillRect(lgX, lgY0 + 2*lgGapY + 3, lgSwW, lgSwH);
-  cx.fillStyle = '#333';  cx.fillText('Déversé',      lgTxtX, lgY0 + 2*lgGapY);
+  // Lignes numerotees dynamiquement : apport et pluie sont optionnels selon le site.
+  const lgItems = [
+    { col: stroke,  txt: 'Débit total' },
+    { col: turbCol, txt: 'Turbiné' },
+    { col: devCol,  txt: 'Déversé' }
+  ];
+  if (hasApport) lgItems.push({ col: SERIES.apport.line, txt: lgApTxt });
+  lgItems.forEach((it, li) => {
+    cx.fillStyle = it.col; cx.fillRect(lgX, lgY0 + li*lgGapY + 3, lgSwW, lgSwH);
+    cx.fillStyle = '#333'; cx.fillText(it.txt, lgTxtX, lgY0 + li*lgGapY);
+  });
   cx.font = 'italic 11px "Segoe UI",Arial';
   cx.fillStyle = '#666';
-  cx.fillText(noteTxt, lgX, lgY0 + 3*lgGapY + 2);
+  cx.fillText(noteTxt, lgX, lgY0 + lgNbLignes*lgGapY + 2);
 }
 
 function openModal(k) {
@@ -3046,10 +3372,19 @@ function drawBigChartRes() {
   const yTop = yMax + Math.max(10, yMax * 0.05);
   const yBot = Math.min(0, yMin);
 
+  // Deux panneaux empiles comme dans la modale centrale : deversement + apport (2/3)
+  // en haut, pluie (1/3) en bas, axe X partage. Cf. commentaire dans drawBigChart().
+  const plRes = pluieSerie(r.zoneMeteo);
+  const rainH = plRes ? 0.33 : 0;
+  const rainGap = plRes ? 34 : 0;   // espace pour le titre du panneau du bas
+
   const xPad = 3;
   const xSpan = (N - 1) + xPad;
   const innerW = w - pad.l - pad.r;
-  const innerH = h - pad.t - pad.b;
+  const totalH = h - pad.t - pad.b;
+  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
+  const rainTop = pad.t + innerH + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
   const xOf = i => pad.l + (i / xSpan) * innerW;
   const yOf = v => pad.t + (1 - (v - yBot) / Math.max(yTop - yBot, 0.0001)) * innerH;
 
@@ -3070,21 +3405,31 @@ function drawBigChartRes() {
     const val = yTop - (g / 5) * (yTop - yBot);
     cx.fillText(Math.round(val) + ' m³/s', pad.l - 6, y);
   }
+  // Titre du panneau (symetrique de celui du panneau pluie), si 2 panneaux.
+  if (plRes) {
+    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    cx.fillText('Débits (m³/s)', pad.l, pad.t + 2);
+  }
 
   // Ticks X : 5 dates reparties.
   cx.fillStyle = '#666';
-  cx.textAlign = 'center'; cx.textBaseline = 'top';
+  cx.textBaseline = 'top';
   for (let g = 0; g <= 4; g++) {
     const i = Math.round((g / 4) * (N - 1));
-    cx.fillText(D.timestamps[i], xOf(i), h - pad.b + 6);
+    // Extremes alignes sur le bord : evite que le dernier libelle (avec suffixe
+    // '— jusqu'a HH:mm' en journee partielle) deborde hors du canvas.
+    cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
+    const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
+    cx.fillText(D.timestamps[i], xt, h - pad.b + 6);
   }
 
-  // Courbe APPORT (vert, stem-plot — chaque mesure = trait vertical de 0 a la
+  // Courbe APPORT (cyan, stem-plot — chaque mesure = trait vertical de 0 a la
   // valeur, sans interpolation entre les mesures). L'apport est journalier et
   // discret ; un trait continu suggererait une evolution continue trompeuse.
-  const greenStroke = '#1a6e2a';
+  const apportStroke = SERIES.apport.solid;
   const apportBaseY = yOf(0);
-  cx.strokeStyle = greenStroke; cx.lineWidth = 2.2;
+  cx.strokeStyle = apportStroke; cx.lineWidth = stemWidth(innerW, N, 2.2);
   cx.beginPath();
   for (let i = 0; i < N; i++) {
     const v = r.apports[i];
@@ -3096,7 +3441,7 @@ function drawBigChartRes() {
   cx.stroke();
 
   // Courbe DEVERSEMENT (bleu, par-dessus).
-  const blueStroke = '#1a3060';
+  const blueStroke = SERIES.deverse.solid;
   cx.beginPath();
   cx.strokeStyle = blueStroke; cx.lineWidth = 2.6;
   let started = false;
@@ -3124,13 +3469,37 @@ function drawBigChartRes() {
     cx.fillText(txt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
   }
 
-  // Legende couleurs en haut a gauche.
+  // ===== PANNEAU DU BAS : PLUIE 24 h (1/3), axe X partage =====
+  drawRainPanel(cx, plRes, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan });
+
+  // Legende du panneau du haut, encadree, coin choisi dynamiquement pour ne pas se
+  // poser sur les donnees (deversement + apport). La pluie n'y figure pas : elle a sa
+  // propre legende dans son panneau.
+  // NB : le libelle 'Apport naturel' corrige un ancien 'Precipitation' qui designait
+  // la mauvaise grandeur — la serie tracee est r.apports (m3/s), pas la pluie (mm).
   cx.font = '12px "Segoe UI",Arial';
+  const lgResItems = [
+    { col: blueStroke,   txt: 'Déversement' },
+    { col: apportStroke, txt: 'Apport naturel' }
+  ];
+  const swWr = 22, swHr = 7, pXr = 8, pYr = 6, gapYr = 18;
+  const bwr = Math.max.apply(null, lgResItems.map(it => cx.measureText(it.txt).width))
+            + swWr + 8 + 2 * pXr;
+  const bhr = lgResItems.length * gapYr + 2 * pYr;
+  const lgTopR = plRes ? pad.t + 18 : pad.t;   // sous le titre du panneau, s'il y en a un
+  const coR = pickCorner({ x0: pad.l, y0: lgTopR, w: innerW, h: pad.t + innerH - lgTopR },
+                         bwr, bhr, [r.devs, r.apports], yOf, xOf, xCur);
+  cx.fillStyle = 'rgba(255,255,255,.88)';
+  cx.fillRect(coR.x, coR.y, bwr, bhr);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(coR.x, coR.y, bwr, bhr);
   cx.textAlign = 'left'; cx.textBaseline = 'top';
-  cx.fillStyle = blueStroke;  cx.fillRect(pad.l + 4, pad.t + 5,  22, 7);
-  cx.fillStyle = '#333';      cx.fillText('Déversement', pad.l + 32, pad.t + 0);
-  cx.fillStyle = greenStroke; cx.fillRect(pad.l + 4, pad.t + 23, 22, 7);
-  cx.fillStyle = '#333';      cx.fillText('Précipitation', pad.l + 32, pad.t + 18);
+  lgResItems.forEach((it, li) => {
+    cx.fillStyle = it.col;
+    cx.fillRect(coR.x + pXr, coR.y + pYr + li * gapYr + 3, swWr, swHr);
+    cx.fillStyle = '#333';
+    cx.fillText(it.txt, coR.x + pXr + swWr + 8, coR.y + pYr + li * gapYr);
+  });
 }
 
 function openModalNivRes(k) {
@@ -3235,8 +3604,10 @@ function drawBigChartNivRes() {
     cx.fillText('max ' + r.maxNiv.toFixed(2) + ' m', pad.l + innerW - 4, yM + 2);
   }
 
-  // Courbe niveau (bleu)
-  const blueStroke = '#1a3060';
+  // Courbe niveau (bleu). Grandeur en METRES, distincte du deversement (m3/s) :
+  // les deux ne coexistent jamais dans le meme graphe, donc le meme bleu ne prete
+  // pas a confusion — il dit "eau" dans les deux cas, sans ambiguite de lecture.
+  const blueStroke = SERIES.deverse.solid;
   cx.beginPath(); cx.strokeStyle = blueStroke; cx.lineWidth = 2.4;
   let started = false;
   for (let i = 0; i < N; i++) {

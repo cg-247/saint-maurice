@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 15:38</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 19:44</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.12.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.13.0</span>
 </footer>
 
 <script>
@@ -222,6 +222,82 @@ function setGeneratedAt(iso) {
 }
 
 // --- Helpers ---
+// ----- Palette des SERIES : une grandeur = une teinte, partout -----
+// DOIT rester identique au bloc SERIES de animation.html.tpl. Les deux templates
+// sont des fichiers separes (pas de module partage), donc toute modification ici
+// doit etre repercutee la-bas — sinon un meme utilisateur voit deux codes couleur
+// selon qu'il ouvre la version bureau ou la version mobile.
+const SERIES = {
+  turbine: { line: 'rgba(46,160,67,.85)',  solid: '#1a6e2a', label: 'Turbiné' },
+  deverse: { line: 'rgba(40,110,200,.90)', solid: '#1a3060', label: 'Déversé' },
+  apport:  { line: 'rgba(0,150,160,.90)',  solid: '#0a6a72', label: 'Apport naturel' },
+  pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
+  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
+};
+
+// Choisit le coin d'une zone ou un bloc (boxW x boxH) masque le moins de donnees.
+// Identique a pickCorner() dans animation.html.tpl — garder les deux alignees.
+function pickCorner(zone, boxW, boxH, series, yOf, xOf, avoidX) {
+  const { x0, y0, w, h } = zone;
+  // 4 coins + 2 centres (haut/bas) : le centre est souvent la zone la plus degagee.
+  const cx0 = x0 + (w - boxW) / 2;
+  const cands = [
+    { x: x0 + 4,             y: y0 + 4 },
+    { x: cx0,                y: y0 + 4 },
+    { x: x0 + w - boxW - 4,  y: y0 + 4 },
+    { x: x0 + 4,             y: y0 + h - boxH - 4 },
+    { x: cx0,                y: y0 + h - boxH - 4 },
+    { x: x0 + w - boxW - 4,  y: y0 + h - boxH - 4 }
+  ];
+  const margin = 8;
+  for (const co of cands) {
+    let score = 0;
+    const bx0 = co.x - margin, bx1 = co.x + boxW + margin;
+    const by0 = co.y - margin, by1 = co.y + boxH + margin;
+    for (const serie of series) {
+      if (!serie) continue;
+      for (let i = 0; i < serie.length; i++) {
+        const v = serie[i];
+        if (v == null) continue;
+        const px = xOf(i), py = yOf(v);
+        if (px >= bx0 && px <= bx1 && py >= by0 && py <= by1) score++;
+      }
+    }
+    co.score = score;
+    co.distX = (avoidX == null) ? 0 : Math.abs((co.x + boxW / 2) - avoidX);
+  }
+  cands.sort((a, b) => (a.score - b.score) || (b.distX - a.distX));
+  return cands[0];
+}
+
+// Epaisseur d'un trait de stem-plot selon la densite de points : evite qu'une serie
+// dense (vue Heure = 48 points, mais Jour = 15 sur un ecran etroit) se lise comme une
+// aire pleine. Identique a la fonction du meme nom dans animation.html.tpl.
+function stemWidth(plotW, nPts, base) {
+  if (nPts <= 1) return base;
+  const pas = plotW / (nPts - 1);
+  return Math.max(0.4, Math.min(base, pas * 0.7));
+}
+
+// Serie de pluie 24 h (mm) d'une zone meteo + son max. Identique a la fonction du
+// meme nom dans animation.html.tpl — garder les deux alignees.
+function pluieSerie(zoneKey) {
+  if (!zoneKey || !D || !D.meteo || !D.meteo.zones || !D.meteo.frames) return null;
+  const zi = D.meteo.zones.findIndex(z => z.key === zoneKey);
+  if (zi < 0) return null;
+  const out = new Array(D.meteo.frames.length).fill(null);
+  let mx = 0;
+  for (let k = 0; k < D.meteo.frames.length; k++) {
+    const fr = D.meteo.frames[k];
+    if (!fr || !fr[zi]) continue;
+    const v = fr[zi].p24;
+    if (v == null) continue;
+    out[k] = v;
+    if (v > mx) mx = v;
+  }
+  return mx > 0 ? { vals: out, max: mx } : null;
+}
+
 function statusClass(c, val) {
   if (val == null || c.minTotal == null || c.maxTotal == null) return '';
   const span = c.maxTotal - c.minTotal;
@@ -267,10 +343,17 @@ function trimView(view, n) {
   const start = total - n;
   view.timestamps = view.timestamps.slice(start);
   (view.centrales || []).forEach(c => {
-    ['debits','turbs','devs','mws','trends','stables'].forEach(k => {
+    // 'apports' doit etre tronque comme les autres series : sinon la serie reste
+    // plus longue que timestamps et le trace de l'apport se decale vers la gauche
+    // par rapport aux debits (indices desalignes).
+    ['debits','turbs','devs','mws','trends','stables','apports'].forEach(k => {
       if (Array.isArray(c[k])) c[k] = c[k].slice(start);
     });
   });
+  // Meme raison pour la meteo, indexee [frame][zone] et donc alignee sur timestamps.
+  if (view.meteo && Array.isArray(view.meteo.frames)) {
+    view.meteo.frames = view.meteo.frames.slice(start);
+  }
 }
 
 // Concatene la vue horaire du mois precedent + mois courant pour pouvoir
@@ -290,10 +373,22 @@ function mergeHoraire(prev, curr) {
         devs:    j('devs'),
         mws:     j('mws'),
         trends:  cc.trends  ? j('trends')  : undefined,
-        stables: cc.stables ? j('stables') : undefined
+        stables: cc.stables ? j('stables') : undefined,
+        apports: cc.apports ? j('apports') : undefined
       });
     })
   };
+  // Meteo : concatener aussi les frames, sinon la serie de pluie est plus courte
+  // que timestamps apres la fusion et se retrouve decalee. Si le mois precedent
+  // n'a pas de meteo, on rembourre avec des frames nulles de la bonne longueur.
+  if (curr.meteo && Array.isArray(curr.meteo.frames)) {
+    const zones = curr.meteo.zones || [];
+    const nullFrame = zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null }));
+    const prevFrames = (prev.meteo && Array.isArray(prev.meteo.frames))
+      ? prev.meteo.frames
+      : new Array(prev.timestamps.length).fill(nullFrame);
+    merged.meteo = { zones: zones.slice(), frames: prevFrames.concat(curr.meteo.frames) };
+  }
   // Conserve les autres champs scalaires de curr (periode, trendUnit, etc.).
   Object.keys(curr).forEach(k => {
     if (!(k in merged)) merged[k] = curr[k];
@@ -569,6 +664,13 @@ function drawBigChart() {
   const pad = { l: 64, r: 14, t: 8, b: 30 };
   cx.clearRect(0, 0, w, h);
 
+  // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
+  // Meme structure que la modale du template bureau (hydrogramme + hyetogramme) :
+  // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
+  const plM = pluieSerie(c.zoneMeteo);
+  const rainH = plM ? 0.33 : 0;
+  const rainGap = plM ? 26 : 0;   // plus serre qu'au bureau : hauteur ecran limitee
+
   // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
   let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
@@ -576,7 +678,10 @@ function drawBigChart() {
   const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
   const xSpan = Math.max(1, N - 1);
   const innerW = w - pad.l - pad.r;
-  const innerH = h - pad.t - pad.b;
+  const totalH = h - pad.t - pad.b;
+  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
+  const rainTop = pad.t + innerH + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
   const xOf = i => pad.l + (i / xSpan) * innerW;
   const yOf = v => pad.t + (1 - v / yMax) * innerH;
 
@@ -718,8 +823,8 @@ function drawBigChart() {
   // Couleur de la courbe debit total = statut courant (ratio min/max).
   const dCur = arr[frame];
   const stroke = statusStroke(c, dCur);
-  const turbCol = 'rgba(46,160,67,.85)';
-  const devCol  = 'rgba(110,110,110,.85)';
+  const turbCol = SERIES.turbine.line;
+  const devCol  = SERIES.deverse.line;
 
   const drawSeriesBig = (series, color, lw) => {
     cx.beginPath();
@@ -732,6 +837,26 @@ function drawBigChart() {
     }
     cx.stroke();
   };
+  // ---- APPORT NATUREL (m3/s, monte du BAS, echelle propre) ----
+  // Le rapport apport/debit varie de 0,5 % a 97 % selon la centrale : un axe partage
+  // le rendrait invisible ou indistinguable du debit. Il a donc sa propre echelle,
+  // en bande basse. La PLUIE (mm) n'est pas ici — elle a son panneau dedie plus bas.
+  const hasApportM = !!(c.apports && c.maxApport);
+  if (hasApportM) {
+    const apBandH = innerH * 0.40;
+    const apBaseY = pad.t + innerH;
+    cx.strokeStyle = SERIES.apport.line; cx.lineWidth = stemWidth(innerW, N, 2);
+    cx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const v = c.apports[i];
+      if (v == null || v <= 0) continue;
+      const xx = xOf(i);
+      cx.moveTo(xx, apBaseY);
+      cx.lineTo(xx, apBaseY - Math.min(1, v / c.maxApport) * apBandH);
+    }
+    cx.stroke();
+  }
+
   drawSeriesBig(c.turbs, turbCol, 2);
   drawSeriesBig(c.devs,  devCol,  2);
 
@@ -760,32 +885,96 @@ function drawBigChart() {
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yCur - 4);
   }
 
-  // Legende fixe en haut-gauche (simple, pas de calcul de coin pour le mobile).
-  const lgX0 = pad.l + 6, lgY0 = pad.t + 4;
+  // ===== PANNEAU DU BAS : PLUIE 24 h (1/3), axe X partage =====
+  // Orientation normale (barres du bas vers le haut), titre + legende comme le
+  // panneau des debits. Meme structure que drawRainPanel() du template bureau,
+  // en version compacte (polices reduites, pas de curseur : le mobile est toujours
+  // sur la derniere frame).
+  if (plM && rainInnerH > 8) {
+    const topY = rainTop;
+    const base = rainTop + rainInnerH;
+    cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(pad.l, topY); cx.lineTo(pad.l + innerW, topY);
+    cx.moveTo(pad.l, base); cx.lineTo(pad.l + innerW, base);
+    cx.stroke();
+    cx.fillStyle = '#666'; cx.font = '10px "Segoe UI",Arial';
+    cx.textAlign = 'right'; cx.textBaseline = 'middle';
+    cx.fillText(plM.max + ' mm', pad.l - 6, topY);
+    cx.fillText('0 mm', pad.l - 6, base);
+    // Titre au-dessus du cadre.
+    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 11px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'bottom';
+    cx.fillText('Pluie (mm/24h)', pad.l, topY - 3);
+    // Barres, du bas vers le haut.
+    cx.strokeStyle = SERIES.pluie.line;
+    cx.lineWidth = stemWidth(innerW, N, 3);
+    cx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const v = plM.vals[i];
+      if (v == null || v <= 0) continue;
+      const xx = xOf(i);
+      cx.moveTo(xx, base);
+      cx.lineTo(xx, base - Math.min(1, v / plM.max) * rainInnerH);
+    }
+    cx.stroke();
+    // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les barres.
+    cx.font = '11px "Segoe UI",Arial';
+    const lbT = 'Pluie 24 h';
+    const swW2 = 18, swH2 = 6, pX = 6, pY = 5;
+    const bw = cx.measureText(lbT).width + swW2 + 6 + 2 * pX;
+    const bh = 14 + 2 * pY;
+    const rYOf = v => base - Math.min(1, v / plM.max) * rainInnerH;
+    const coP = pickCorner({ x0: pad.l, y0: topY, w: innerW, h: rainInnerH },
+                           bw, bh, [plM.vals], rYOf, xOf, null);
+    cx.fillStyle = 'rgba(255,255,255,.85)';
+    cx.fillRect(coP.x, coP.y, bw, bh);
+    cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+    cx.strokeRect(coP.x, coP.y, bw, bh);
+    cx.fillStyle = SERIES.pluie.line;
+    cx.fillRect(coP.x + pX, coP.y + pY + 3, swW2, swH2);
+    cx.fillStyle = '#333';
+    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    cx.fillText(lbT, coP.x + pX + swW2 + 6, coP.y + pY);
+  }
+
+  // Titre du panneau des debits, symetrique de celui du panneau pluie. Seulement
+  // quand le 2e panneau existe (sinon rien a distinguer).
+  if (plM) {
+    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 11px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    cx.fillText('Débits (m³/s)', pad.l, pad.t + 1);
+  }
+
+  // Legende : coin choisi dynamiquement pour ne pas se poser sur les courbes
+  // (l'ancien coin fixe haut-gauche tombait en plein dans les donnees des centrales
+  // dont le debit est eleve en debut de fenetre).
   const lgSwW = 18, lgSwH = 6, lgGap = 16, lgPadX = 6, lgPadY = 5;
   cx.font = '11px "Segoe UI",Arial';
-  const wMax = Math.max(
-    cx.measureText('Débit total').width,
-    cx.measureText('Turbiné').width,
-    cx.measureText('Déversé').width
-  );
-  const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
-  const boxH = 3 * lgGap + 2 * lgPadY;
-  cx.fillStyle = 'rgba(255,255,255,.85)';
-  cx.fillRect(lgX0 - lgPadX, lgY0 - lgPadY, boxW, boxH);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(lgX0 - lgPadX, lgY0 - lgPadY, boxW, boxH);
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  // Entree apport conditionnelle (66 sites HQ sur 94). La pluie n'y figure pas :
+  // elle a son propre panneau titre en bas, une entree ici ferait doublon.
   const labels = [
     { c: stroke,  t: 'Débit total' },
     { c: turbCol, t: 'Turbiné' },
     { c: devCol,  t: 'Déversé' }
   ];
+  if (hasApportM) labels.push({ c: SERIES.apport.line, t: 'Apport naturel' });
+  const wMax = Math.max.apply(null, labels.map(lb => cx.measureText(lb.t).width));
+  const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
+  const boxH = labels.length * lgGap + 2 * lgPadY;
+  const lgTop = plM ? pad.t + 16 : pad.t;   // sous le titre du panneau, s'il y en a un
+  const coL = pickCorner({ x0: pad.l, y0: lgTop, w: innerW, h: pad.t + innerH - lgTop },
+                         boxW, boxH, [arr, c.turbs, c.devs], yOf, xOf, null);
+  cx.fillStyle = 'rgba(255,255,255,.85)';
+  cx.fillRect(coL.x, coL.y, boxW, boxH);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(coL.x, coL.y, boxW, boxH);
+  cx.textAlign = 'left'; cx.textBaseline = 'top';
   labels.forEach((lb, k) => {
     cx.fillStyle = lb.c;
-    cx.fillRect(lgX0, lgY0 + k * lgGap + 3, lgSwW, lgSwH);
+    cx.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 3, lgSwW, lgSwH);
     cx.fillStyle = '#333';
-    cx.fillText(lb.t, lgX0 + lgSwW + 6, lgY0 + k * lgGap);
+    cx.fillText(lb.t, coL.x + lgPadX + lgSwW + 6, coL.y + lgPadY + k * lgGap);
   });
 }
 
