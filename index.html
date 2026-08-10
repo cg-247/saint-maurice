@@ -310,9 +310,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.11.3</span>
+    <span title="Version de la PWA install&eacute;e">v2.12.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 08:29</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 10:00</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -424,7 +424,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","ruissellement"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -436,6 +436,12 @@ for (const n of iconNames) {
 const img = document.getElementById('img');
 const cv  = document.getElementById('ov');
 const ctx = cv.getContext('2d');
+// Filtrage haute qualite : les icones PNG sont en 512x512 et sont reduites a
+// ~26 px. Sans ceci le canvas utilise un reechantillonnage 'low' qui rend les
+// icones floues, alors que les memes PNG affiches en <img> dans les modales
+// sont nets. Aligne le rendu de la carte sur celui des fenetres de donnees.
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
 const slider     = document.getElementById('slider');
 const sliderTs   = document.getElementById('sliderTs');
 const btnPlay    = document.getElementById('btnPlay');
@@ -511,6 +517,30 @@ function setLabelState(c, newState) {
   anim.rafId = requestAnimationFrame(step);
 }
 
+// Index de la derniere valeur REELLEMENT publiee a la frame i (ou -1). Sert a datter
+// une valeur reportee : l'apport est publie 1x/jour, donc la valeur affichee aux autres
+// heures vient d'une frame anterieure qu'on veut pouvoir nommer.
+function lastRealIdx(arr, i) {
+  if (!arr) return -1;
+  for (let k = Math.min(i, arr.length - 1); k >= 0; k--) {
+    if (arr[k] !== null && arr[k] !== undefined) return k;
+  }
+  return -1;
+}
+
+// "2026-08-05 16:00" | "2026-08-05" | "2026-03-29 → 2026-04-05" | "2026-08" -> "5 aout".
+// Les formats de D.timestamps changent selon la vue (heure/jour/semaine/mois) : on ne
+// garde que la premiere date trouvee et on la rend en clair, sans l'annee.
+const MOIS_COURTS = ['janv.','févr.','mars','avril','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+function dateCourte(ts) {
+  if (!ts) return '';
+  const m = String(ts).match(/(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  if (!m) return '';
+  const mois = MOIS_COURTS[parseInt(m[2], 10) - 1] || '';
+  if (!m[3]) return mois;                       // vue mois : pas de jour
+  return parseInt(m[3], 10) + ' ' + mois;
+}
+
 // Pour une serie [v0, null, null, v3, null] -> renvoie { eff: [v0,v0,v0,v3,v3], stale: [false,true,true,false,true] }.
 // Si une valeur est null sans valeur connue avant, eff[i] reste null et stale[i] reste false (rien a afficher).
 function computeLastKnown(arr) {
@@ -544,24 +574,31 @@ function buildView(key) {
     const t = computeLastKnown(c.turbs);
     const v = computeLastKnown(c.devs);
     const m = computeLastKnown(c.mws);
+    // Apport : donnee JOURNALIERE (1 valeur/jour a 20:00 UTC = 16 h a Montreal) alors
+    // que les autres series sont horaires. Sans report, la ligne n'apparaitrait qu'une
+    // heure sur 24. Le report est legitime ici : la valeur decrit la journee entiere,
+    // pas un instant. Le flag stale (opacite 45 %) signale que ce n'est pas la mesure
+    // de l'heure affichee, comme pour un debit perime.
+    const a = computeLastKnown(c.apports);
     return Object.assign({}, c, {
       debitsEff: d.eff, debitsStale: d.stale,
       turbsEff:  t.eff, turbsStale:  t.stale,
       devsEff:   v.eff, devsStale:   v.stale,
-      mwsEff:    m.eff, mwsStale:    m.stale
+      mwsEff:    m.eff, mwsStale:    m.stale,
+      apportsEff: a.eff, apportsStale: a.stale
     });
   });
   const reservoirs = (sub.reservoirs || []).map(r => {
     const n = computeLastKnown(r.niveaux);
     const v = computeLastKnown(r.devs);
-    // Apport : pas de last-known. Si la mesure du jour n'est pas dispo, on affiche 0
-    // (coherent avec le sparkline qui retombe a 0). Stale = false partout (pas de palissement).
-    const apportsEff   = (r.apports || []).map(x => x === null ? 0 : x);
-    const apportsStale = (r.apports || []).map(() => false);
+    // Apport : meme traitement que les centrales (last-known + flag stale). Avant, les
+    // valeurs manquantes etaient forcees a 0, ce qui affichait un faux zero ("aucun
+    // apport") alors que la donnee journaliere n'etait simplement pas encore publiee.
+    const a = computeLastKnown(r.apports);
     return Object.assign({}, r, {
       niveauxEff: n.eff, niveauxStale: n.stale,
       devsEff:    v.eff, devsStale:    v.stale,
-      apportsEff: apportsEff, apportsStale: apportsStale
+      apportsEff: a.eff, apportsStale: a.stale
     });
   });
   return {
@@ -634,7 +671,8 @@ function rebuildHoraireFromLoadedMonths() {
   const centrales = first.centrales.map(c => Object.assign({}, c, {
     debits: c.debits.slice(), turbs: c.turbs.slice(), devs: c.devs.slice(),
     mws: c.mws.slice(), trends: c.trends.slice(), stables: c.stables.slice(),
-    amonts: (c.amonts || []).slice(), avals: (c.avals || []).slice()
+    amonts: (c.amonts || []).slice(), avals: (c.avals || []).slice(),
+    apports: (c.apports || []).slice()
   }));
   const reservoirs = (first.reservoirs || []).map(r => Object.assign({}, r, {
     niveaux: r.niveaux.slice(), devs: r.devs.slice(), apports: r.apports.slice()
@@ -669,11 +707,13 @@ function rebuildHoraireFromLoadedMonths() {
         dest.mws.push(...src.mws);
         dest.trends.push(...src.trends);
         dest.stables.push(...src.stables);
+        if (dest.apports) { dest.apports.push(...(src.apports || nulls())); }
         srcCentralesById.delete(dest.id);
       } else {
         console.warn('Centrale absente du mois ' + months[mi].month + ' : ' + dest.id + ' (' + dest.nom + ') — comblee par null');
         dest.debits.push(...nulls()); dest.turbs.push(...nulls()); dest.devs.push(...nulls());
         dest.mws.push(...nulls());    dest.trends.push(...nulls()); dest.stables.push(...nulls());
+        if (dest.apports) { dest.apports.push(...nulls()); }
       }
     }
     for (const orphan of srcCentralesById.values()) {
@@ -703,7 +743,7 @@ function rebuildHoraireFromLoadedMonths() {
       meteo.frames.push(...sub.meteo.frames);
     } else if (meteo) {
       // Mois sans meteo : on remplit avec des frames nulles pour conserver l'alignement.
-      const nullsFrame = meteo.zones.map(() => ({ n: null, tmn: null, tmx: null }));
+      const nullsFrame = meteo.zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null }));
       for (let k = 0; k < sub.timestamps.length; k++) meteo.frames.push(nullsFrame);
     }
   }
@@ -991,7 +1031,14 @@ function turbineConfig(spec, turb) {
 
 // Position verticale (fraction de lh) de l'indicateur turbine compact dans l'etiquette,
 // sous la ligne MW. Sert au rendu ET au hit-test du clic (doivent rester synchronises).
-const TURB_ROW_FRAC = 0.575;
+// Fraction de la hauteur d'etiquette ou s'affiche la ligne turbine. A rescaler en
+// meme temps que les autres ratios lh*0.xxxx si label_height change (elle vaut 0.4495
+// pour label_height = 275, soit ~123,6 px : position historique conservee).
+const TURB_ROW_FRAC = 0.4495;
+// Ratio de la ligne "niveau" dans l'etiquette RESERVOIR. Partage entre le dessin et
+// le test de clic (hitTestReservoirNiveauArrow) : les deux se sont desynchronises une
+// fois, la zone cliquable restant a 0.47 apres le passage du dessin a 0.432.
+const RES_ROW_NIVEAU = 0.432;
 
 // Liste des sous-unites de turbinage d'une centrale : ses sous_groupes (ex. Shawinigan-2/-3,
 // debit reparti au prorata des cap) ou la centrale entiere. turb = debit turbine total.
@@ -1029,6 +1076,262 @@ function draw(i) {
   ctx.clearRect(0,0,cv.width,cv.height);
   const lw = D.labelW * sx;
   const lh = D.labelH * sy;
+
+  // ---- LEGENDE : tableau opaque autonome ----
+  // Remplace l'ancien assemblage de 3 blocs positionnes les uns par rapport aux autres
+  // (lgResX = lgX - 340, colonne statuts calee sur la fin du texte "Turbine", etc.).
+  // Ce montage devait en plus s'aligner sur le mot "LEGENDE" et la rosace "Centrale"
+  // GRAVES dans gestion-reservoir.jpg, d'ou des decalages en cascade fragiles.
+  //
+  // Ici : un rectangle blanc opaque couvre toute la zone (donc masque le texte grave),
+  // et tout est dessine relativement a ce rectangle. Une seule source de verite pour
+  // la geometrie ; les colonnes, les lignes, le titre et les notes en decoulent.
+  if (D.legend) {
+    const lgFs = Math.max(10, Math.round(D.legend.fontSize * sx));
+    const lgFont      = lgFs + 'px "Segoe UI",Arial,sans-serif';
+    const lgFontBold  = 'bold ' + lgFs + 'px "Segoe UI",Arial,sans-serif';
+    const lgFontTitle = 'bold ' + Math.round(lgFs * 1.3) + 'px "Segoe UI",Arial,sans-serif';
+    // Note en pied a la MEME taille que le texte de la legende — donc que le bandeau
+    // des faits saillants, qui est pilote par ce meme lgFs (cf. riverBox.style.fontSize).
+    // Elle paraissait rapetissee a 0.8x.
+    const lgFontNote  = lgFont;
+    // Taille reduite reservee aux renvois "(1)" accoles a une mesure, en gras pour
+    // qu'ils restent reperables malgre la petite taille.
+    const lgFontExp   = 'bold ' + Math.max(9, Math.round(lgFs * 0.8)) + 'px "Segoe UI",Arial,sans-serif';
+    const lgIs   = Math.max(14, Math.round(D.legend.iconSize * sx));
+    // Interligne resserre (0.85x) : le tableau compte jusqu'a 5 lignes + titre + notes,
+    // et doit tenir entre le texte grave du JPG et l'axe des distances.
+    const lgLh   = Math.max(15, Math.round(D.legend.lineHeight * 0.85 * sy));
+    const lgGap  = Math.max(6, Math.round(9 * sx));
+    const lgCol  = '#1a3060';
+
+    // Textes hors canvas alignes sur la taille du texte de la legende (inchange).
+    if (riverBox) riverBox.style.fontSize = lgFs + 'px';
+    const discEl = document.getElementById('disclaimer');
+    if (discEl) discEl.style.fontSize = lgFs + 'px';
+    const genEl = document.getElementById('generatedAt');
+    if (genEl) genEl.style.fontSize = lgFs + 'px';
+    // Titre + horodatage : derniers textes encore pilotes par clamp(...vw...) en CSS.
+    // 'vw' suit la largeur de FENETRE, alors que l'image de fond est contrainte par la
+    // hauteur (max-height:calc(100vh - 54px)) et bouge donc peu au zoom navigateur :
+    // les deux divergeaient, d'ou l'impression que "tout grossit sauf l'image".
+    // On les indexe sur lgFs (= fontSize * sx), qui suit la taille AFFICHEE de l'image,
+    // comme le reste du canvas. Ratios reprenant les proportions CSS d'origine
+    // (1.55vw et 1.22vw contre 0.95vw pour le texte de legende).
+    const titreEl = document.getElementById('titre');
+    if (titreEl) titreEl.style.fontSize = Math.round(lgFs * 1.63) + 'px';
+    const tsEl = document.getElementById('ts');
+    if (tsEl) tsEl.style.fontSize = Math.round(lgFs * 1.28) + 'px';
+
+    // --- Contenu declaratif : 4 colonnes (en-tete + lignes) ---
+    const lgCols = [
+      { titre: 'Réservoir', icone: 'barrage', lignes: [
+          { icon: 'niveau',  text: 'Niveau (m)' },
+          { icon: 'deverse', text: 'Déversé (m³/s)' }
+        ] },
+      { titre: 'Centrale', icone: 'centrale', lignes: [
+          { icon: 'debit',        text: 'Débit total (m³/s)' },
+          { icon: 'turbine-vert', text: 'Turbiné (m³/s)' },
+          { icon: 'eclair',       text: 'Élec. générée (MW)' }
+        ] },
+      // Pas d'en-tete "Intensite" : les anneaux se lisent d'eux-memes et la colonne
+      // demarre donc a la hauteur des en-tetes. 'N/D' plutot que 'Non disponible'
+      // pour resserrer la largeur.
+      { lignes: [
+          { ring: 'rgba(46,160,67,.92)',   text: 'Bas' },
+          { ring: 'rgba(210,170,0,.92)',   text: 'Modéré' },
+          { ring: 'rgba(230,110,0,.92)',   text: 'Élevé' },
+          { ring: 'rgba(200,30,30,.92)',   text: 'Fort' },
+          { ring: 'rgba(120,120,120,.88)', text: 'N/D' }
+        ] },
+      // 'Apport naturel' n'est pas un en-tete de categorie (contrairement a Reservoir
+      // et Centrale qui coiffent plusieurs mesures) : c'est une mesure au meme titre
+      // que 'Pluie'. Les deux sont donc des lignes normales, sans gras.
+      { lignes: [
+          { icon: 'ruissellement', text: 'Apport naturel (m³/s)', exp: '1' },
+          { icon: 'apport',        text: 'Pluie (mm/24h)' }
+        ] }
+    ];
+    const lgNotes = [
+      { exp: '1', text: "Eau entrant dans l'ouvrage depuis son bassin versant (pluie, fonte, ruissellement), hors manœuvre d'Hydro-Québec. Publiée 1×/jour : la date indique la dernière valeur connue." }
+    ];
+
+    // --- Largeur de chaque colonne : mesuree sur son contenu reel ---
+    const lgPad     = Math.round(14 * sx);            // marge interieure du cadre
+    const lgColGap  = Math.round(22 * sx);            // espace entre colonnes
+    const lgTitleH  = Math.round(lgLh * 1.5);         // bandeau titre "LEGENDE"
+    const colW = lgCols.map(col => {
+      let w = 0;
+      if (col.titre) {
+        ctx.font = lgFontBold;
+        w = lgIs + lgGap + ctx.measureText(col.titre).width;
+      }
+      ctx.font = lgFont;
+      for (const l of col.lignes) {
+        const wl = lgIs + lgGap + ctx.measureText(l.text + (l.exp ? ' (' + l.exp + ')' : '')).width;
+        if (wl > w) w = wl;
+      }
+      return Math.ceil(w);
+    });
+
+    // --- Hauteur : bandeau titre + en-tete + lignes max + notes ---
+    // Hauteur en nombre de rangees : une colonne sans titre commence a la rangee 0,
+    // donc elle occupe une rangee de moins qu'une colonne titree de meme longueur.
+    const maxLignes = Math.max.apply(null, lgCols.map(c => c.lignes.length + (c.titre ? 1 : 0))) - 1;
+    ctx.font = lgFontNote;
+    const noteTxts = lgNotes.map(n => '(' + n.exp + ') ' + n.text);
+    const boxW = lgPad * 2 + colW.reduce((a, b) => a + b, 0) + lgColGap * (lgCols.length - 1);
+    const noteMaxW = boxW - lgPad * 2;
+    // Retour a la ligne des notes : on decoupe par mots selon la largeur disponible.
+    const noteLines = [];
+    for (const t of noteTxts) {
+      let cur = '';
+      for (const mot of t.split(' ')) {
+        const essai = cur ? cur + ' ' + mot : mot;
+        if (ctx.measureText(essai).width > noteMaxW && cur) { noteLines.push(cur); cur = mot; }
+        else { cur = essai; }
+      }
+      if (cur) noteLines.push(cur);
+    }
+    const lgNoteLh = Math.round(lgLh * 0.95);   // note en taille pleine : interligne quasi normal
+    // Le 1.0 doit rester synchronise avec yNote0 plus bas (respiration tableau/notes),
+    // sinon le cadre ne contient plus la derniere ligne de note.
+    const boxH = lgTitleH + lgLh * (1 + maxLignes) + Math.round(lgLh * 1.0)
+               + noteLines.length * lgNoteLh + lgPad;
+
+    // --- Position : ancree sur D.legend, recentree pour couvrir la zone gravee ---
+    // L'ancien code partait de lgX - 340 pour le bloc Reservoir : on reprend ce bord
+    // gauche comme origine du cadre, et on remonte du bandeau titre pour recouvrir le
+    // mot "LEGENDE" de l'image.
+    // Le cadre doit couvrir le mot "LEGENDE" grave dans le JPG (vers y=833 px image)
+    // ET la rosace "Centrale" gravee juste sous lui. On ancre donc le HAUT du cadre
+    // au-dessus du texte grave, et on cale le bas pour ne pas mordre sur l'axe des
+    // distances (~y=1050 px image). D.legend.y reste le point de reference configurable.
+    // Decale vers la droite (-260 au lieu de -340) et remonte (-150 au lieu de -120) :
+    // la note en taille pleine allonge le cadre, et il y a de la place libre a droite.
+    const boxX = Math.round((D.legend.x - 260) * sx);
+    const boxY = Math.round((D.legend.y - 150) * sy);
+
+    // --- Cadre opaque ---
+    ctx.save();
+    // Fond gris pale = teinte exacte du fond de gestion-reservoir.jpg (#F0F4F5, mesuree
+    // au pixel en plusieurs points). Le tableau se fond ainsi dans l'image au lieu de
+    // ressortir comme un bloc blanc.
+    // Reste 100 % OPAQUE (pas de rgba) : le cadre doit masquer le mot "LEGENDE" et la
+    // rosace "Centrale" graves dans le JPG. Une transparence les laisserait reapparaitre.
+    ctx.fillStyle = '#f0f4f5';
+    ctx.strokeStyle = 'rgba(90,110,140,.35)';
+    ctx.lineWidth = Math.max(1, Math.round(1.2 * sx));
+    const r = Math.round(8 * sx);
+    ctx.beginPath();
+    ctx.moveTo(boxX + r, boxY);
+    ctx.lineTo(boxX + boxW - r, boxY);
+    ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
+    ctx.lineTo(boxX + boxW, boxY + boxH - r);
+    ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
+    ctx.lineTo(boxX + r, boxY + boxH);
+    ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
+    ctx.lineTo(boxX, boxY + r);
+    ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // --- Bandeau titre ---
+    ctx.save();
+    ctx.font = lgFontTitle;
+    ctx.fillStyle = lgCol;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('LÉGENDE', boxX + boxW / 2, boxY + lgTitleH / 2);
+    ctx.textAlign = 'left';
+    // Filet sous le titre
+    ctx.beginPath();
+    ctx.moveTo(boxX + lgPad, boxY + lgTitleH);
+    ctx.lineTo(boxX + boxW - lgPad, boxY + lgTitleH);
+    ctx.strokeStyle = 'rgba(120,140,170,.35)';
+    ctx.lineWidth = Math.max(1, Math.round(1 * sx));
+    ctx.stroke();
+    ctx.restore();
+
+    // --- Colonnes ---
+    let cx = boxX + lgPad;
+    const yHead = boxY + lgTitleH + Math.round(lgLh * 0.75);
+    lgCols.forEach((col, ci) => {
+      // En-tete de colonne (optionnel). Sans titre, les lignes remontent d'un cran
+      // pour demarrer a la hauteur des en-tetes des autres colonnes.
+      if (col.titre) {
+        const segsH = [];
+        if (col.icone) { segsH.push({ icon: col.icone, size: lgIs }, { gap: lgGap }); }
+        segsH.push({ text: col.titre, color: lgCol, font: lgFontBold });
+        drawLeftSegments(ctx, segsH, cx, yHead, lgFontBold);
+      }
+      const rowOffset = col.titre ? 1 : 0;
+
+      // Lignes de la colonne
+      col.lignes.forEach((l, li) => {
+        const y = yHead + (li + rowOffset) * lgLh;
+        if (l.ring) {
+          // Anneau de couleur (meme rendu que les rosaces de centrale)
+          const rr = Math.max(6, Math.round(lgIs * 0.42));
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx + rr, y, rr, 0, Math.PI * 2);
+          ctx.strokeStyle = l.ring;
+          ctx.lineWidth = Math.max(2, Math.round(rr * 0.38));
+          ctx.stroke();
+          ctx.restore();
+          ctx.font = lgFont;
+          ctx.fillStyle = lgCol;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(l.text, cx + rr * 2 + lgGap, y);
+        } else {
+          const sz = (l.icon === 'deverse') ? Math.round(lgIs * 1.2) : lgIs;
+          const segsL = [
+            { icon: l.icon, size: sz },
+            { gap: lgGap },
+            { text: l.text, color: lgCol }
+          ];
+          // Renvoi vers une note de pied (ex. "(1)"), en plus petit.
+          if (l.exp) {
+            segsL.push({ text: ' (' + l.exp + ')', color: 'rgba(90,110,150,.95)',
+                         font: lgFontExp });
+          }
+          drawLeftSegments(ctx, segsL, cx, y, lgFont);
+        }
+      });
+      cx += colW[ci] + lgColGap;
+    });
+
+    // --- Notes en pied ---
+    ctx.save();
+    ctx.font = lgFontNote;
+    ctx.fillStyle = 'rgba(80,95,125,.95)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    // + une interligne complete de respiration entre le tableau et les notes.
+    const yNote0 = yHead + (maxLignes + 1) * lgLh + Math.round(lgLh * 1.0);
+    noteLines.forEach((t, k) => {
+      const y = yNote0 + k * lgNoteLh;
+      // Le renvoi "(n)" en tete de note est mis en gras, comme celui accole a la
+      // mesure : les deux doivent se repondre visuellement. On le dessine donc
+      // separement du corps de la note.
+      const m = t.match(/^(\(\d+\)\s*)(.*)$/);
+      if (m) {
+        ctx.font = 'bold ' + lgFontNote;
+        ctx.fillText(m[1], boxX + lgPad, y);
+        const wExp = ctx.measureText(m[1]).width;
+        ctx.font = lgFontNote;
+        ctx.fillText(m[2], boxX + lgPad + wExp, y);
+      } else {
+        ctx.font = lgFontNote;
+        ctx.fillText(t, boxX + lgPad, y);
+      }
+    });
+    ctx.restore();
+  }
 
   // ---- CENTRALES ----
   for (const c of D.centrales) {
@@ -1170,16 +1473,16 @@ function draw(i) {
     const nameEndX = drawLeftSegments(ctx, [
       { icon: 'centrale', size: fsCentrIcon },
       { text: c.nomAffiche || c.nom, color: '#111' }
-    ], leftX, ly + lh*0.071, fontName);
+    ], leftX, ly + lh*0.0556, fontName);
 
     // Indicateur fermeture dans le coin haut-droit : toujours ▴ (ferme l'etiquette).
     const arrowXC = lx + lwC - 6*sx;
-    const rowYC = ly + lh*0.071;
+    const rowYC = ly + lh*0.0556;
     ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
     ctx.fillStyle = '#1a1a2e';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText('▴', arrowXC, rowYC);
-    const sepY = ly + lh*0.159;
+    const sepY = ly + lh*0.1244;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
     ctx.lineTo(lx + lwC - 6*sx, sepY);
@@ -1196,7 +1499,7 @@ function draw(i) {
       drawLeftSegments(ctx, [
         { icon: 'debit', size: fsIcon },
         { text: debEff + ' m³/s', color: valCol }
-      ], leftX, ly + lh*0.220, fontTotal);
+      ], leftX, ly + lh*0.1720, fontTotal);
       ctx.restore();
     }
 
@@ -1218,7 +1521,7 @@ function draw(i) {
           { text: (turbEff !== null ? turbEff : '-') + '   ', color: grayCol },
           { icon: 'deverse', size: fsIconDev },
           { text: (devEff  !== null ? devEff  : '-'), color: grayCol }
-        ], leftX, ly + lh*0.335, fontDetail);
+        ], leftX, ly + lh*0.2618, fontDetail);
         ctx.restore();
       }
 
@@ -1238,7 +1541,7 @@ function draw(i) {
         }
         ctx.save();
         if (c.mwsStale[i]) ctx.globalAlpha = 0.45;
-        drawLeftSegments(ctx, segs, leftX, ly + lh*0.461, fontMw);
+        drawLeftSegments(ctx, segs, leftX, ly + lh*0.3604, fontMw);
         ctx.restore();
       }
 
@@ -1278,17 +1581,17 @@ function draw(i) {
       const fontTrend = fsTrend+'px "Segoe UI",Arial,sans-serif';
       const trUnit = D.trendUnit || '6h';
       if (tr === null) {
-        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.70, fontTrend);
+        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.7440, fontTrend);
       } else {
         const sign = tr >= 0 ? '+' : '';
         if (tr > 50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#a01818' }
-          ], leftX, ly + lh*0.70, fontTrend);
+          ], leftX, ly + lh*0.7440, fontTrend);
         } else if (tr < -50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#1a6e1a' }
-          ], leftX, ly + lh*0.70, fontTrend);
+          ], leftX, ly + lh*0.7440, fontTrend);
         } else {
           const sh = c.stables ? c.stables[i] : null;
           const stTxt = (sh === null || sh === undefined) ? 'stable'
@@ -1296,8 +1599,49 @@ function draw(i) {
                                                 : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
           drawLeftSegments(ctx, [
             { text: stTxt, color: '#3a3a3a' }
-          ], leftX, ly + lh*0.70, fontTrend);
+          ], leftX, ly + lh*0.7440, fontTrend);
         }
+      }
+
+      // --- Apport naturel + pluie 24 h (memes grandeurs que sur les reservoirs) ---
+      // HQ publie 'Apport filtre' pour les centrales aussi (66 sites sur 94), pas
+      // seulement pour les reservoirs : c'est l'eau naturelle qui arrive sur le tronçon,
+      // hors manoeuvre. Donnee JOURNALIERE, donc affichee telle quelle sans interpolation.
+      // La pluie vient de la zone meteo de rattachement (deduite du champ 'ouvrages'
+      // de config/metadata/meteo-<bassin>.json).
+      const cApport = (c.apportsEff && c.apportsEff[i] !== undefined) ? c.apportsEff[i] : null;
+      if (cApport !== null) {
+        // Pas de grisage : la valeur est pleinement lisible. Quand elle est reportee
+        // d'une publication anterieure (apport = 1 valeur/jour), on ecrit la date de
+        // cette publication en petit a cote — plus informatif qu'une opacite reduite,
+        // qui signale l'anciennete sans la quantifier.
+        const segs = [
+          { icon: 'ruissellement', size: fsIconDev },
+          { text: cApport + ' m³/s', color: 'rgba(110,110,110,.95)' }
+        ];
+        if (c.apportsStale && c.apportsStale[i]) {
+          const kReal = lastRealIdx(c.apports, i);
+          const dTxt = (kReal >= 0 && D.timestamps) ? dateCourte(D.timestamps[kReal]) : '';
+          if (dTxt) {
+            const fsAge = Math.max(8, Math.round(fsDetail * 0.78));
+            segs.push({ text: ' (' + dTxt + ')', color: 'rgba(150,150,150,.95)',
+                        font: fsAge + 'px "Segoe UI",Arial,sans-serif' });
+          }
+        }
+        drawLeftSegments(ctx, segs, leftX, ly + lh*0.5476, fontDetail);
+      }
+      let cPluie24 = null;
+      if (c.zoneMeteo && D.meteo && D.meteo.zones && D.meteo.frames && D.meteo.frames[i]) {
+        const czi = D.meteo.zones.findIndex(z => z.key === c.zoneMeteo);
+        if (czi >= 0 && D.meteo.frames[i][czi] && D.meteo.frames[i][czi].p24 != null) {
+          cPluie24 = D.meteo.frames[i][czi].p24;
+        }
+      }
+      if (cPluie24 !== null) {
+        drawLeftSegments(ctx, [
+          { icon: 'apport', size: fsIconDev },
+          { text: cPluie24 + ' mm/24h', color: 'rgba(110,110,110,.95)' }
+        ], leftX, ly + lh*0.6458, fontDetail);
       }
 
       // Sparkline minimaliste avec axes X (temps) et Y (debit min/max).
@@ -1433,6 +1777,17 @@ function draw(i) {
       const apportEff   = r.apportsEff[i];
       const apportStale = r.apportsStale[i];
 
+      // Pluie 24 h glissantes de la zone meteo a laquelle ce reservoir est rattache
+      // (champ zoneMeteo dans config/layout). Null si pas de zone, pas de donnee
+      // meteo dans cette vue, ou aucune pluie mesuree sur la fenetre.
+      let pluie24 = null;
+      if (r.zoneMeteo && D.meteo && D.meteo.zones && D.meteo.frames && D.meteo.frames[i]) {
+        const zi = D.meteo.zones.findIndex(z => z.key === r.zoneMeteo);
+        if (zi >= 0 && D.meteo.frames[i][zi] && D.meteo.frames[i][zi].p24 != null) {
+          pluie24 = D.meteo.frames[i][zi].p24;
+        }
+      }
+
       const ix = r.iconX * sx, iy = r.iconY * sy;
       const lx = r.labelX * sx, ly = r.labelY * sy;
 
@@ -1492,6 +1847,83 @@ function draw(i) {
         infoResBounds[riIdx] = null;
       }
 
+      // Icone barrage sur la carte (toujours visible, independante de l'etiquette).
+      // Dessinee avant le 'continue' du fondu pour rester affichee etiquette repliee.
+      //
+      // Ancrage sur debitLabel (le texte "214 m³/s") plutot que sur icon.x/y :
+      // les noms de reservoirs sont graves dans le JPG de fond, donc non mesurables,
+      // mais debitLabel est cale juste sous le nom et cadre a gauche comme lui.
+      // C'est donc le meilleur repere disponible pour centrer l'icone sur le nom.
+      // BARR_DX/BARR_DY = reglages globaux en pixels image. Un reservoir peut les
+      // surcharger via iconDx/iconDy dans config/layout/<bassin>.json (ex. Mekinac,
+      // dont le nom est decale par rapport aux autres dans l'image de fond).
+      const BARR_DX = 26;
+      const BARR_DY = -42;
+      const barrDx = (r.iconDx !== null && r.iconDx !== undefined) ? r.iconDx : BARR_DX;
+      const barrDy = (r.iconDy !== null && r.iconDy !== undefined) ? r.iconDy : BARR_DY;
+      const barrSzR = Math.max(18, Math.round(30 * sx));
+      const barrPos = debitLabelPos('r', riIdx);
+      const barrAncX = barrPos.x !== null ? barrPos.x * sx : ix;
+      const barrAncY = barrPos.y !== null ? barrPos.y * sy : iy;
+
+      // Teinte d'alerte selon l'intensite du deversement. Les pourcentages et les
+      // couleurs sont EXACTEMENT ceux des rosaces de centrales : on appelle la meme
+      // fonction ratioColor(), donc une recalibration des seuils suit des deux cotes.
+      //   < 40 : bas (vert) | 40-65 : modere (jaune) | 65-85 : ELEVE (orange) | >= 85 : FORT (rouge)
+      //
+      // Seule difference : le point d'entree. Les reservoirs ne colorent qu'a partir
+      // d'ELEVE (65 %), bas et modere restant neutres. L'analyse de l'episode du
+      // 3 aout 2026 a montre que les deversements pesent peu sur le debit aval
+      // (+115 m3/s de deversement pour +1100 m3/s d'apport naturel) : colorer des
+      // 40 % marquait la moitie des reservoirs sans valeur d'information.
+      const BARR_SEUIL = 65;   // = borne "eleve" de ratioColor
+      let barrTint = null;
+      if (devEff !== null && !devStale &&
+          r.minDev !== null && r.minDev !== undefined &&
+          r.maxDev !== null && r.maxDev !== undefined &&
+          (r.maxDev - r.minDev) > 0) {
+        // Math.round comme pour les centrales, pour un comportement identique aux bornes.
+        const devRatio = Math.round((devEff - r.minDev) / (r.maxDev - r.minDev) * 100);
+        if (devRatio >= BARR_SEUIL) barrTint = ratioColor(devRatio).f;   // orange / rouge
+      }
+
+      const barrImR = iconImgs['barrage'];
+
+      if (barrImR && barrImR.complete) {
+        const bx = barrAncX + barrDx * sx - barrSzR/2;
+        const by = barrAncY + barrDy * sy - barrSzR/2;
+
+        // Anneau d'alerte, meme principe et meme epaisseur que celui des rosaces de
+        // centrale (lineWidth = 4 * sx) : le lecteur reconnait deja ce code visuel.
+        //
+        // Pourquoi un anneau et pas une icone aux traits epaissis : l'icone source fait
+        // 512 px et est affichee a ~30 px, soit une reduction d'un facteur 17. Une
+        // dilatation de 7 px dans le fichier ne donne que ~0,4 px a l'ecran, invisible
+        // face aux 4 px de l'anneau des centrales. Il aurait fallu dilater de ~68 px,
+        // ce qui empaterait completement le dessin.
+        //
+        // Rayon = demi-diagonale de l'icone x 1.05 : l'icone est carree, donc ce sont
+        // ses COINS qui sont les points les plus eloignes du centre. Se baser sur la
+        // demi-largeur les ferait depasser de l'anneau.
+        if (barrTint) {
+          const ringRB = (barrSzR * Math.SQRT2 / 2) * 1.05;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(bx + barrSzR/2, by + barrSzR/2, ringRB, 0, Math.PI * 2);
+          ctx.strokeStyle = barrTint;
+          ctx.lineWidth = Math.max(2.5, 4 * sx);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // L'icone garde ses couleurs d'origine : c'est l'anneau qui porte l'alerte,
+        // comme pour les rosaces de centrale. Teinter l'icone en plus serait redondant.
+        ctx.save();
+        if (devEff === null) ctx.globalAlpha = 0.5;
+        ctx.drawImage(barrImR, bx, by, barrSzR, barrSzR);
+        ctx.restore();
+      }
+
       // Alpha fondu reservoir.
       const resKey = 'res:' + r.nom;
       const alphaR = labelAlpha[resKey] !== undefined ? labelAlpha[resKey] : (isExpandedRes(r) ? 1 : 0);
@@ -1514,10 +1946,7 @@ function draw(i) {
       ctx.stroke();
       ctx.restore();
 
-      // Pastille icone.
-      ctx.beginPath(); ctx.arc(ix,iy,4*sx,0,2*Math.PI);
-      ctx.fillStyle = devEff === null ? grayAcc : accent;
-      ctx.fill();
+      // (Pastille remplacee par l'icone barrage dessinee plus haut, hors fondu.)
 
       // Fond etiquette + bordure (toujours pleine hauteur).
       ctx.fillStyle='#fff';
@@ -1556,7 +1985,7 @@ function draw(i) {
         drawLeftSegments(ctx, [
           { icon: 'deverse', size: fsIcon },
           { text: devTxt, color: '#555' }
-        ], leftX, ly + lhrFull*0.29, fontTotal);
+        ], leftX, ly + lhrFull*0.281, fontTotal);
       }
 
       // Lignes 2+ (apport, niveau, sparkline) : toujours visibles (plus de compact).
@@ -1567,22 +1996,50 @@ function draw(i) {
           const nivEndX = drawLeftSegments(ctx, [
             { icon: 'niveau', size: fsIcon },
             { text: nivTxt, color: 'rgba(110,110,110,.95)' }
-          ], leftX, ly + lhrFull*0.47, fontDetail);
+          ], leftX, ly + lhrFull*RES_ROW_NIVEAU, fontDetail);
           ctx.font = 'bold ' + fsName + 'px "Segoe UI",Arial,sans-serif';
           ctx.fillStyle = '#5a7a9a';
           ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-          ctx.fillText(' ▸', nivEndX, ly + lhrFull*0.47);
+          ctx.fillText(' ▸', nivEndX, ly + lhrFull*RES_ROW_NIVEAU);
         }
 
         // Ligne 3 : apport.
         if (apportEff !== null) {
-          ctx.save();
-          if (apportStale) ctx.globalAlpha = 0.45;
+          // Meme traitement que les centrales : pas de grisage, date de publication
+          // en petit quand la valeur est reportee (apport = 1 valeur/jour).
+          const segsA = [
+            { icon: 'ruissellement', size: fsIcon },
+            { text: apportEff + ' m³/s', color: 'rgba(110,110,110,.95)' }
+          ];
+          if (apportStale) {
+            const kRealR = lastRealIdx(r.apports, i);
+            const dTxtR = (kRealR >= 0 && D.timestamps) ? dateCourte(D.timestamps[kRealR]) : '';
+            if (dTxtR) {
+              const fsAgeR = Math.max(8, Math.round(fsDetail * 0.78));
+              segsA.push({ text: ' (' + dTxtR + ')', color: 'rgba(150,150,150,.95)',
+                           font: fsAgeR + 'px "Segoe UI",Arial,sans-serif' });
+            }
+          }
+          drawLeftSegments(ctx, segsA, leftX, ly + lhrFull*0.582, fontDetail);
+        }
+
+        // Ligne 4 : pluie 24 h de la zone meteo de rattachement.
+        //
+        // Ratios des 4 lignes de donnees (0.281 / 0.432 / 0.582 / 0.732) : repartition
+        // reguliere entre le separateur (0.22) et le haut de la sparkline. Celle-ci
+        // occupe les 49 derniers px (sparkH 45 + marge 4), soit a partir de 0.785 pour
+        // label_height_res = 228. La 4e ligne doit rester sous 0.737 pour que la
+        // demi-hauteur du texte n'empiete pas sur le graphe. Si on ajoute une 5e ligne
+        // ou qu'on change label_height_res, il faut refaire ce calcul.
+        // Distincte de l'apport : la pluie est la CAUSE (mm tombes, mesures au
+        // pluviometre, horaire) et l'apport la CONSEQUENCE (m3/s entrant dans le
+        // reservoir, publie une fois par jour). La pluie precede donc la reaction
+        // du debit de plusieurs heures — c'est ce qui la rend utile en anticipation.
+        if (pluie24 !== null) {
           drawLeftSegments(ctx, [
             { icon: 'apport', size: fsIcon },
-            { text: apportEff + ' m³/s', color: 'rgba(110,110,110,.95)' }
-          ], leftX, ly + lhrFull*0.63, fontDetail);
-          ctx.restore();
+            { text: pluie24 + ' mm/24h', color: 'rgba(110,110,110,.95)' }
+          ], leftX, ly + lhrFull*0.732, fontDetail);
         }
 
         // Sparkline DEVERSEMENT (bleu) + APPORT (vert), meme hauteur que les centrales.
@@ -1690,110 +2147,15 @@ function draw(i) {
     }
   }
 
-  // ---- LEGENDE (dans la zone "LEGENDE" de l'image) ----
-  if (D.legend) {
-    const lgX  = D.legend.x * sx;
-    const lgY  = D.legend.y * sy;
-    const lgLh = D.legend.lineHeight * sy;
-    const lgIs = Math.max(14, Math.round(D.legend.iconSize * sx));
-    const lgFs = Math.max(10, Math.round(D.legend.fontSize * sx));
-    const lgFont = lgFs + 'px "Segoe UI",Arial,sans-serif';
-    const lgFontBold = 'bold ' + lgFs + 'px "Segoe UI",Arial,sans-serif';
-    const lgFontBoldLg = 'bold ' + Math.round(lgFs * 1.25) + 'px "Segoe UI",Arial,sans-serif';
-    // Textes hors canvas alignes sur la taille du texte courant de la legende
-    // (ex. "Niveau (m)"). La legende est dessinee sur le canvas et suit l'echelle
-    // de l'image (lgFs = 16 * sx, sans plafond), alors que ces blocs utilisaient
-    // des clamp() indexes sur la largeur de fenetre et plafonnes (17px / 20px) :
-    // les tailles divergeaient au-dela de ~1920 px de large. On les pilote donc
-    // ici avec la meme valeur lgFs, pour qu'elles restent identiques a toute
-    // resolution. Les clamp() du CSS ne servent plus que de repli avant le
-    // premier rendu du canvas.
-    if (riverBox) riverBox.style.fontSize = lgFs + 'px';
-    const discEl = document.getElementById('disclaimer');
-    if (discEl) discEl.style.fontSize = lgFs + 'px';
-    const genEl = document.getElementById('generatedAt');
-    if (genEl) genEl.style.fontSize = lgFs + 'px';
-    const lgCol  = '#1a3060';
-    const lgGap = Math.max(8, Math.round(12 * sx));
-    const lgResX = lgX - Math.round(340 * sx);  // bloc Reservoir a gauche du bloc Centrale
-
-    // -- BLOC RESERVOIR --
-    const lgResAttrX = lgResX + Math.round(140 * sx);
-    const lgResAttrY = lgY - Math.round(50 * sy) + Math.round(50 * sy);
-    drawLeftSegments(ctx, [
-      { icon: 'barrage', size: lgIs },
-      { gap: lgGap },
-      { text: 'Réservoir', color: lgCol, font: lgFontBoldLg }
-    ], lgResAttrX, lgResAttrY - lgLh, lgFontBoldLg);
-    drawLeftSegments(ctx, [
-      { icon: 'niveau', size: lgIs },
-      { gap: lgGap },
-      { text: 'Niveau (m)', color: lgCol }
-    ], lgResAttrX, lgResAttrY, lgFont);
-    drawLeftSegments(ctx, [
-      { icon: 'apport', size: lgIs },
-      { gap: lgGap },
-      { text: 'Précipitation (m³/s)', color: lgCol }
-    ], lgResAttrX, lgResAttrY + lgLh, lgFont);
-    drawLeftSegments(ctx, [
-      { icon: 'deverse', size: Math.round(lgIs * 1.25) },
-      { gap: lgGap },
-      { text: 'Déversé (m³/s)', color: lgCol }
-    ], lgResAttrX, lgResAttrY + 2 * lgLh, lgFont);
-
-    // -- BLOC CENTRALE --
-    const lgIsDev = Math.round(lgIs * 1.25);
-    const lgColGap = Math.max(16, Math.round(24 * sx));  // espace entre col 2 et col 3
-    drawLeftSegments(ctx, [
-      { icon: 'debit', size: lgIs },
-      { gap: lgGap },
-      { text: 'Débit total (m³/s)', color: lgCol }
-    ], lgX, lgY, lgFont);
-    const lgLine2EndX = drawLeftSegments(ctx, [
-      { icon: 'turbine-vert', size: lgIs },
-      { gap: lgGap },
-      { text: 'Turbiné (m³/s)', color: lgCol }
-    ], lgX, lgY + lgLh, lgFont);
-    drawLeftSegments(ctx, [
-      { icon: 'eclair', size: lgIs },
-      { gap: lgGap },
-      { text: 'Élec. générée (MW)', color: lgCol }
-    ], lgX, lgY + 2 * lgLh, lgFont);
-
-    // -- COLONNE STATUTS (cercles de couleur) --
-    // Alignée à droite de la ligne 2 (Turbiné + Déversé), à la hauteur de la ligne 1 (Débit total)
-    const lgStatX = lgLine2EndX + lgColGap + Math.round(20 * sx);
-    const lgStatY = lgY - lgLh;
-    const lgRing  = Math.max(6, Math.round(lgIs * 0.45));  // rayon de l'anneau
-    const lgRingW = Math.max(2, Math.round(lgRing * 0.35)); // épaisseur de l'anneau
-    const lgStatGap = Math.max(6, Math.round(10 * sx));
-    const statColors = [
-      { color: 'rgba(46,160,67,.92)',  label: 'Bas' },
-      { color: 'rgba(210,170,0,.92)', label: 'Modéré' },
-      { color: 'rgba(230,110,0,.92)', label: 'Élevé' },
-      { color: 'rgba(200,30,30,.92)', label: 'Fort' }
-    ];
-    statColors.forEach((s, k) => {
-      const sy2 = lgStatY + k * lgLh;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(lgStatX + lgRing, sy2, lgRing, 0, Math.PI * 2);
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = lgRingW;
-      ctx.stroke();
-      ctx.restore();
-      ctx.font = lgFont;
-      ctx.fillStyle = lgCol;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(s.label, lgStatX + lgRing * 2 + lgStatGap, sy2);
-    });
-  }
 }
 
 function resize() {
   cv.width  = img.offsetWidth;
   cv.height = img.offsetHeight;
+  // Changer cv.width/height reinitialise l'etat du contexte : il faut re-armer
+  // le filtrage haute qualite, sinon les icones redeviennent floues au resize.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   if (D) draw(frame);
 }
 
@@ -2000,9 +2362,13 @@ function hitTestReservoirNiveauArrow(xImg, yImg) {
     if (r.labelX === null || r.labelY === null) continue;
     if (!isExpandedRes(r)) continue;
     if (r.minNiv == null) continue;
-    const lineY = r.labelY + lhrFull * 0.47;
+    // Doit rester synchronise avec le ratio de dessin de la ligne niveau
+    // (RES_ROW_NIVEAU). Le ratio etait reste a 0.47 alors que le dessin est passe
+    // a 0.432 lors de l'ajout de la ligne pluie : la zone cliquable etait decalee
+    // de ~9 px vers le bas, donc pas centree sur le chiffre ni sur le triangle.
+    const lineY = r.labelY + lhrFull * RES_ROW_NIVEAU;
     const x0 = r.labelX, x1 = r.labelX + lwr;
-    const y0 = lineY - 10, y1 = lineY + 10;
+    const y0 = lineY - 11, y1 = lineY + 11;
     if (xImg >= x0 && xImg <= x1 && yImg >= y0 && yImg <= y1) return k;
   }
   return -1;
