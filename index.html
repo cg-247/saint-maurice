@@ -169,6 +169,14 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    garde une taille lisible a l'ecran quel que soit le facteur. */
 body.vv-pinned #ctrl{position:absolute;left:0;right:auto;bottom:auto;
                      transform-origin:0 100%;will-change:transform,top,width}
+/* Meme compensation de zoom, mais pour le BUREAU (pinch trackpad / ecran tactile).
+   Volontairement distincte de .vv-pinned, qui embarque en plus une mise en page
+   compacte propre au telephone (nowrap, masquage de #speed / #fi / #btnRefresh) :
+   l'appliquer au bureau ferait disparaitre le selecteur de vue.
+   Ici on ne touche QUE a l'echelle et au positionnement — la barre garde tous ses
+   controles et sa taille apparente a l'ecran quel que soit le facteur de zoom. */
+body.vv-zoomfix #ctrl{position:absolute;left:0;right:auto;bottom:auto;
+                      transform-origin:0 100%;will-change:transform,top,width}
 @supports (padding: env(safe-area-inset-bottom)) {
   #ctrl{bottom:env(safe-area-inset-bottom);
         padding-bottom:calc(8px + env(safe-area-inset-bottom) * .35)}
@@ -310,9 +318,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.13.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.13.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-10 20:04</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-11 08:28</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -1147,6 +1155,12 @@ function turbineAggregate(c, turb) {
 function draw(i) {
   const sx = cv.width  / img.naturalWidth;
   const sy = cv.height / img.naturalHeight;
+  // Echelle pour les elements DOM (titre, date, lien "Mobile", habillage, selecteurs).
+  // Distincte de sx : depuis le surechantillonnage du canvas, sx est exprime en pixels
+  // de BACKING STORE (multiplie par devicePixelRatio et par le zoom pinch), ce qui est
+  // voulu pour le tracé mais faux pour du DOM, qui raisonne en pixels CSS. On repart
+  // donc de la taille AFFICHEE de l'image.
+  const sxCss = img.offsetWidth / img.naturalWidth;
   ctx.clearRect(0,0,cv.width,cv.height);
   const lw = D.labelW * sx;
   const lh = D.labelH * sy;
@@ -1179,23 +1193,34 @@ function draw(i) {
     const lgGap  = Math.max(6, Math.round(9 * sx));
     const lgCol  = '#1a3060';
 
-    // Textes hors canvas alignes sur la taille du texte de la legende (inchange).
-    if (riverBox) riverBox.style.fontSize = lgFs + 'px';
+    // Textes hors canvas alignes sur la taille du texte de la legende.
+    //
+    // ATTENTION : ces elements sont du DOM, donc en pixels CSS -> on utilise lgFsCss
+    // (base sur sxCss) et NON lgFs, qui est en pixels de backing store depuis le
+    // surechantillonnage du canvas. Utiliser lgFs ici les ferait grossir d'un facteur
+    // devicePixelRatio x zoom-pinch par-dessus l'agrandissement optique du navigateur.
+    const lgFsCss = Math.max(10, Math.round(D.legend.fontSize * sxCss));
+    if (riverBox) riverBox.style.fontSize = lgFsCss + 'px';
     const discEl = document.getElementById('disclaimer');
-    if (discEl) discEl.style.fontSize = lgFs + 'px';
+    if (discEl) discEl.style.fontSize = lgFsCss + 'px';
     const genEl = document.getElementById('generatedAt');
-    if (genEl) genEl.style.fontSize = lgFs + 'px';
-    // Titre + horodatage : derniers textes encore pilotes par clamp(...vw...) en CSS.
+    if (genEl) genEl.style.fontSize = lgFsCss + 'px';
+    // Titre + horodatage : etaient pilotes par clamp(...vw...) en CSS.
     // 'vw' suit la largeur de FENETRE, alors que l'image de fond est contrainte par la
     // hauteur (max-height:calc(100vh - 54px)) et bouge donc peu au zoom navigateur :
     // les deux divergeaient, d'ou l'impression que "tout grossit sauf l'image".
-    // On les indexe sur lgFs (= fontSize * sx), qui suit la taille AFFICHEE de l'image,
-    // comme le reste du canvas. Ratios reprenant les proportions CSS d'origine
+    // On les indexe sur lgFsCss, qui suit la taille AFFICHEE de l'image, comme le
+    // reste du canvas. Ratios reprenant les proportions CSS d'origine
     // (1.55vw et 1.22vw contre 0.95vw pour le texte de legende).
     const titreEl = document.getElementById('titre');
-    if (titreEl) titreEl.style.fontSize = Math.round(lgFs * 1.63) + 'px';
+    if (titreEl) titreEl.style.fontSize = Math.round(lgFsCss * 1.63) + 'px';
     const tsEl = document.getElementById('ts');
-    if (tsEl) tsEl.style.fontSize = Math.round(lgFs * 1.28) + 'px';
+    if (tsEl) tsEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px';
+    // Bloc haut-droite ("Mobile · v2.x.x") : restait en clamp(...vw...), donc il
+    // grossissait avec la fenetre au lieu de suivre l'image. Meme ratio que le
+    // disclaimer, dont il partageait la regle CSS (0.95vw).
+    const topREl = document.getElementById('topRight');
+    if (topREl) topREl.style.fontSize = lgFsCss + 'px';
 
     // --- Contenu declaratif : 4 colonnes (en-tete + lignes) ---
     const lgCols = [
@@ -2273,9 +2298,49 @@ function draw(i) {
 
 }
 
+// Facteur de rasterisation du calque #ov. Le canvas est etire en CSS a 100 % de
+// l'image (cf. regle #ov) ; ce qu'on choisit ici, c'est la DENSITE du bitmap.
+//
+// Deux effets s'additionnent et doivent etre pris en compte :
+//  - devicePixelRatio : un ecran Windows a 150 % rend 1 px CSS sur 1,5 px physique.
+//    Rasteriser a offsetWidth (px CSS) donnait donc un calque deja sous-echantillonne
+//    par rapport au JPG de fond, que le navigateur affiche lui a sa resolution native.
+//  - visualViewport.scale : le pinch-zoom (trackpad, ecran tactile) agrandit le
+//    viewport VISUEL sans toucher au viewport de mise en page. Ni 100vh ni
+//    offsetWidth ne bougent, donc aucun 'resize' classique ne part : le compositeur
+//    se contente d'etirer le bitmap deja rasterise -> traits flous et epaissis, alors
+//    que le JPG de fond, lui, garde sa nettete. C'est l'ecart visuel signale
+//    ("l'image de base ne change pas, ce qui est ajoute grossit et se deforme").
+//
+// On plafonne le produit : au-dela de 3x le gain visuel est nul et la surface a
+// redessiner croit au carre (un 1800x1196 a 4x = 34 Mpx par frame d'animation).
+const MAX_RASTER_SCALE = 3;
+function rasterScale() {
+  const dpr = window.devicePixelRatio || 1;
+  const vvs = (window.visualViewport && window.visualViewport.scale) || 1;
+  return Math.min(MAX_RASTER_SCALE, dpr * vvs);
+}
+
 function resize() {
-  cv.width  = img.offsetWidth;
-  cv.height = img.offsetHeight;
+  const w = img.offsetWidth, h = img.offsetHeight;
+  if (!w || !h) return;   // image pas encore mise en page
+  const rs = rasterScale();
+  const nw = Math.round(w * rs), nh = Math.round(h * rs);
+  // Ne rien faire si la geometrie est inchangee : resize() est appele aussi sur
+  // les evenements visualViewport (scroll compris), qui sont tres frequents, et
+  // reaffecter cv.width efface le canvas meme pour une valeur identique.
+  if (cv.width === nw && cv.height === nh) return;
+  cv.width  = nw;
+  cv.height = nh;
+  // Taille CSS explicite : sans elle, un canvas dont le backing store depasse
+  // l'espace dispo se laisserait contraindre par max-width et se desalignerait
+  // du JPG. On la fixe a la taille exacte de l'image affichee.
+  cv.style.width  = w + 'px';
+  cv.style.height = h + 'px';
+  // draw() derive toute sa geometrie de sx = cv.width / img.naturalWidth : le
+  // surechantillonnage se propage donc seul aux polices, icones et epaisseurs.
+  // Aucun ctx.scale() a appliquer ici — il ferait double emploi.
+  //
   // Changer cv.width/height reinitialise l'etat du contexte : il faut re-armer
   // le filtrage haute qualite, sinon les icones redeviennent floues au resize.
   ctx.imageSmoothingEnabled = true;
@@ -2344,6 +2409,31 @@ btnEnd.addEventListener('click',()=>{ stop(); go(N-1); });
 slider.addEventListener('input',()=>{ stop(); go(+slider.value); });
 speedSel.addEventListener('change',()=>{ if(playing){stop();startPlay();} });
 window.addEventListener('resize', resize);
+
+// Pinch-zoom : le viewport de MISE EN PAGE ne bouge pas, donc 'resize' ci-dessus
+// ne part jamais et le calque #ov resterait rasterise a la densite d'avant zoom
+// (etire par le compositeur -> flou, alors que le JPG de fond reste net). On
+// reagit donc aussi aux evenements du viewport VISUEL.
+//
+// Ces evenements arrivent en rafale pendant un pinch ou un defilement zoome, et
+// draw() repeint tout le schema : on coalesce sur une frame. resize() sort tot
+// si la geometrie n'a pas change, donc un 'scroll' sans zoom ne coute rien.
+//
+// Le zoom navigateur (Ctrl+molette) modifie lui devicePixelRatio ET le viewport
+// de mise en page : il passe par les deux chemins, et le garde d'egalite dans
+// resize() evite le double repaint.
+(function () {
+  var vv = window.visualViewport;
+  if (!vv) return;
+  var raf = 0;
+  function schedule() {
+    if (raf) return;
+    raf = requestAnimationFrame(function () { raf = 0; resize(); });
+  }
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
+})();
+
 img.addEventListener('load',()=>{ resize(); if (D) go(N-1); });
 if(img.complete) { resize(); if (D) go(N-1); }
 
@@ -3682,6 +3772,66 @@ window.addEventListener('resize', ()=>{
 //
 // N'est active QUE sur telephone (meme critere de taille que l'injection du
 // meta viewport). Sur ordinateur, la barre reste en position:fixed classique.
+
+// ---------------------------------------------------------------------------
+// Barre de controle a taille constante au pinch-zoom — version BUREAU
+// ---------------------------------------------------------------------------
+// Pendant du bloc telephone ci-dessous, pour le pinch au trackpad ou sur ecran
+// tactile d'un poste de travail. position:fixed suit le viewport de MISE EN PAGE :
+// au pinch, le compositeur agrandit donc la barre optiquement, et le selecteur de
+// vue, les boutons et le slider grossissent alors que le schema, lui, reste cale.
+//
+// On applique la meme compensation (scale inverse + repositionnement sur le
+// viewport visuel) mais via la classe .vv-zoomfix, qui ne change QUE l'echelle :
+// contrairement a .vv-pinned, elle ne masque aucun controle.
+//
+// Sans zoom (scale = 1) la barre reprend exactement sa geometrie d'origine, donc
+// le comportement bureau habituel est inchange.
+(function () {
+  var vv = window.visualViewport;
+  if (!vv) return;
+
+  // Garde INVERSE de celui du bloc telephone : les deux sont mutuellement exclusifs,
+  // pour qu'une meme barre ne soit jamais pilotee deux fois.
+  var dprD = window.devicePixelRatio || 1;
+  var isPhone = ((screen.width || 9999) / dprD <= 900) && ((window.innerWidth || 9999) / dprD <= 1100);
+  if (isPhone) return;
+
+  var ctrl = document.getElementById('ctrl');
+  if (!ctrl) return;
+
+  var raf = 0, applied = false;
+  function place() {
+    raf = 0;
+    var scale = vv.scale || 1;
+    // Pas de zoom : on rend la main a position:fixed (CSS d'origine, aucun surcout).
+    if (Math.abs(scale - 1) < 0.01) {
+      if (applied) {
+        applied = false;
+        document.body.classList.remove('vv-zoomfix');
+        ctrl.style.transform = ctrl.style.width = ctrl.style.left = ctrl.style.top = '';
+      }
+      return;
+    }
+    if (!applied) { applied = true; document.body.classList.add('vv-zoomfix'); }
+    var hCss = ctrl.offsetHeight;
+    ctrl.style.width = (vv.width * scale) + 'px';   // largeur ecran, avant scale inverse
+    ctrl.style.transform = 'scale(' + (1 / scale) + ')';
+    ctrl.style.left = vv.offsetLeft + 'px';
+    // transform-origin en bas a gauche : le HAUT doit etre pose de facon que le
+    // BAS tombe au bord inferieur du viewport visuel apres mise a l'echelle.
+    ctrl.style.top = (vv.offsetTop + vv.height - hCss) + 'px';
+  }
+  function schedule() {
+    if (raf) return;
+    raf = requestAnimationFrame(place);
+  }
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
+  window.addEventListener('resize', schedule);
+  schedule();
+})();
+
 (function () {
   var vv = window.visualViewport;
   if (!vv) return;  // navigateur sans visualViewport : on garde position:fixed
