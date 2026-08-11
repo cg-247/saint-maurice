@@ -87,7 +87,18 @@
 <meta name="theme-color" content="#1a1a2e">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:0;height:100vh;overflow:hidden}
+/* Hauteur reelle de la barre de controle, mesuree en JS (voir syncCtrlHeight).
+   Valeur de repli = hauteur nominale sur une seule ligne. La barre est en
+   position:fixed, donc hors flux : sans reservation explicite, le contenu centre
+   par justify-content passe DESSOUS et se fait masquer. */
+:root{--ctrl-h:48px}
+/* padding-bottom (et non une soustraction sur height) : le centrage vertical
+   s'opere ainsi dans l'espace RESTANT, au-dessus de la barre. C'est ce qui
+   manquait — l'image etait centree sur toute la hauteur de fenetre, donc son bas
+   passait derriere la barre des que sa taille etait limitee par la LARGEUR et
+   non par max-height (cas le plus courant en 16:9, ou la reserve de 54px de
+   #img ne s'appliquait tout simplement jamais). */
+body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Segoe UI",Arial,sans-serif;color:#eee;padding:0 0 var(--ctrl-h);height:100vh;overflow:hidden}
 /* L'en-tete ne compte plus que 2 lignes ("Saint-Maurice" + date) depuis le
    retrait de la periode et du sous-titre "Debit max atteint sur la periode".
    Le decalage negatif de 1cm servait a compenser la 3e ligne : on le reduit
@@ -96,8 +107,18 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
           text-align:center;color:#1a1a2e;pointer-events:none;z-index:2;width:90%}
 #titlebox h1{font-size:clamp(16px, 1.55vw, 28px);letter-spacing:.3px;font-weight:700}
 #titlebox #ts{font-size:clamp(13px, 1.22vw, 22px);color:#000;font-weight:600;margin-top:4px;min-height:24px}
-#wrap{position:relative;display:inline-block;max-width:100%}
-#img{display:block;max-width:100%;max-height:calc(100vh - 54px);width:auto;height:auto;object-fit:contain}
+/* max-height:100% + min-height:0 : donne a #img une reference de hauteur a
+   laquelle se contraindre. Sans ca, un inline-block s'etire a la taille de son
+   contenu et le max-height:100% de l'image n'a rien a quoi se rapporter.
+   min-height:0 leve la taille minimale automatique des enfants flex, qui sinon
+   empeche #wrap de se reduire sous la hauteur naturelle de l'image. */
+#wrap{position:relative;display:inline-block;max-width:100%;max-height:100%;min-height:0}
+/* La reserve pour la barre est desormais portee par le padding-bottom du body :
+   la hauteur disponible ici est donc deja nette de la barre, et max-height:100%
+   suffit. (Avant : calc(100vh - 54px), constante en dur qui ne correspondait plus
+   a la hauteur reelle et, surtout, restait sans effet quand l'image etait limitee
+   par la largeur.) */
+#img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
 #ov{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
 #hover-layer{position:absolute;top:0;left:0;width:100%;height:100%;cursor:default;z-index:3}
 #modal{position:fixed;inset:0;background:rgba(10,10,20,.78);z-index:100;
@@ -318,9 +339,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.13.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.13.2</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-11 11:33</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-11 15:42</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -3772,6 +3793,47 @@ window.addEventListener('resize', ()=>{
 //
 // N'est active QUE sur telephone (meme critere de taille que l'injection du
 // meta viewport). Sur ordinateur, la barre reste en position:fixed classique.
+
+// ---------------------------------------------------------------------------
+// Reservation de la place occupee par la barre de controle
+// ---------------------------------------------------------------------------
+// #ctrl est en position:fixed, donc HORS FLUX : le contenu centre par
+// justify-content ne "sait" pas qu'elle existe. La hauteur etait auparavant
+// codee en dur (max-height:calc(100vh - 54px) sur #img), avec deux defauts :
+//   - 54px ne correspondait pas a la hauteur reelle (48px sur une ligne, 56px
+//     des que les controles reviennent a la ligne sur une fenetre etroite) ;
+//   - surtout, cette contrainte ne s'appliquait QUE si l'image etait limitee par
+//     la hauteur. En 16:9 elle l'est par la LARGEUR, donc la reserve tombait a
+//     plat et le bas du schema — les sparklines de La Gabelle et Grand-Mere,
+//     les plus basses — passait derriere la barre.
+//
+// On mesure donc la hauteur reelle et on la publie dans --ctrl-h, que le
+// padding-bottom du body consomme. Le centrage vertical s'opere alors dans
+// l'espace restant, quelle que soit l'orientation ou le nombre de lignes.
+(function () {
+  var ctrl = document.getElementById('ctrl');
+  if (!ctrl) return;
+  var last = -1;
+  function sync() {
+    // En mode epingle (telephone), la barre est mise a l'echelle inverse du zoom
+    // et flotte au-dessus du schema : elle ne doit pas amputer la hauteur utile.
+    if (document.body.classList.contains('vv-pinned')) {
+      if (last !== 0) { last = 0; document.documentElement.style.setProperty('--ctrl-h', '0px'); }
+      return;
+    }
+    var h = Math.round(ctrl.getBoundingClientRect().height);
+    if (!h || h === last) return;   // inchangee : pas de reflow inutile
+    last = h;
+    document.documentElement.style.setProperty('--ctrl-h', h + 'px');
+    // La hauteur disponible pour l'image vient de changer : le canvas doit se
+    // recaler dessus, sinon le calque reste dimensionne sur l'ancienne geometrie.
+    if (typeof resize === 'function') resize();
+  }
+  window.addEventListener('resize', sync);
+  window.addEventListener('orientationchange', function () { setTimeout(sync, 250); });
+  if (window.ResizeObserver) new ResizeObserver(sync).observe(ctrl);  // capte le flex-wrap
+  sync();
+})();
 
 // ---------------------------------------------------------------------------
 // Barre de controle a taille constante au pinch-zoom — version BUREAU
