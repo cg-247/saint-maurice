@@ -339,9 +339,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.13.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.13.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-12 15:44</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-12 19:21</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -568,6 +568,70 @@ function dateCourte(ts) {
   const mois = MOIS_COURTS[parseInt(m[2], 10) - 1] || '';
   if (!m[3]) return mois;                       // vue mois : pas de jour
   return parseInt(m[3], 10) + ' ' + mois;
+}
+
+// Libelle compact pour les TICKS D'AXE X des grands graphiques : 'MM/JJ' au lieu
+// de 'AAAA-MM-JJ'. L'annee occupait 5 caracteres sur 10 pour une information
+// constante a l'echelle d'un graphique — la retirer laisse tenir plus de dates.
+//
+// Reserve aux axes : le titre de la modale et le bandeau d'horodatage gardent la
+// date complete, c'est la qu'on lit l'annee sans ambiguite.
+//
+// Gere les 4 formats produits par Format-BinForDisplay (cf. lib/Resample.ps1) :
+//   'AAAA-MM-JJ HH:mm'            (heure)   -> 'MM/JJ HH:mm'
+//   'AAAA-MM-JJ'                  (jour)    -> 'MM/JJ'
+//   'AAAA-MM-JJ → AAAA-MM-JJ'     (semaine) -> 'MM/JJ → MM/JJ'
+//   'AAAA-MM'                     (mois)    -> 'AAAA-MM' (inchange : sans jour,
+//                                              l'annee est la seule mise en contexte)
+function dateAxe(ts) {
+  if (!ts) return '';
+  const s = String(ts);
+  // Vue mois ('AAAA-MM' sans jour) : on garde l'annee.
+  if (/^\d{4}-\d{2}(?!-)/.test(s)) return s;
+  // Toutes les autres vues : on retire l'annee de chaque date presente (la vue
+  // semaine en contient deux, d'ou le remplacement global).
+  return s.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$2/$3');
+}
+
+// Separe un libelle d'axe en { main, sub } :
+//   main = 'MM/JJ' (ou 'MM/JJ HH:mm', 'MM/JJ → MM/JJ', 'AAAA-MM' selon la vue)
+//   sub  = '(HH:mm)' pour une journee partielle, sinon ''
+//
+// Le suffixe de journee partielle est sorti du libelle principal pour etre pose
+// sur une 2e ligne : en une seule ligne, il doublait la largeur du dernier tick
+// et chevauchait ses voisins.
+//
+// Le libelle source est "AAAA-MM-JJ — jusqu'a HH:mm" avec tiret CADRATIN,
+// apostrophe TYPOGRAPHIQUE et 'a' ACCENTUE. Le motif tolere les variantes
+// (droite/typographique, accentue/non) : une classe trop stricte ne matcherait
+// pas et le suffixe resterait sur la 1re ligne.
+//
+// '00:00' est rendu '24:00' : la borne appartient a la journee affichee, et
+// '00:00' sous une date qui est celle de la veille se lit mal.
+function dateAxeParts(ts) {
+  if (!ts) return { main: '', sub: '' };
+  const s = String(ts);
+  const m = s.match(/^(.*?)\s*[—–-]\s*jusqu['’]\s*[aàÀA]\s*(\d{1,2}:\d{2})\s*$/i);
+  if (!m) return { main: dateAxe(s), sub: '' };
+  const hhmm = m[2] === '00:00' ? '24:00' : m[2];
+  return { main: dateAxe(m[1]), sub: '(' + hhmm + ')' };
+}
+
+// Trace un libelle de tick sur une ou deux lignes : la date en taille normale,
+// la borne horaire d'une journee partielle en dessous, plus petite et discrete.
+// Restaure police et couleur en sortie.
+function drawTickLabel(cx, ts, x, y, baseFont) {
+  const p = dateAxeParts(ts);
+  cx.fillText(p.main, x, y);
+  if (!p.sub) return;
+  const prevFont = cx.font, prevFill = cx.fillStyle;
+  // ~0.78x la taille de base, minimum 8 px : lisible sans concurrencer la date.
+  const mSize = /(\d+(?:\.\d+)?)px/.exec(baseFont || cx.font);
+  const size  = mSize ? Math.max(8, Math.round(parseFloat(mSize[1]) * 0.78)) : 9;
+  cx.font = (baseFont || cx.font).replace(/(\d+(?:\.\d+)?)px/, size + 'px');
+  cx.fillStyle = '#999';
+  cx.fillText(p.sub, x, y + size + 3);
+  cx.font = prevFont; cx.fillStyle = prevFill;
 }
 
 // Pour une serie [v0, null, null, v3, null] -> renvoie { eff: [v0,v0,v0,v3,v3], stale: [false,true,true,false,true] }.
@@ -2817,21 +2881,35 @@ function drawRainPanel(cx, pl, geo) {
     cx.fillStyle = 'rgba(150,150,160,.18)';
     cx.fillRect(xFut, topY, pad.l + innerW - xFut, rainInnerH);
   }
-  // Cadre haut/bas.
+  // Echelle Y : bornee a une valeur RONDE au-dessus du max observe, pour que les
+  // 5 paliers tombent sur des nombres lisibles (0/4/8/12/16/20 plutot que
+  // 0/3,4/6,8/10,3/13,7/17,1). Sans cet arrondi, une grille reguliere sur le max
+  // brut donnerait des libelles a decimales, illisibles a 11 px.
+  // Le pas est pris dans une echelle 1-2-5 (x10) : 1, 2, 5, 10, 20, 50 mm...
+  const RAIN_ROWS = 5;
+  const stepRaw = pl.max / RAIN_ROWS;
+  const p10 = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, stepRaw))));
+  let stepP = p10;
+  for (const mult of [1, 2, 5, 10]) { stepP = mult * p10; if (stepP >= stepRaw) break; }
+  const yTopP = stepP * RAIN_ROWS;          // sommet de l'echelle (multiple rond)
+  // Nombre de decimales : 0 des que le pas est >= 1 mm (cas courant), sinon 1.
+  const decP = stepP >= 1 ? 0 : 1;
+
+  // Grille horizontale : RAIN_ROWS intervalles, comme le panneau des debits, au
+  // lieu des deux seuls reperes 0 / max d'avant.
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-  cx.beginPath();
-  cx.moveTo(pad.l, topY); cx.lineTo(pad.l + innerW, topY);
-  cx.moveTo(pad.l, base); cx.lineTo(pad.l + innerW, base);
-  cx.stroke();
-  // Axe Y : max en haut, 0 en bas. Le label du max est descendu d'un cran
-  // (textBaseline 'top' au lieu de 'middle') pour ne pas chevaucher le titre,
-  // qui occupe la ligne juste au-dessus du cadre.
   cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
   cx.textAlign = 'right';
-  cx.textBaseline = 'top';
-  cx.fillText(pl.max + ' mm', pad.l - 6, topY + 1);
+  for (let g = 0; g <= RAIN_ROWS; g++) {
+    const y = topY + (g / RAIN_ROWS) * rainInnerH;
+    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+    // Le libelle du haut est descendu d'un cran (baseline 'top') pour ne pas
+    // chevaucher le titre du panneau, qui occupe la ligne juste au-dessus.
+    cx.textBaseline = (g === 0) ? 'top' : 'middle';
+    const val = yTopP * (1 - g / RAIN_ROWS);
+    cx.fillText(val.toFixed(decP) + ' mm', pad.l - 6, y + (g === 0 ? 1 : 0));
+  }
   cx.textBaseline = 'middle';
-  cx.fillText('0 mm', pad.l - 6, base);
   // Titre du panneau, au-dessus du cadre (hors zone de trace).
   cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'bottom';
@@ -2845,7 +2923,9 @@ function drawRainPanel(cx, pl, geo) {
     if (v == null || v <= 0) continue;
     const xx = pad.l + (i / geo.xSpan) * innerW;
     cx.moveTo(xx, base);
-    cx.lineTo(xx, base - Math.min(1, v / pl.max) * rainInnerH);
+    // Echelle sur yTopP (sommet rond de la grille) et non sur pl.max : sinon les
+    // barres ne correspondraient plus aux paliers affiches.
+    cx.lineTo(xx, base - Math.min(1, v / yTopP) * rainInnerH);
   }
   cx.stroke();
   // Curseur, prolonge depuis le panneau du haut pour lier les deux lectures.
@@ -2854,7 +2934,7 @@ function drawRainPanel(cx, pl, geo) {
   // Valeur courante, si averse en cours.
   const pCur = pl.vals[frame];
   if (pCur != null && pCur > 0) {
-    const yP = base - Math.min(1, pCur / pl.max) * rainInnerH;
+    const yP = base - Math.min(1, pCur / yTopP) * rainInnerH;
     cx.fillStyle = SERIES.pluie.solid;
     cx.beginPath(); cx.arc(xCur, yP, 3.5, 0, 2 * Math.PI); cx.fill();
     cx.font = 'bold 11px "Segoe UI",Arial';
@@ -2872,7 +2952,9 @@ function drawRainPanel(cx, pl, geo) {
   const swW = 22, swH = 7, padX = 8, padY = 6;
   const bw = cx.measureText(lbTxt).width + swW + 8 + 2 * padX;
   const bh = 18 + 2 * padY;
-  const rainYOf = v => base - Math.min(1, v / pl.max) * rainInnerH;
+  // Meme echelle que les barres (yTopP) : pickCorner s'en sert pour trouver un coin
+  // libre, il doit donc raisonner sur les hauteurs REELLEMENT tracees.
+  const rainYOf = v => base - Math.min(1, v / yTopP) * rainInnerH;
   const rainXOf = i => pad.l + (i / geo.xSpan) * innerW;
   const co = pickCorner({ x0: pad.l, y0: topY, w: innerW, h: rainInnerH },
                         bw, bh, [pl.vals], rainYOf, rainXOf, xCur);
@@ -2898,7 +2980,9 @@ function drawBigChart() {
   // sparkline (31 px de haut, aucune place), la modale peut etiqueter un 2e axe —
   // donc on le fait ici, c'est l'endroit ou l'apport se lit quantitativement.
   const hasApport = !!(c.apports && c.maxApport);
-  const pad = { l: 60, r: hasApport ? 62 : 20, t: 10, b: 36 };
+  // b: 42 (et non 36) : un tick peut tenir sur 2 lignes (date + borne horaire
+  // '(24:00)' des journees partielles), ce qui demande ~23 px sous l'axe.
+  const pad = { l: 60, r: hasApport ? 62 : 20, t: 10, b: 42 };
   cx.clearRect(0, 0, w, h);
 
   // --- Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas ---
@@ -2963,7 +3047,7 @@ function drawBigChart() {
     const i = Math.round((g / 4) * (N - 1));
     cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
     const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
-    cx.fillText(D.timestamps[i], xt, h - pad.b + 6);
+    drawTickLabel(cx, D.timestamps[i], xt, h - pad.b + 6, '11px "Segoe UI",Arial');
   }
 
   // Couleur de la courbe = couleur statut courant (basee sur ratio min/max)
@@ -3472,7 +3556,8 @@ function drawBigChartRes() {
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
-  const pad = { l: 60, r: 20, t: 10, b: 36 };
+  // b: 42 — cf. note sur les ticks sur 2 lignes dans drawBigChart().
+  const pad = { l: 60, r: 20, t: 10, b: 42 };
   cx.clearRect(0, 0, w, h);
 
   // Echelle Y combinee (deversement + apport).
@@ -3532,7 +3617,7 @@ function drawBigChartRes() {
     // '— jusqu'a HH:mm' en journee partielle) deborde hors du canvas.
     cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
     const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
-    cx.fillText(D.timestamps[i], xt, h - pad.b + 6);
+    drawTickLabel(cx, D.timestamps[i], xt, h - pad.b + 6, '11px "Segoe UI",Arial');
   }
 
   // Courbe APPORT (cyan, stem-plot — chaque mesure = trait vertical de 0 a la
@@ -3645,7 +3730,8 @@ function drawBigChartNivRes() {
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
-  const pad = { l: 68, r: 20, t: 28, b: 36 };
+  // b: 42 — cf. note sur les ticks sur 2 lignes dans drawBigChart().
+  const pad = { l: 68, r: 20, t: 28, b: 42 };
   cx.clearRect(0, 0, w, h);
 
   const niveaux = r.niveauxEff;
@@ -3686,7 +3772,7 @@ function drawBigChartNivRes() {
   cx.fillStyle = '#666'; cx.textAlign = 'center'; cx.textBaseline = 'top';
   for (let g = 0; g <= 4; g++) {
     const i = Math.round((g / 4) * (N - 1));
-    cx.fillText(D.timestamps[i], xOf(i), h - pad.b + 6);
+    drawTickLabel(cx, D.timestamps[i], xOf(i), h - pad.b + 6, '11px "Segoe UI",Arial');
   }
 
   // Ligne MIN historique (rouge pointille)
