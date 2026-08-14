@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-14 08:17</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-14 08:27</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.14.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.14.1</span>
 </footer>
 
 <script>
@@ -281,21 +281,33 @@ function stemWidth(plotW, nPts, base) {
 
 // Serie de pluie 24 h (mm) d'une zone meteo + son max. Identique a la fonction du
 // meme nom dans animation.html.tpl — garder les deux alignees.
+// Retourne DEUX series, comme la fonction homonyme du template bureau :
+//   vals / max   = cumul 24 h glissant (p24) — le total, tracé en courbe
+//   hVals / hMax = pluie du pas de temps (p1) — quand il a plu, tracé en barres
+// Pourquoi les deux : le cumul glissant repete la meme valeur pendant 24 h apres une
+// averse courte. Une averse de 4 h le 11 aout 2026 (22 + 7 + 0,4 + 0 mm) produisait
+// 24 barres identiques a 29,7 mm, qui se lisaient comme une pluie continue.
+// ⚠ Garder alignee sur animation.html.tpl : les deux templates sont des fichiers
+// separes (pas de module partage), un ecart ferait divergent bureau et mobile.
 function pluieSerie(zoneKey) {
   if (!zoneKey || !D || !D.meteo || !D.meteo.zones || !D.meteo.frames) return null;
   const zi = D.meteo.zones.findIndex(z => z.key === zoneKey);
   if (zi < 0) return null;
-  const out = new Array(D.meteo.frames.length).fill(null);
-  let mx = 0;
-  for (let k = 0; k < D.meteo.frames.length; k++) {
+  const n = D.meteo.frames.length;
+  const out = new Array(n).fill(null);
+  const outH = new Array(n).fill(null);
+  let mx = 0, mxH = 0;
+  for (let k = 0; k < n; k++) {
     const fr = D.meteo.frames[k];
     if (!fr || !fr[zi]) continue;
     const v = fr[zi].p24;
-    if (v == null) continue;
-    out[k] = v;
-    if (v > mx) mx = v;
+    if (v != null) { out[k] = v; if (v > mx) mx = v; }
+    // p1 absent des datasets rendus avant son ajout : repli sur le seul cumul.
+    const v1 = fr[zi].p1;
+    if (v1 != null) { outH[k] = v1; if (v1 > mxH) mxH = v1; }
   }
-  return mx > 0 ? { vals: out, max: mx } : null;
+  if (mx <= 0 && mxH <= 0) return null;
+  return { vals: out, max: mx, hVals: mxH > 0 ? outH : null, hMax: mxH };
 }
 
 function statusClass(c, val) {
@@ -383,7 +395,9 @@ function mergeHoraire(prev, curr) {
   // n'a pas de meteo, on rembourre avec des frames nulles de la bonne longueur.
   if (curr.meteo && Array.isArray(curr.meteo.frames)) {
     const zones = curr.meteo.zones || [];
-    const nullFrame = zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null }));
+    // p1 comme p24 : la frame de remplissage doit porter les MEMES champs que les
+    // vraies, sinon un futur test sur p1 verrait 'undefined' au lieu de null.
+    const nullFrame = zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null, p1: null }));
     const prevFrames = (prev.meteo && Array.isArray(prev.meteo.frames))
       ? prev.meteo.frames
       : new Array(prev.timestamps.length).fill(nullFrame);
@@ -907,19 +921,41 @@ function drawBigChart() {
     // Titre au-dessus du cadre.
     cx.fillStyle = '#1a1a2e'; cx.font = 'bold 11px "Segoe UI",Arial';
     cx.textAlign = 'left'; cx.textBaseline = 'bottom';
-    cx.fillText(hasApportM ? 'Pluie (mm/24h) et apport (m³/s)' : 'Pluie (mm/24h)', pad.l, topY - 3);
-    // Barres de pluie, du bas vers le haut.
+    // « mm » seul et non « mm/24h » : les barres portent la pluie du pas de temps,
+    // le cumul 24 h est desormais la courbe (cf. legende du panneau).
+    cx.fillText(hasApportM ? 'Pluie (mm) et apport (m³/s)' : 'Pluie (mm)', pad.l, topY - 3);
+    // Deux formes pour deux lectures, sur la MEME echelle mm :
+    //   BARRES = pluie tombee pendant le pas de temps (p1) -> quand il a plu
+    //   COURBE = cumul 24 h glissant (p24)                 -> combien au total
+    const plBarsM = plM.hVals || plM.vals;   // repli si p1 absent (vieux dataset)
     cx.strokeStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
     cx.beginPath();
     for (let i = 0; i < N; i++) {
-      const v = plM.vals[i];
+      const v = plBarsM[i];
       if (v == null || v <= 0) continue;
       const xx = xOf(i);
       cx.moveTo(xx, base);
       cx.lineTo(xx, base - Math.min(1, v / yTopM) * rainInnerH);
     }
     cx.stroke();
+    // Courbe du cumul 24 h par-dessus les barres, seulement si on a les deux series.
+    if (plM.hVals && plM.vals) {
+      cx.save();
+      cx.strokeStyle = SERIES.pluie.solid;
+      cx.lineWidth = 1.3;
+      cx.globalAlpha = .85;
+      cx.beginPath();
+      let startedM = false;
+      for (let i = 0; i < N; i++) {
+        const v = plM.vals[i];
+        if (v == null) { startedM = false; continue; }
+        const xx = xOf(i), yy = base - Math.min(1, v / yTopM) * rainInnerH;
+        if (startedM) cx.lineTo(xx, yy); else { cx.moveTo(xx, yy); startedM = true; }
+      }
+      cx.stroke();
+      cx.restore();
+    }
     // ---- APPORT NATUREL : 2e serie, echelle propre en m3/s a DROITE ----
     let apTopM = 0;
     if (hasApportM) {
@@ -953,8 +989,18 @@ function drawBigChart() {
     }
     // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les series.
     cx.font = '11px "Segoe UI",Arial';
-    const lgM = [{ c: SERIES.pluie.line, t: 'Pluie 24 h' }];
-    if (hasApportM) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel' });
+    // Une entree par FORME (barres / courbe / stem), suffixee du cote de l'axe quand
+    // les deux echelles coexistent — sinon rien ne dit laquelle lire pour quelle
+    // serie. Suffixes abreges ('g.' / 'd.') : la largeur d'ecran est limitee.
+    const sfxLm = hasApportM ? ' (éch. g.)' : '';
+    const lgM = [];
+    if (plM.hVals) {
+      lgM.push({ c: SERIES.pluie.line,  t: 'Pluie tombée' + sfxLm });
+      lgM.push({ c: SERIES.pluie.solid, t: 'Cumul 24 h' + sfxLm, line: true });
+    } else {
+      lgM.push({ c: SERIES.pluie.line, t: 'Pluie 24 h' + sfxLm });
+    }
+    if (hasApportM) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel (éch. d.)' });
     const swW2 = 18, swH2 = 6, pX = 6, pY = 5;
     let lgWm = 0;
     for (const it of lgM) lgWm = Math.max(lgWm, cx.measureText(it.t).width);
@@ -974,10 +1020,20 @@ function drawBigChart() {
     cx.textAlign = 'left'; cx.textBaseline = 'top';
     for (let k = 0; k < lgM.length; k++) {
       const yk = coP.y + pY + k * 14;
-      cx.fillStyle = lgM[k].c;
-      cx.fillRect(coP.x + pX, yk + 3, swW2, swH2);
+      const itM = lgM[k];
+      if (itM.line) {
+        // Echantillon en TRAIT : il doit ressembler a la courbe qu'il designe.
+        cx.strokeStyle = itM.c; cx.lineWidth = 1.3;
+        cx.beginPath();
+        cx.moveTo(coP.x + pX, yk + 3 + swH2 / 2);
+        cx.lineTo(coP.x + pX + swW2, yk + 3 + swH2 / 2);
+        cx.stroke();
+      } else {
+        cx.fillStyle = itM.c;
+        cx.fillRect(coP.x + pX, yk + 3, swW2, swH2);
+      }
       cx.fillStyle = '#333';
-      cx.fillText(lgM[k].t, coP.x + pX + swW2 + 6, yk);
+      cx.fillText(itM.t, coP.x + pX + swW2 + 6, yk);
     }
   }
 

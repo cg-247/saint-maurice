@@ -161,6 +161,12 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
       position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
       padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
+/* Case du calque des zones meteo, placee juste apres "Maintenant". La barre etant
+   sombre, le libelle est clair ; accent-color teinte la case sans la redessiner. */
+#zoneToggleWrap{display:flex;align-items:center;gap:6px;color:#d8dde8;
+      font-size:14px;cursor:pointer;user-select:none;white-space:nowrap}
+#zoneToggleWrap input{accent-color:#6b9fd0;width:15px;height:15px;cursor:pointer;margin:0}
+#zoneToggleWrap:hover{color:#fff}
 /* Bouton Actualiser : en PWA installee (display:standalone) il n'y a plus de
    barre d'adresse, donc plus de bouton recharger du navigateur. Ce bouton
    rejoue exactement autoRefresh() (re-fetch manifest + donnees si changement).
@@ -339,9 +345,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.14.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.14.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-14 08:17</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-14 08:27</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -366,6 +372,12 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <button id="btnPlay">&#9654; Play</button>
   <button id="btnNext">&#9654;&#9654;</button>
   <button id="btnEnd" title="Aller au plus r&eacute;cent">&#9197; Maintenant</button>
+  <!-- Calque des zones meteo. Bascule oui/non, donc une case a cocher : un bouton
+       radio supposerait un choix entre plusieurs options exclusives. Masque par
+       defaut (cf. zonesVisibles), l'etat est retenu dans localStorage. -->
+  <label id="zoneToggleWrap" title="Secteurs qui alimentent naturellement les ouvrages. Le km&sup2; indique l'envergure de la zone d'influence.">
+    <input type="checkbox" id="zoneToggle"> Zones m&eacute;t&eacute;o
+  </label>
   <div id="sliderWrap">
     <span id="sliderTs">&#8212;</span>
     <input type="range" id="slider" min="0" value="0">
@@ -1073,6 +1085,19 @@ const SERIES = {
   neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
 };
 
+// Notes explicatives affichees sous le panneau de pluie des modales (centrale et
+// reservoir). Texte INTEGRAL : la legende de la carte n'en garde qu'un resume, le
+// detail vit ici, la ou le lecteur examine les series de pres.
+// 'lbl' est rendu en GRAS et 'txt' en romain : l'attribut décrit se distingue ainsi
+// de sa description, sans quoi les deux notes formaient deux pavés d'italique
+// indifférenciés.
+const MODAL_NOTES = [
+  { lbl: 'Apport naturel :',
+    txt: "eau entrant dans l'ouvrage depuis son bassin versant (pluie, fonte, ruissellement), hors manœuvre d'Hydro-Québec. Publié 1×/jour : la date indique la dernière valeur connue." },
+  { lbl: 'Pluie :',
+    txt: "les barres donnent la pluie tombée pendant chaque pas de temps, la courbe le cumul des 24 h précédentes. Moyenne des stations de précipitation de la zone météo : tous les ouvrages d'une même zone lisent les mêmes stations et affichent donc la même valeur." }
+];
+
 // Epaisseur d'un trait de stem-plot en fonction de la densite de points.
 // Sans ca, en vue Jour (129 frames sur ~200 px de sparkline) les traits de 1,3 px
 // se touchent et le stem-plot se lit comme une aire pleine : on perd l'information
@@ -1085,6 +1110,212 @@ function stemWidth(plotW, nPts, base) {
   return Math.max(0.4, Math.min(base, pas * 0.7));
 }
 
+// ---------------------------------------------------------------------------
+// ZONES METEO : contours tres pales regroupant les ouvrages qui partagent la
+// meme mesure de pluie.
+//
+// Ce que le contour dit : "ces ouvrages lisent le meme pluviometre". Chaque zone
+// agrege 1 a N stations de precipitation et en publie UNE valeur (mm/24 h) ;
+// tous les ouvrages de la zone affichent donc ce meme chiffre. Le contour rend
+// ce regroupement visible, pour que le lecteur sache d'ou vient le mm qu'il voit.
+//
+// Ce que le contour NE dit PAS : une etendue geographique. Le fond est un PROFIL
+// EN LONG (abscisse = distance le long du cours d'eau, ordonnee = elevation), pas
+// une carte. Matawin et Mekinac sont sur des branches obliques dont l'abscisse ne
+// reflete pas leur position reelle. D'ou le rendu volontairement flou et sans
+// bordure franche : une frontiere nette suggererait une limite de bassin mesuree,
+// ce que ces contours ne sont pas.
+//
+// Tracé : courbe de Bezier fermee passant par le contour convexe des ouvrages,
+// dilate d'une marge. Les limites naturelles n'ont pas d'angles droits — d'ou des
+// courbes (Catmull-Rom converti en Bezier cubique) et non un polygone.
+// Teintes des zones : volontairement TRES ATTENUEES. Le calque est un repere de
+// lecture, il ne doit jamais rivaliser avec les donnees (debits, sparklines,
+// etiquettes) ni avec les couleurs de series. Les teintes restent distinctes les
+// unes des autres — sinon deux zones voisines se lisent comme une seule tache —
+// mais a un alpha assez bas pour s'effacer derriere le contenu.
+// Un jeu plus contraste a servi pendant la mise au point du decoupage ; il est
+// recuperable dans l'historique git si un diagnostic visuel est a refaire.
+// On evite le vert franc et le cyan sature, deja pris par turbine et apport.
+const ZONE_FILL = [
+  'rgba(255,170,60,.10)',   // ambre       — gouin
+  'rgba(150,110,220,.10)',  // violet      — manouane
+  'rgba(70,180,230,.10)',   // bleu ciel   — centre
+  'rgba(240,120,160,.10)',  // rose        — tuque
+  'rgba(200,190,70,.10)',   // olive       — matawin
+  'rgba(120,200,190,.10)'   // turquoise   — bas
+];
+// Bordure a peine marquee : elle delimite la zone sans en faire une frontiere
+// franche (le fond est un profil en long, pas une carte — cf. commentaire d'en-tete).
+const ZONE_STROKE = [
+  'rgba(210,130,20,.30)',
+  'rgba(110,70,180,.30)',
+  'rgba(20,130,190,.30)',
+  'rgba(200,70,115,.30)',
+  'rgba(150,140,30,.30)',
+  'rgba(60,150,140,.30)'
+];
+// Teinte des libelles : plus soutenue que le remplissage (un texte a alpha .10
+// serait illisible), mais assez douce pour rester en arriere-plan.
+const ZONE_LABEL_COL = [
+  'rgba(170,105,10,.60)',
+  'rgba(90,55,150,.60)',
+  'rgba(15,105,155,.60)',
+  'rgba(165,55,95,.60)',
+  'rgba(120,110,20,.60)',
+  'rgba(45,120,110,.60)'
+];
+const ZONE_PAD = 46;        // marge autour des ouvrages, en px image
+const ZONE_LABEL_ALPHA = 1;     // l'atténuation est portee par ZONE_LABEL_COL
+
+// Enveloppe convexe (monotone chain). Retourne les points en ordre horaire.
+function zoneHull(pts) {
+  if (pts.length < 3) return pts.slice();
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lower = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper = [];
+  for (let k = p.length - 1; k >= 0; k--) {
+    const q = p[k];
+    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+// Dilate un contour en poussant chaque sommet vers l'exterieur depuis le centroide.
+// Sur 1 ou 2 ouvrages l'enveloppe est degeneree (point ou segment) : on fabrique
+// alors un anneau de points autour, sinon il n'y a pas de surface a remplir.
+function zoneInflate(hull, pad) {
+  const cx = hull.reduce((s, q) => s + q[0], 0) / hull.length;
+  const cy = hull.reduce((s, q) => s + q[1], 0) / hull.length;
+  if (hull.length < 3) {
+    // Ellipse de substitution : allongee le long du segment s'il y en a un.
+    const N = 14, out = [];
+    let ax = pad * 1.9, ay = pad * 1.35, ang = 0;
+    if (hull.length === 2) {
+      const dx = hull[1][0] - hull[0][0], dy = hull[1][1] - hull[0][1];
+      const len = Math.hypot(dx, dy);
+      ang = Math.atan2(dy, dx);
+      ax = len / 2 + pad * 1.5; ay = pad * 1.25;
+    }
+    for (let k = 0; k < N; k++) {
+      const t = (k / N) * Math.PI * 2;
+      const ux = Math.cos(t) * ax, uy = Math.sin(t) * ay;
+      out.push([cx + ux * Math.cos(ang) - uy * Math.sin(ang),
+                cy + ux * Math.sin(ang) + uy * Math.cos(ang)]);
+    }
+    return out;
+  }
+  return hull.map(q => {
+    const dx = q[0] - cx, dy = q[1] - cy;
+    const d = Math.hypot(dx, dy) || 1;
+    return [q[0] + (dx / d) * pad, q[1] + (dy / d) * pad];
+  });
+}
+
+// Trace une courbe fermee lissee passant par tous les points (Catmull-Rom -> Bezier).
+// C'est ce qui donne l'aspect "limite naturelle" plutot qu'un polygone anguleux.
+function zonePath(c, pts, sx, sy) {
+  const n = pts.length;
+  c.beginPath();
+  c.moveTo(pts[0][0] * sx, pts[0][1] * sy);
+  for (let k = 0; k < n; k++) {
+    const p0 = pts[(k - 1 + n) % n], p1 = pts[k], p2 = pts[(k + 1) % n], p3 = pts[(k + 2) % n];
+    // Tension 1/6 = Catmull-Rom uniforme, le compromis habituel entre suivi des
+    // points et douceur de la courbe.
+    c.bezierCurveTo(
+      (p1[0] + (p2[0] - p0[0]) / 6) * sx, (p1[1] + (p2[1] - p0[1]) / 6) * sy,
+      (p2[0] - (p3[0] - p1[0]) / 6) * sx, (p2[1] - (p3[1] - p1[1]) / 6) * sy,
+      p2[0] * sx, p2[1] * sy
+    );
+  }
+  c.closePath();
+}
+
+// Dessine toutes les zones. Appelee tot dans draw(), juste apres le clearRect :
+// les zones sont un CALQUE DE FOND, elles doivent passer sous les etiquettes,
+// anneaux et sparklines (sinon elles les voileraient).
+// Etat du calque des zones meteo, persiste entre les sessions.
+// MASQUE PAR DEFAUT : les zones sont une aide de lecture ponctuelle, pas une
+// information que le lecteur vient chercher. Il les active via la case « Zones
+// meteo » de la barre de controle, placee juste apres le bouton « Maintenant ».
+let zonesVisibles = (localStorage.getItem('hq-zones-meteo') === '1');
+
+function drawZonesMeteo(sx, sy) {
+  if (!zonesVisibles) return;
+  if (!D.meteo || !D.meteo.zones) return;
+  const zones = D.meteo.zones.filter(z => z.pts && z.pts.length);
+  if (!zones.length) return;
+
+  ctx.save();
+  // Les anneaux sont calcules une seule fois : ils resservent pour les etiquettes.
+  // Un contour dessine a la main (config/layout, champ 'zonesMeteo' — cf.
+  // editeur-zones.ps1) prend le pas sur l'enveloppe calculee : c'est le seul moyen
+  // d'obtenir des formes qui epousent le profil au lieu d'un convexe uniforme.
+  // La marge vient du serveur (champ 'pad') : elle est proportionnelle a la racine
+  // carree du bassin versant de la zone, pour que l'aire dessinee reflete le
+  // territoire drainé. ZONE_PAD ne sert plus que de repli.
+  const rings = zones.map(z =>
+    (z.contour && z.contour.length >= 3) ? z.contour
+                                         : zoneInflate(zoneHull(z.pts), z.pad || ZONE_PAD));
+
+  zones.forEach((z, idx) => {
+    zonePath(ctx, rings[idx], sx, sy);
+    ctx.fillStyle = ZONE_FILL[idx % ZONE_FILL.length];
+    ctx.fill();
+    // MODE DIAGNOSTIC : contour trace. En rendu final il disparait — une bordure
+    // nette suggere une frontiere mesuree, ce que ces contours ne sont pas.
+    ctx.strokeStyle = ZONE_STROKE[idx % ZONE_STROKE.length];
+    ctx.lineWidth = Math.max(1.5, 2.2 * sx);
+    ctx.stroke();
+  });
+
+  // Etiquettes : nom de la zone, et sous lui sa superficie drainee entre
+  // parentheses. Posees apres tous les remplissages pour qu'un chevauchement de
+  // zones ne masque pas un nom. Pas de cartouche blanc : il attirait l'oeil plus
+  // que le texte lui-meme. Le nom se suffit, la teinte etant deja assez soutenue.
+  // Taille du nom : EXACTEMENT celle de la legende (entrees type « Centrale »),
+  // donc lue depuis la meme source — D.legend.fontSize mis a l'echelle, avec le
+  // meme plancher de 10 px. Ecrire une constante ici la ferait deriver au premier
+  // ajustement de la legende.
+  const fsLg = D.legend ? Math.max(10, Math.round(D.legend.fontSize * sx))
+                        : Math.max(10, Math.round(16 * sx));
+  const fs  = fsLg;   // nom de la zone (en gras)
+  const fs2 = fsLg;   // superficie : MEME corps que le nom, distinguee par l'absence de gras
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  zones.forEach((z, idx) => {
+    // Position calee a la main si fournie, sinon sommet du contour.
+    let topX, topY;
+    if (z.labelPos) {
+      topX = z.labelPos[0]; topY = z.labelPos[1] + 6;   // +6 annule le -6 ci-dessous
+    } else {
+      topX = 0; topY = Infinity;
+      for (const q of rings[idx]) { if (q[1] < topY) { topY = q[1]; topX = q[0]; } }
+    }
+    const tx = topX * sx, ty = (topY - 6) * sy;
+    ctx.globalAlpha = ZONE_LABEL_ALPHA;
+    ctx.fillStyle = ZONE_LABEL_COL[idx % ZONE_LABEL_COL.length];
+    ctx.font = 'bold ' + fs + 'px "Segoe UI",Arial,sans-serif';
+    ctx.fillText(z.nom, tx, ty);
+    if (z.km2) {
+      // Espace fine insecable comme separateur de milliers : la convention fr-CA,
+      // et elle evite qu'un retour a la ligne coupe le nombre.
+      const km2txt = '(' + String(z.km2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' km²)';
+      // Pas de 'bold' : l'absence de gras est le seul ecart avec le nom au-dessus,
+      // les deux partagent le meme corps.
+      ctx.font = fs2 + 'px "Segoe UI",Arial,sans-serif';
+      ctx.fillText(km2txt, tx, ty + fs2 + 3 * sy);
+    }
+  });
+  ctx.restore();
+}
+
 // Extrait la serie complete de pluie 24 h (mm) d'une zone meteo, + son max.
 // D.meteo est indexe [frame][zone], alors que les sparklines ont besoin d'une serie
 // par frame : on transpose une fois par etiquette au lieu de refaire la recherche
@@ -1094,21 +1325,33 @@ function stemWidth(plotW, nPts, base) {
 // pour l'apport) : la pluie est deja bornee par nature (0 a ~80 mm/24h) et un
 // episode ancien tres pluvieux ecraserait toutes les averses recentes. Ici on veut
 // voir le relief de la periode affichee.
+// Retourne DEUX series :
+//   vals / max   = cumul 24 h glissant (p24) — le total, tracé en courbe
+//   hVals / hMax = pluie du pas de temps (p1) — quand il a plu, tracé en barres
+// Pourquoi les deux : le cumul glissant repete la meme valeur pendant 24 h apres une
+// averse courte. Une averse de 4 h le 11 aout 2026 (22 + 7 + 0,4 + 0 mm) produisait
+// 24 barres identiques a 29,7 mm, ce qui se lisait comme « il a plu toute la journee ».
+// p1 rétablit la verite du terrain, p24 garde l'information de total.
 function pluieSerie(zoneKey) {
   if (!zoneKey || !D.meteo || !D.meteo.zones || !D.meteo.frames) return null;
   const zi = D.meteo.zones.findIndex(z => z.key === zoneKey);
   if (zi < 0) return null;
-  const out = new Array(D.meteo.frames.length).fill(null);
-  let mx = 0;
-  for (let k = 0; k < D.meteo.frames.length; k++) {
+  const n = D.meteo.frames.length;
+  const out = new Array(n).fill(null);
+  const outH = new Array(n).fill(null);
+  let mx = 0, mxH = 0;
+  for (let k = 0; k < n; k++) {
     const fr = D.meteo.frames[k];
     if (!fr || !fr[zi]) continue;
     const v = fr[zi].p24;
-    if (v == null) continue;
-    out[k] = v;
-    if (v > mx) mx = v;
+    if (v != null) { out[k] = v; if (v > mx) mx = v; }
+    // p1 absent des datasets rendus avant son ajout : on retombe alors sur le seul
+    // cumul, et le trace se comporte comme avant.
+    const v1 = fr[zi].p1;
+    if (v1 != null) { outH[k] = v1; if (v1 > mxH) mxH = v1; }
   }
-  return mx > 0 ? { vals: out, max: mx } : null;
+  if (mx <= 0 && mxH <= 0) return null;
+  return { vals: out, max: mx, hVals: mxH > 0 ? outH : null, hMax: mxH };
 }
 
 function ratioColor(r) {
@@ -1247,6 +1490,9 @@ function draw(i) {
   // donc de la taille AFFICHEE de l'image.
   const sxCss = img.offsetWidth / img.naturalWidth;
   ctx.clearRect(0,0,cv.width,cv.height);
+  // Calque de fond : regroupements de pluie (voir drawZonesMeteo). Dessine ici,
+  // avant la legende et les ouvrages, pour rester SOUS tout le reste.
+  drawZonesMeteo(sx, sy);
   const lw = D.labelW * sx;
   const lh = D.labelH * sy;
 
@@ -1274,7 +1520,11 @@ function draw(i) {
     const lgIs   = Math.max(14, Math.round(D.legend.iconSize * sx));
     // Interligne resserre (0.85x) : le tableau compte jusqu'a 5 lignes + titre + notes,
     // et doit tenir entre le texte grave du JPG et l'axe des distances.
-    const lgLh   = Math.max(15, Math.round(D.legend.lineHeight * 0.85 * sy));
+    // Interligne a 1.02x lineHeight (etait 0.85) : les icones font icon_size px de
+    // haut, soit AUTANT que lineHeight — a 0.85 l'interligne etait plus serre que
+    // les icones elles-memes, et celles de deux lignes voisines se touchaient. Le
+    // leger depassement au-dela de 1.0 donne le blanc de respiration.
+    const lgLh   = Math.max(15, Math.round(D.legend.lineHeight * 1.02 * sy));
     const lgGap  = Math.max(6, Math.round(9 * sx));
     const lgCol  = '#1a3060';
 
@@ -1336,11 +1586,17 @@ function draw(i) {
       // que 'Pluie'. Les deux sont donc des lignes normales, sans gras.
       { lignes: [
           { icon: 'apport', text: 'Apport naturel (m³/s)', exp: '1' },
+          // Pas de renvoi sur la pluie : le libelle « Pluie (mm/24h) » se suffit.
+          // L'explication complete (stations de la zone, valeur commune aux ouvrages
+          // d'une meme zone) vit dans les modales, cf. MODAL_NOTES.
           { icon: 'pluie',  text: 'Pluie (mm/24h)' }
         ] }
     ];
+    // Note de legende volontairement raccourcie : le detail (publication 1x/jour,
+    // hors manoeuvre HQ) est reporte dans les modales des centrales et reservoirs,
+    // ou le lecteur regarde la serie de pres. Cf. MODAL_NOTES.
     const lgNotes = [
-      { exp: '1', text: "Eau entrant dans l'ouvrage depuis son bassin versant (pluie, fonte, ruissellement), hors manœuvre d'Hydro-Québec. Publiée 1×/jour : la date indique la dernière valeur connue." }
+      { exp: '1', text: "Eau entrant dans l'ouvrage depuis son bassin versant (pluie, fonte, ruissellement)." }
     ];
 
     // --- Largeur de chaque colonne : mesuree sur son contenu reel ---
@@ -1370,8 +1626,11 @@ function draw(i) {
     const boxW = lgPad * 2 + colW.reduce((a, b) => a + b, 0) + lgColGap * (lgCols.length - 1);
     const noteMaxW = boxW - lgPad * 2;
     // Retour a la ligne des notes : on decoupe par mots selon la largeur disponible.
+    // Une ligne VIDE separe deux notes consecutives : accolees, leurs lignes se
+    // confondaient et on ne voyait plus ou l'une finit et l'autre commence.
     const noteLines = [];
-    for (const t of noteTxts) {
+    noteTxts.forEach((t, ni) => {
+      if (ni > 0) noteLines.push('');
       let cur = '';
       for (const mot of t.split(' ')) {
         const essai = cur ? cur + ' ' + mot : mot;
@@ -1379,7 +1638,7 @@ function draw(i) {
         else { cur = essai; }
       }
       if (cur) noteLines.push(cur);
-    }
+    });
     const lgNoteLh = Math.round(lgLh * 0.95);   // note en taille pleine : interligne quasi normal
     // Le 1.0 doit rester synchronise avec yNote0 plus bas (respiration tableau/notes),
     // sinon le cadre ne contient plus la derniere ligne de note.
@@ -1397,7 +1656,11 @@ function draw(i) {
     // Decale vers la droite (-260 au lieu de -340) et remonte (-150 au lieu de -120) :
     // la note en taille pleine allonge le cadre, et il y a de la place libre a droite.
     const boxX = Math.round((D.legend.x - 260) * sx);
-    const boxY = Math.round((D.legend.y - 150) * sy);
+    // Remonte de 190 px image (au lieu de 150) : le cadre a raccourci depuis le
+    // retrait de la ligne « Zone de pluie », et il restait bas dans l'image alors
+    // que la place libre est au-dessus. Le remonter degage aussi le bandeau des
+    // faits saillants, qui vit juste sous lui.
+    const boxY = Math.round((D.legend.y - 190) * sy);
 
     // --- Cadre opaque ---
     ctx.save();
@@ -1517,6 +1780,7 @@ function draw(i) {
         ctx.fillText(t, boxX + lgPad, y);
       }
     });
+
     ctx.restore();
   }
 
@@ -2493,6 +2757,20 @@ btnStart.addEventListener('click',()=>{ stop(); go(0); });
 btnEnd.addEventListener('click',()=>{ stop(); go(N-1); });
 slider.addEventListener('input',()=>{ stop(); go(+slider.value); });
 speedSel.addEventListener('change',()=>{ if(playing){stop();startPlay();} });
+
+// --- Calque des zones meteo : bascule + memorisation ---
+// La case reflete l'etat lu du localStorage au chargement (masque par defaut),
+// sinon elle afficherait "coche" sans zone dessinee.
+const zoneToggle = document.getElementById('zoneToggle');
+if (zoneToggle) {
+  zoneToggle.checked = zonesVisibles;
+  zoneToggle.addEventListener('change', () => {
+    zonesVisibles = zoneToggle.checked;
+    localStorage.setItem('hq-zones-meteo', zonesVisibles ? '1' : '0');
+    draw(frame);
+  });
+}
+
 window.addEventListener('resize', resize);
 
 // Pinch-zoom : le viewport de MISE EN PAGE ne bouge pas, donc 'resize' ci-dessus
@@ -2764,6 +3042,7 @@ hoverLayer.addEventListener('click', (ev)=>{
   }
   if (!D) return;
   const { x, y } = imgCoordsFromEv(ev);
+
   // Priorite 0 : clic sur icone info d'une centrale ou reservoir -> modale info.
   const kInfoC = hitTestInfoCentrale(x, y);
   if (kInfoC !== -1) { openInfoModalCentrale(kInfoC); return; }
@@ -2921,13 +3200,22 @@ function drawRainPanel(cx, pl, geo, ap) {
   // Titre du panneau, au-dessus du cadre (hors zone de trace).
   cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
   cx.textAlign = 'left'; cx.textBaseline = 'bottom';
-  cx.fillText(ap ? 'Pluie (mm/24h) et apport naturel (m³/s)' : 'Pluie (mm/24h)', pad.l, topY - 5);
+  // Titre : « mm » seul et non « mm/24h » depuis que les barres portent la pluie du
+  // pas de temps et non le cumul. La distinction barres/courbe est portee par la
+  // legende du panneau ('Pluie tombée' / 'Cumul 24 h').
+  cx.fillText(ap ? 'Pluie (mm) et apport naturel (m³/s)' : 'Pluie (mm)', pad.l, topY - 5);
   // Barres, du bas vers le haut.
+  // Deux formes pour deux lectures, sur la MEME echelle mm :
+  //   BARRES  = pluie tombee pendant le pas de temps (p1) -> quand il a plu
+  //   COURBE  = cumul 24 h glissant (p24)                 -> combien au total
+  // Avant, les barres portaient le cumul : une averse de 4 h donnait 24 barres
+  // identiques, qui se lisaient comme une pluie continue de 24 h.
+  const plBars = pl.hVals || pl.vals;   // repli sur le cumul si p1 absent (vieux dataset)
   cx.strokeStyle = SERIES.pluie.line;
   cx.lineWidth = stemWidth(innerW, N, 3);
   cx.beginPath();
   for (let i = 0; i < N; i++) {
-    const v = pl.vals[i];
+    const v = plBars[i];
     if (v == null || v <= 0) continue;
     const xx = pad.l + (i / geo.xSpan) * innerW;
     cx.moveTo(xx, base);
@@ -2936,6 +3224,27 @@ function drawRainPanel(cx, pl, geo, ap) {
     cx.lineTo(xx, base - Math.min(1, v / yTopP) * rainInnerH);
   }
   cx.stroke();
+
+  // Courbe du cumul 24 h, par-dessus les barres. Trait fin et plus soutenu que les
+  // barres : c'est une enveloppe de lecture, pas la mesure elle-meme. Tracee
+  // seulement si on a bien les deux series (sinon elle doublerait les barres).
+  if (pl.hVals && pl.vals) {
+    cx.save();
+    cx.strokeStyle = SERIES.pluie.solid;
+    cx.lineWidth = 1.4;
+    cx.globalAlpha = .85;
+    cx.beginPath();
+    let started = false;
+    for (let i = 0; i < N; i++) {
+      const v = pl.vals[i];
+      if (v == null) { started = false; continue; }
+      const xx = pad.l + (i / geo.xSpan) * innerW;
+      const yy = base - Math.min(1, v / yTopP) * rainInnerH;
+      if (started) cx.lineTo(xx, yy); else { cx.moveTo(xx, yy); started = true; }
+    }
+    cx.stroke();
+    cx.restore();
+  }
 
   // --- APPORT NATUREL : 2e serie du panneau, echelle propre a DROITE (m3/s) ---
   // Stem-plot comme la pluie : l'apport est publie 1x/jour, un trait continu
@@ -3000,8 +3309,23 @@ function drawRainPanel(cx, pl, geo, ap) {
   cx.font = '12px "Segoe UI",Arial';
   // Deux entrees quand l'apport partage le panneau : sans libelle, deux series de
   // couleurs differentes dans un cadre intitule 'Pluie' seraient ambigues.
-  const lgItemsR = [{ col: SERIES.pluie.line, txt: 'Pluie 24 h' }];
-  if (ap && ap.max > 0) lgItemsR.push({ col: SERIES.apport.line, txt: 'Apport naturel' });
+  // Trois entrees possibles, une par FORME : barres (pluie du pas), courbe (cumul),
+  // stem (apport). La forme porte le sens, la legende doit donc la nommer.
+  // Le panneau porte DEUX echelles : mm a gauche, m3/s a droite. Sans marquage, rien
+  // ne dit laquelle lire pour quelle serie — on suffixe donc chaque entree par son
+  // cote, mais seulement quand les deux axes coexistent (sans apport, il n'y a qu'un
+  // axe et la mention serait du bruit).
+  const twoAxes = !!(ap && ap.max > 0);
+  const sfxL = twoAxes ? ' (éch. gauche)' : '';
+  const sfxR = twoAxes ? ' (éch. droite)' : '';
+  const lgItemsR = [];
+  if (pl.hVals) {
+    lgItemsR.push({ col: SERIES.pluie.line,  txt: 'Pluie tombée' + sfxL });
+    lgItemsR.push({ col: SERIES.pluie.solid, txt: 'Cumul 24 h' + sfxL, line: true });
+  } else {
+    lgItemsR.push({ col: SERIES.pluie.line, txt: 'Pluie 24 h' + sfxL });
+  }
+  if (twoAxes) lgItemsR.push({ col: SERIES.apport.line, txt: 'Apport naturel' + sfxR });
   const swW = 22, swH = 7, padX = 8, padY = 6;
   let lgW = 0;
   for (const it of lgItemsR) lgW = Math.max(lgW, cx.measureText(it.txt).width);
@@ -3027,10 +3351,58 @@ function drawRainPanel(cx, pl, geo, ap) {
   cx.textAlign = 'left'; cx.textBaseline = 'top';
   for (let k = 0; k < lgItemsR.length; k++) {
     const yk = co.y + padY + k * 18;
-    cx.fillStyle = lgItemsR[k].col;
-    cx.fillRect(co.x + padX, yk + 3, swW, swH);
+    const it = lgItemsR[k];
+    if (it.line) {
+      // Echantillon en TRAIT et non en pave : il doit ressembler a la courbe qu'il
+      // designe, sinon rien ne distingue le cumul des barres dans la legende.
+      cx.strokeStyle = it.col;
+      cx.lineWidth = 1.4;
+      cx.beginPath();
+      cx.moveTo(co.x + padX, yk + 3 + swH / 2);
+      cx.lineTo(co.x + padX + swW, yk + 3 + swH / 2);
+      cx.stroke();
+    } else {
+      cx.fillStyle = it.col;
+      cx.fillRect(co.x + padX, yk + 3, swW, swH);
+    }
     cx.fillStyle = '#333';
-    cx.fillText(lgItemsR[k].txt, co.x + padX + swW + 8, yk);
+    cx.fillText(it.txt, co.x + padX + swW + 8, yk);
+  }
+
+  // --- Notes explicatives, sous le panneau ---
+  // Ce sont les explications que portait la legende de la carte : elles ont ete
+  // deplacees ici parce que c'est dans la modale que le lecteur examine les series
+  // de pres. La legende de la carte n'en garde qu'une version abregee.
+  // Rendu ici (dans drawRainPanel) plutot que dupliqué dans les deux modales : le
+  // panneau de pluie est commun a la centrale et au reservoir, les notes le suivent.
+  const nY = base + (geo.notesDy || 34);
+  const NOTE_ROM  = 'italic 11px "Segoe UI",Arial';
+  const NOTE_BOLD = 'bold italic 11px "Segoe UI",Arial';
+  cx.textAlign = 'left';
+  cx.textBaseline = 'top';
+  cx.fillStyle = '#6a7280';
+  let nLine = 0;
+  for (const n of MODAL_NOTES) {
+    // L'attribut en gras occupe le debut de la 1re ligne : le retour a la ligne du
+    // corps doit donc partir de la largeur restante, pas de innerW entier — sinon la
+    // premiere ligne deborderait de la largeur du gras.
+    cx.font = NOTE_BOLD;
+    const lblW = cx.measureText(n.lbl + ' ').width;
+    cx.fillText(n.lbl, pad.l, nY + nLine * 14);
+
+    cx.font = NOTE_ROM;
+    let x = pad.l + lblW;          // 1re ligne : on repart apres le gras
+    let cur = '';
+    for (const mot of n.txt.split(' ')) {
+      const essai = cur ? cur + ' ' + mot : mot;
+      // Largeur disponible : reduite du gras sur la 1re ligne, pleine ensuite.
+      const dispo = (pad.l + innerW) - x;
+      if (cx.measureText(essai).width > dispo && cur) {
+        cx.fillText(cur, x, nY + nLine * 14);
+        nLine++; x = pad.l; cur = mot;
+      } else { cur = essai; }
+    }
+    if (cur) { cx.fillText(cur, x, nY + nLine * 14); nLine++; }
   }
 }
 
@@ -3050,16 +3422,20 @@ function drawBigChart() {
   // r: 78 quand il y a un apport — c'est la place de l'axe m3/s de DROITE, qui vit
   // desormais dans le panneau du bas (avec la pluie) et non plus dans celui du haut.
   // 78 et non 62 depuis que les paliers portent l'unite ('420 m³/s' fait ~55 px).
-  const pad = { l: 60, r: hasApport ? 78 : 20, t: 10, b: 42 };
-  cx.clearRect(0, 0, w, h);
-
   // --- Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas ---
   // La pluie est en mm, les debits en m3/s : les superposer imposerait une 2e echelle
   // dans le meme cadre, avec un risque de lecture croisee. Deux panneaux distincts
   // partageant le meme axe X laissent chaque grandeur sur une echelle sans ambiguite,
   // tout en gardant la comparaison temporelle immediate — c'est la convention des
   // hydrogrammes (debit) surmontes d'un hyetogramme (pluie) en hydrologie.
+  // Calcule AVANT pad : la reserve du bas depend de la presence du panneau de pluie.
   const plMod = pluieSerie(c.zoneMeteo);
+
+  // b = 42 px pour l'axe X, + 62 px pour les notes sous le panneau de pluie quand
+  // ce panneau existe (cf. MODAL_NOTES, rendues par drawRainPanel). Sans cette
+  // reserve, les notes tomberaient hors du canvas.
+  const pad = { l: 60, r: hasApport ? 78 : 20, t: 10, b: plMod ? 104 : 42 };
+  cx.clearRect(0, 0, w, h);
   const rainH = plMod ? 0.33 : 0;         // part de la hauteur utile pour la pluie
   const rainGap = plMod ? 34 : 0;         // espace entre panneaux (titre du panneau bas)
 
@@ -3604,7 +3980,10 @@ function drawBigChartRes() {
   // panneau du bas (meme valeur que dans drawBigChart, pour que les deux modales
   // aient des cadres de meme largeur).
   const hasApportR = !!(r.apports && r.apports.some(v => v != null && v > 0));
-  const pad = { l: 60, r: hasApportR ? 78 : 20, t: 10, b: 42 };
+  // Serie de pluie calculee AVANT pad : la reserve du bas depend de sa presence.
+  const plRes = pluieSerie(r.zoneMeteo);
+  // b : meme reserve que la modale centrale pour les notes sous le panneau de pluie.
+  const pad = { l: 60, r: hasApportR ? 78 : 20, t: 10, b: plRes ? 104 : 42 };
   cx.clearRect(0, 0, w, h);
 
   // Echelle Y du panneau du haut : DEVERSEMENT seul. L'apport en est exclu depuis
@@ -3619,7 +3998,6 @@ function drawBigChartRes() {
 
   // Deux panneaux empiles comme dans la modale centrale : deversement + apport (2/3)
   // en haut, pluie (1/3) en bas, axe X partage. Cf. commentaire dans drawBigChart().
-  const plRes = pluieSerie(r.zoneMeteo);
   const rainH = plRes ? 0.33 : 0;
   const rainGap = plRes ? 34 : 0;   // espace pour le titre du panneau du bas
 
