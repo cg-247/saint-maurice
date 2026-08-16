@@ -345,9 +345,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.14.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.14.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 08:22</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 09:00</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -477,6 +477,10 @@ for (const n of iconNames) {
 const img = document.getElementById('img');
 const cv  = document.getElementById('ov');
 const ctx = cv.getContext('2d');
+// Derniere taille CSS appliquee au calque, suivie a part du backing store
+// (cv.width/height) : les deux evoluent independamment et resize() doit pouvoir
+// corriger l'une sans que l'autre ait bouge. Voir le commentaire dans resize().
+let cvCssW = 0, cvCssH = 0;
 // Filtrage haute qualite : les icones PNG sont en 512x512 et sont reduites a
 // ~26 px. Sans ceci le canvas utilise un reechantillonnage 'low' qui rend les
 // icones floues, alors que les memes PNG affiches en <img> dans les modales
@@ -1641,17 +1645,19 @@ function draw(i) {
           // L'explication complete (stations de la zone, valeur commune aux ouvrages
           // d'une meme zone) vit dans les modales, cf. MODAL_NOTES.
           { icon: 'pluie',  text: 'Pluie (mm/24h)' },
-          // Visible seulement quand le calque des zones est affiche : sans lui,
-          // l'entree designerait des points absents de l'image.
-          { icon: 'station-meteo', text: 'Station météo', zoneOnly: true }
+          // Toujours affichee, y compris calque des zones masque : l'entree fait
+          // partie du vocabulaire fixe de la legende, dont la composition ne doit
+          // pas changer sous l'effet d'une case a cocher. Choix assume : quand le
+          // calque est masque, elle designe un symbole alors absent de l'image.
+          { icon: 'station-meteo', text: 'Station météo' }
         ] }
     ];
-    // Retire les entrees liees au calque des zones quand il est masque. Fait ICI,
-    // avant toute mesure : la hauteur du cadre se calcule sur le nombre de lignes,
+    // La legende a desormais une composition FIXE : plus aucune entree n'apparait
+    // ou ne disparait selon l'etat du calque des zones (le filtre zoneOnly qui se
+    // trouvait ici est tombe avec sa derniere entree, « Station meteo »).
+    // Si une entree conditionnelle redevenait necessaire, la filtrer ICI, avant
+    // toute mesure : la hauteur du cadre se calcule sur le nombre de lignes, et
     // filtrer plus tard laisserait un blanc a la place de l'entree.
-    for (const col of lgCols) {
-      col.lignes = col.lignes.filter(l => !l.zoneOnly || zonesVisibles);
-    }
 
     // Note de legende volontairement raccourcie : le detail (publication 1x/jour,
     // hors manoeuvre HQ) est reporte dans les modales des centrales et reservoirs,
@@ -2736,25 +2742,48 @@ function resize() {
   if (!w || !h) return;   // image pas encore mise en page
   const rs = rasterScale();
   const nw = Math.round(w * rs), nh = Math.round(h * rs);
-  // Ne rien faire si la geometrie est inchangee : resize() est appele aussi sur
-  // les evenements visualViewport (scroll compris), qui sont tres frequents, et
-  // reaffecter cv.width efface le canvas meme pour une valeur identique.
-  if (cv.width === nw && cv.height === nh) return;
-  cv.width  = nw;
-  cv.height = nh;
-  // Taille CSS explicite : sans elle, un canvas dont le backing store depasse
-  // l'espace dispo se laisserait contraindre par max-width et se desalignerait
-  // du JPG. On la fixe a la taille exacte de l'image affichee.
-  cv.style.width  = w + 'px';
-  cv.style.height = h + 'px';
-  // draw() derive toute sa geometrie de sx = cv.width / img.naturalWidth : le
-  // surechantillonnage se propage donc seul aux polices, icones et epaisseurs.
-  // Aucun ctx.scale() a appliquer ici — il ferait double emploi.
+
+  // Deux geometries INDEPENDANTES, a tester separement :
   //
-  // Changer cv.width/height reinitialise l'etat du contexte : il faut re-armer
-  // le filtrage haute qualite, sinon les icones redeviennent floues au resize.
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  //  - la taille CSS (w x h), qui doit coller au pixel pres a l'image de fond,
+  //    faute de quoi tout le trace se decale ;
+  //  - le backing store (nw x nh), qui n'est que la DENSITE de rasterisation.
+  //
+  // Les confondre etait le bug : nw = round(w x min(3, dpr x scale)) sature au
+  // plafond MAX_RASTER_SCALE et passe par un arrondi. Une image qui RETRECIT
+  // (bascule mobile->bureau, zoom navigateur qui fait monter dpr pendant que la
+  // largeur affichee baisse) pouvait donc retomber sur le meme nw : le garde
+  // sortait en avance et cv.style.width gardait la taille de l'etat precedent.
+  // Le calque ne recouvrait plus le JPG -> anneaux et etiquettes decales.
+  const cssChanged = (cvCssW !== w || cvCssH !== h);
+  const bufChanged = (cv.width !== nw || cv.height !== nh);
+  // Ne rien faire si RIEN n'a bouge : resize() est appele aussi sur les
+  // evenements visualViewport (scroll compris), qui sont tres frequents, et
+  // reaffecter cv.width efface le canvas meme pour une valeur identique.
+  if (!cssChanged && !bufChanged) return;
+
+  if (cssChanged) {
+    // Taille CSS explicite : sans elle, un canvas dont le backing store depasse
+    // l'espace dispo se laisserait contraindre par max-width et se desalignerait
+    // du JPG. On la fixe a la taille exacte de l'image affichee.
+    cvCssW = w; cvCssH = h;
+    cv.style.width  = w + 'px';
+    cv.style.height = h + 'px';
+  }
+
+  if (bufChanged) {
+    cv.width  = nw;
+    cv.height = nh;
+    // draw() derive toute sa geometrie de sx = cv.width / img.naturalWidth : le
+    // surechantillonnage se propage donc seul aux polices, icones et epaisseurs.
+    // Aucun ctx.scale() a appliquer ici — il ferait double emploi.
+    //
+    // Changer cv.width/height reinitialise l'etat du contexte : il faut re-armer
+    // le filtrage haute qualite, sinon les icones redeviennent floues au resize.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+  }
+
   if (D) draw(frame);
 }
 
@@ -2857,6 +2886,24 @@ window.addEventListener('resize', resize);
   vv.addEventListener('resize', schedule);
   vv.addEventListener('scroll', schedule);
 })();
+
+// Filet de securite : on observe la taille RENDUE de l'image elle-meme.
+//
+// window.resize et les evenements visualViewport ne couvrent pas tous les cas ou
+// #img change de taille. L'image est contrainte par un flex (max-width/max-height
+// sur #wrap) : elle est donc redimensionnee aussi par des relayouts purement
+// internes, qui n'emettent aucun de ces deux evenements —
+//   - bascule mobile <-> bureau (le meta viewport et les regles changent) ;
+//   - --ctrl-h qui bouge quand la barre passe sur deux lignes (flex-wrap) ;
+//   - chargement d'une police ou du JPG qui decale la mise en page.
+// Dans ces cas le calque restait dimensionne sur l'ancienne geometrie.
+//
+// ResizeObserver se declenche sur la taille reelle, quelle qu'en soit la cause,
+// et couvre donc aussi les deux chemins deja geres (doublon sans consequence :
+// resize() sort tot si la geometrie est inchangee).
+if (window.ResizeObserver) {
+  new ResizeObserver(function () { resize(); }).observe(img);
+}
 
 img.addEventListener('load',()=>{ resize(); if (D) go(N-1); });
 if(img.complete) { resize(); if (D) go(N-1); }
@@ -4381,10 +4428,24 @@ window.addEventListener('resize', ()=>{
   if (!ctrl) return;
   var last = -1;
   function sync() {
-    // En mode epingle (telephone), la barre est mise a l'echelle inverse du zoom
-    // et flotte au-dessus du schema : elle ne doit pas amputer la hauteur utile.
-    if (document.body.classList.contains('vv-pinned')) {
-      if (last !== 0) { last = 0; document.documentElement.style.setProperty('--ctrl-h', '0px'); }
+    // Barre HORS FLUX : elle est en position:absolute, mise a l'echelle inverse du
+    // zoom, et flotte au-dessus du schema — elle ne reserve donc aucune place et ne
+    // doit pas amputer la hauteur utile.
+    //
+    // Les DEUX classes mettent la barre dans cet etat (meme regle CSS :
+    // position:absolute + bottom:auto). Ne tester que .vv-pinned etait le bug :
+    // en mode application sur un poste de travail, c'est .vv-zoomfix qui s'active,
+    // et --ctrl-h gardait alors la hauteur d'une barre qui ne reserve plus rien.
+    // Le padding-bottom du body amputait donc la hauteur pour rien, #img retrecissait,
+    // et le calque se retrouvait cale sur une geometrie qui n'existait plus
+    // -> anneaux et etiquettes decales, barre qui remonte.
+    var b = document.body.classList;
+    if (b.contains('vv-pinned') || b.contains('vv-zoomfix')) {
+      if (last !== 0) {
+        last = 0;
+        document.documentElement.style.setProperty('--ctrl-h', '0px');
+        schedResize();   // la hauteur utile vient de changer : recaler le calque
+      }
       return;
     }
     var h = Math.round(ctrl.getBoundingClientRect().height);
@@ -4393,11 +4454,31 @@ window.addEventListener('resize', ()=>{
     document.documentElement.style.setProperty('--ctrl-h', h + 'px');
     // La hauteur disponible pour l'image vient de changer : le canvas doit se
     // recaler dessus, sinon le calque reste dimensionne sur l'ancienne geometrie.
-    if (typeof resize === 'function') resize();
+    schedResize();
+  }
+
+  // resize() DOIT etre differe d'une frame. --ctrl-h alimente le padding-bottom du
+  // body, donc la hauteur disponible pour #img ; mais la mise en page n'est pas
+  // recalculee dans le meme tick. Appeler resize() immediatement lui faisait lire
+  // l'offsetWidth d'AVANT le changement : le calque se dimensionnait sur l'ancienne
+  // geometrie pendant que l'image prenait la nouvelle.
+  var rafSync = 0;
+  function schedResize() {
+    if (rafSync) return;
+    rafSync = requestAnimationFrame(function () {
+      rafSync = 0;
+      if (typeof resize === 'function') resize();
+    });
   }
   window.addEventListener('resize', sync);
   window.addEventListener('orientationchange', function () { setTimeout(sync, 250); });
   if (window.ResizeObserver) new ResizeObserver(sync).observe(ctrl);  // capte le flex-wrap
+  // Expose : le bloc .vv-zoomfix doit resynchroniser --ctrl-h a l'instant precis ou
+  // il ajoute ou retire la classe. Aucun evenement ne signale une mutation de
+  // classList, et le ResizeObserver ci-dessus ne se declenche pas : passer la barre
+  // en position:absolute ne change pas forcement sa hauteur. Sans cet appel,
+  // --ctrl-h resterait perime jusqu'au prochain resize fortuit.
+  window.__syncCtrlH = sync;
   sync();
 })();
 
@@ -4438,10 +4519,20 @@ window.addEventListener('resize', ()=>{
         applied = false;
         document.body.classList.remove('vv-zoomfix');
         ctrl.style.transform = ctrl.style.width = ctrl.style.left = ctrl.style.top = '';
+        // La barre revient DANS le flux : --ctrl-h doit reprendre sa hauteur reelle,
+        // sinon le bas du schema repasse derriere elle.
+        if (window.__syncCtrlH) window.__syncCtrlH();
       }
       return;
     }
-    if (!applied) { applied = true; document.body.classList.add('vv-zoomfix'); }
+    if (!applied) {
+      applied = true;
+      document.body.classList.add('vv-zoomfix');
+      // La barre sort du flux : --ctrl-h doit tomber a 0, sinon le padding-bottom
+      // du body ampute la hauteur utile pour une barre qui ne reserve plus rien
+      // — c'est ce qui decalait le calque et faisait remonter la barre.
+      if (window.__syncCtrlH) window.__syncCtrlH();
+    }
     var hCss = ctrl.offsetHeight;
     ctrl.style.width = (vv.width * scale) + 'px';   // largeur ecran, avant scale inverse
     ctrl.style.transform = 'scale(' + (1 / scale) + ')';
@@ -4473,6 +4564,9 @@ window.addEventListener('resize', ()=>{
   var ctrl = document.getElementById('ctrl');
   if (!ctrl) return;
   document.body.classList.add('vv-pinned');
+  // La barre passe hors flux : --ctrl-h doit tomber a 0. sync() a deja tourne une
+  // premiere fois (avec la barre encore dans le flux) et aurait laisse une reserve.
+  if (window.__syncCtrlH) window.__syncCtrlH();
 
   // Libelles raccourcis : sur une seule ligne, "Debut" et "Maintenant" font
   // deborder la barre. On ne garde que le pictogramme ; le titre reste comme
