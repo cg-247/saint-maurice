@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 07:54</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 08:22</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.14.1</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.14.2</span>
 </footer>
 
 <script>
@@ -230,7 +230,9 @@ function setGeneratedAt(iso) {
 const SERIES = {
   turbine: { line: 'rgba(46,160,67,.85)',  solid: '#1a6e2a', label: 'Turbiné' },
   deverse: { line: 'rgba(40,110,200,.90)', solid: '#1a3060', label: 'Déversé' },
-  apport:  { line: 'rgba(0,150,160,.90)',  solid: '#0a6a72', label: 'Apport naturel' },
+  // Orange : cf. le commentaire detaille dans animation.html.tpl (le cyan
+  // precedent etait trop proche de la pluie, avec qui il partage un panneau).
+  apport:  { line: 'rgba(230,120,20,.90)', solid: '#a8560c', label: 'Apport naturel' },
   pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
   neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
 };

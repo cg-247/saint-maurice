@@ -345,9 +345,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.14.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.14.2</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 07:54</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 08:22</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -465,7 +465,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","pluie"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","pluie","station-meteo"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -1075,9 +1075,17 @@ const SERIES = {
   // reserve au neutre / donnee absente.
   deverse: { line: 'rgba(40,110,200,.90)', solid: '#1a3060', label: 'Déversé' },
   // Eau naturelle entrant depuis le bassin versant (CONSEQUENCE de la pluie).
-  // Quitte le vert (qui signifiait deja 'turbine') pour un cyan/sarcelle, distinct
-  // du bleu deversement tout en restant dans la famille "eau".
-  apport:  { line: 'rgba(0,150,160,.90)',  solid: '#0a6a72', label: 'Apport naturel' },
+  // ORANGE, seule serie hors de la famille bleu-vert. Deux raisons :
+  //  - lisibilite : le cyan precedent (0,150,160) partageait sa composante verte
+  //    avec la pluie (90,150,220) et n'en etait separe que de 40 en Delta-E CIE76,
+  //    alors qu'ils se cotoient dans le meme panneau ; l'orange monte a 113.
+  //  - sens : l'apport est la seule grandeur qui ne soit PAS une manoeuvre d'HQ.
+  //    Turbine, deverse et debit total decrivent ce que l'exploitant fait de l'eau ;
+  //    l'apport decrit ce que la nature amene. Une couleur chaude marque cet ecart.
+  // NB : de l'orange existe deja sur eclair.png (MW) et sur le palier 'Eleve' de la
+  // pastille de statut — registres differents (icone, indicateur de risque), pas
+  // une serie tracee, donc pas de confusion de lecture dans un graphique.
+  apport:  { line: 'rgba(230,120,20,.90)', solid: '#a8560c', label: 'Apport naturel' },
   // Pluie tombee (CAUSE de l'apport). Bleu plus pale que le deversement : la cause
   // precede la consequence, elle est volontairement moins appuyee.
   pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
@@ -1274,6 +1282,49 @@ function drawZonesMeteo(sx, sy) {
     ctx.lineWidth = Math.max(1.5, 2.2 * sx);
     ctx.stroke();
   });
+
+  // --- Stations meteo : un point par station, avec son sigle HQ ---
+  // Dessinees APRES les remplissages (sinon une zone voisine les voilerait) mais
+  // AVANT les libelles de zone, qui doivent rester au-dessus.
+  // Les positions viennent du layout : projection LOCALE des lat/lon reelles dans
+  // chaque zone, qui preserve la position relative des stations entre elles. Une
+  // station servant plusieurs zones est posee pres de leur frontiere commune —
+  // d'ou son anneau plus marque, qui signale ce partage.
+  if (D.meteo.stations && D.meteo.stations.length) {
+    const staIm  = iconImgs['station-meteo'];
+    // MEME taille que l'icone barrage des reservoirs (cf. barrSzR plus bas), pour
+    // que les deux familles de marqueurs pesent pareil dans l'image.
+    const staSz  = Math.max(18, Math.round(30 * sx));
+    const fsSta  = Math.max(8, Math.round(10.5 * sx));
+    ctx.save();
+    for (const st of D.meteo.stations) {
+      const sx0 = st.x * sx, sy0 = st.y * sy;
+
+      // Ni halo ni anneau : l'icone est monochrome sur fond transparent, elle se
+      // detache seule. Le rattachement a la zone se lit par la position dans le
+      // contour, pas par une couleur — un anneau ajoutait du bruit sans rien dire
+      // de plus, et alourdissait une image deja dense.
+      if (staIm && staIm.complete && staIm.naturalWidth) {
+        ctx.drawImage(staIm, sx0 - staSz / 2, sy0 - staSz / 2, staSz, staSz);
+      }
+
+      // Sigle HQ sous l'icone. SANS cartouche : le rectangle blanc dessinait une
+      // delimitation visible qui alourdissait l'image. La lisibilite par-dessus le
+      // trace du profil est assuree par un lisere blanc autour des lettres
+      // (strokeText avant fillText), qui detache le texte sans bloc de fond.
+      ctx.font = 'bold ' + fsSta + 'px "Segoe UI",Arial,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const ty0 = sy0 + staSz / 2 + 2 * sy;
+      ctx.lineJoin = 'round';               // sans ca, les angles du lisere bavent
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = Math.max(2, 3 * sx);
+      ctx.strokeText(st.code, sx0, ty0);
+      ctx.fillStyle = '#000000';
+      ctx.fillText(st.code, sx0, ty0);
+    }
+    ctx.restore();
+  }
 
   // Etiquettes : nom de la zone, et sous lui sa superficie drainee entre
   // parentheses. Posees apres tous les remplissages pour qu'un chevauchement de
@@ -1589,9 +1640,19 @@ function draw(i) {
           // Pas de renvoi sur la pluie : le libelle « Pluie (mm/24h) » se suffit.
           // L'explication complete (stations de la zone, valeur commune aux ouvrages
           // d'une meme zone) vit dans les modales, cf. MODAL_NOTES.
-          { icon: 'pluie',  text: 'Pluie (mm/24h)' }
+          { icon: 'pluie',  text: 'Pluie (mm/24h)' },
+          // Visible seulement quand le calque des zones est affiche : sans lui,
+          // l'entree designerait des points absents de l'image.
+          { icon: 'station-meteo', text: 'Station météo', zoneOnly: true }
         ] }
     ];
+    // Retire les entrees liees au calque des zones quand il est masque. Fait ICI,
+    // avant toute mesure : la hauteur du cadre se calcule sur le nombre de lignes,
+    // filtrer plus tard laisserait un blanc a la place de l'entree.
+    for (const col of lgCols) {
+      col.lignes = col.lignes.filter(l => !l.zoneOnly || zonesVisibles);
+    }
+
     // Note de legende volontairement raccourcie : le detail (publication 1x/jour,
     // hors manoeuvre HQ) est reporte dans les modales des centrales et reservoirs,
     // ou le lecteur regarde la serie de pres. Cf. MODAL_NOTES.
