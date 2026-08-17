@@ -345,9 +345,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.14.4</span>
+    <span title="Version de la PWA install&eacute;e">v2.15.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-17 07:56</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-17 10:17</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -465,7 +465,7 @@ function setGeneratedAt(iso) {
 }
 
 // Icones charges depuis assets/icons/*.png (sortis du HTML pour l'alleger).
-const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","pluie","station-meteo"];
+const iconNames = ["debit","deverse","eclair","turbine-vert","apport","centrale","barrage","turbine-francis","turbine-kaplan","niveau","info","pluie","station-meteo","temperature"];
 const iconImgs = {};
 let iconsLoaded = 0;
 for (const n of iconNames) {
@@ -509,11 +509,18 @@ let modalTurbIdx = -1; // index centrale dans la modale TURBINES (-1 = ferme)
 let modalNivResIdx = -1; // index reservoir dans la modale NIVEAU (-1 = ferme)
 let modalInfoCIdx = -1;  // index centrale dans la modale INFO CEHQ (-1 = ferme)
 let modalInfoRIdx = -1;  // index reservoir dans la modale INFO CEHQ (-1 = ferme)
+let modalStaChartIdx = -1; // index station dans la modale GRAPHIQUE (-1 = ferme)
 // Positions pixel (coords image) de l'icone info dessinees par draw() -- hit-test
 const infoCentBounds  = [];  // [{ x, y, r }] par centrale
 const infoResBounds   = [];  // [{ x, y, r }] par reservoir
 const mapToggleBounds    = [];  // [{ x0,y0,x1,y1 } | null] triangle toggle m3/s sur la carte (centrales)
 const mapToggleBoundsRes = [];  // idem pour les reservoirs
+const staBounds          = [];  // idem pour le triangle des stations meteo (null = inerte)
+const staLabelBounds     = [];  // boite de l'etiquette station depliee (clic = refermer)
+const staSparkBounds     = [];  // boite du sparkline d'une etiquette station (clic = modale)
+// Etiquettes de station actuellement depliees (index dans D.meteo.stations). Repliees
+// par defaut : 11 cartouches ouverts d'emblee couvriraient le profil.
+const staOuvertes = new Set();
 const infoLabelOverride  = {};  // surcharge position icone info, cle = "ic:idx" ou "ir:idx"
 
 function debitLabelPos(kind, idx) {
@@ -863,7 +870,12 @@ function rebuildHoraireFromLoadedMonths() {
       meteo.frames.push(...sub.meteo.frames);
     } else if (meteo) {
       // Mois sans meteo : on remplit avec des frames nulles pour conserver l'alignement.
-      const nullsFrame = meteo.zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null }));
+      // La forme doit suivre celle produite par le rendu — { z:[...], s:[...] } — sinon
+      // les accesseurs meteoZoneFrame/meteoStaFrame ne trouvent rien et l'etiquette de
+      // pluie des ouvrages disparait sur toute la plage du mois manquant.
+      const nz = meteo.zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null, p1: null }));
+      const ns = (meteo.stations || []).map(() => ({ tmn: null, tmx: null, n: null, p24: null, p1: null }));
+      const nullsFrame = { z: nz, s: ns };
       for (let k = 0; k < sub.timestamps.length; k++) meteo.frames.push(nullsFrame);
     }
   }
@@ -1298,48 +1310,9 @@ function drawZonesMeteo(sx, sy) {
     ctx.stroke();
   });
 
-  // --- Stations meteo : un point par station, avec son sigle HQ ---
-  // Dessinees APRES les remplissages (sinon une zone voisine les voilerait) mais
-  // AVANT les libelles de zone, qui doivent rester au-dessus.
-  // Les positions viennent du layout : projection LOCALE des lat/lon reelles dans
-  // chaque zone, qui preserve la position relative des stations entre elles. Une
-  // station servant plusieurs zones est posee pres de leur frontiere commune —
-  // d'ou son anneau plus marque, qui signale ce partage.
-  if (D.meteo.stations && D.meteo.stations.length) {
-    const staIm  = iconImgs['station-meteo'];
-    // MEME taille que l'icone barrage des reservoirs (cf. barrSzR plus bas), pour
-    // que les deux familles de marqueurs pesent pareil dans l'image.
-    const staSz  = Math.max(18, Math.round(30 * sx));
-    const fsSta  = Math.max(8, Math.round(10.5 * sx));
-    ctx.save();
-    for (const st of D.meteo.stations) {
-      const sx0 = st.x * sx, sy0 = st.y * sy;
-
-      // Ni halo ni anneau : l'icone est monochrome sur fond transparent, elle se
-      // detache seule. Le rattachement a la zone se lit par la position dans le
-      // contour, pas par une couleur — un anneau ajoutait du bruit sans rien dire
-      // de plus, et alourdissait une image deja dense.
-      if (staIm && staIm.complete && staIm.naturalWidth) {
-        ctx.drawImage(staIm, sx0 - staSz / 2, sy0 - staSz / 2, staSz, staSz);
-      }
-
-      // Sigle HQ sous l'icone. SANS cartouche : le rectangle blanc dessinait une
-      // delimitation visible qui alourdissait l'image. La lisibilite par-dessus le
-      // trace du profil est assuree par un lisere blanc autour des lettres
-      // (strokeText avant fillText), qui detache le texte sans bloc de fond.
-      ctx.font = 'bold ' + fsSta + 'px "Segoe UI",Arial,sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      const ty0 = sy0 + staSz / 2 + 2 * sy;
-      ctx.lineJoin = 'round';               // sans ca, les angles du lisere bavent
-      ctx.strokeStyle = 'rgba(255,255,255,.85)';
-      ctx.lineWidth = Math.max(2, 3 * sx);
-      ctx.strokeText(st.code, sx0, ty0);
-      ctx.fillStyle = '#000000';
-      ctx.fillText(st.code, sx0, ty0);
-    }
-    ctx.restore();
-  }
+  // Les stations sont dessinees par drawStationsMeteo(), appelee separement et SANS
+  // condition : elles portent desormais une mesure permanente, qui ne peut pas
+  // dependre d'une case a cocher masquee par defaut.
 
   // Etiquettes : nom de la zone, et sous lui sa superficie drainee entre
   // parentheses. Posees apres tous les remplissages pour qu'un chevauchement de
@@ -1398,6 +1371,23 @@ function drawZonesMeteo(sx, sy) {
 // averse courte. Une averse de 4 h le 11 aout 2026 (22 + 7 + 0,4 + 0 mm) produisait
 // 24 barres identiques a 29,7 mm, ce qui se lisait comme « il a plu toute la journee ».
 // p1 rétablit la verite du terrain, p24 garde l'information de total.
+// --- Acces aux frames meteo, tolerant aux deux formes ---
+// Depuis l'ajout des mesures par station, frames[i] est un OBJET { z:[zones], s:[stations] }.
+// Avant, c'etait directement le TABLEAU des zones. Un seul accesseur absorbe les deux
+// formes : les datasets deja rendus (et les tranches mensuelles en cache navigateur,
+// servies par le service worker) restent lisibles sans re-rendu.
+function meteoZoneFrame(i) {
+  const fr = (D.meteo && D.meteo.frames) ? D.meteo.frames[i] : null;
+  if (!fr) return null;
+  return Array.isArray(fr) ? fr : (fr.z || null);   // forme ancienne : tableau nu
+}
+// Mesures de la station d'index k a la frame i. Toujours null sur les anciens rendus.
+function meteoStaFrame(i, k) {
+  const fr = (D.meteo && D.meteo.frames) ? D.meteo.frames[i] : null;
+  if (!fr || Array.isArray(fr) || !fr.s) return null;
+  return fr.s[k] || null;
+}
+
 function pluieSerie(zoneKey) {
   if (!zoneKey || !D.meteo || !D.meteo.zones || !D.meteo.frames) return null;
   const zi = D.meteo.zones.findIndex(z => z.key === zoneKey);
@@ -1407,7 +1397,7 @@ function pluieSerie(zoneKey) {
   const outH = new Array(n).fill(null);
   let mx = 0, mxH = 0;
   for (let k = 0; k < n; k++) {
-    const fr = D.meteo.frames[k];
+    const fr = meteoZoneFrame(k);
     if (!fr || !fr[zi]) continue;
     const v = fr[zi].p24;
     if (v != null) { out[k] = v; if (v > mx) mx = v; }
@@ -1418,6 +1408,186 @@ function pluieSerie(zoneKey) {
   }
   if (mx <= 0 && mxH <= 0) return null;
   return { vals: out, max: mx, hVals: mxH > 0 ? outH : null, hMax: mxH };
+}
+
+// Series d'une STATION, reconstituees depuis les frames (pendant de pluieSerie() pour
+// les zones). Pas de tableaux dedies dans le JSON : les valeurs sont deja presentes
+// frame par frame, les dupliquer alourdirait chaque tranche mensuelle.
+//   vals / max   = cumul 24 h glissant (p24) — la courbe de pluie
+//   hVals / hMax = pluie du pas de temps (p1) — les barres, qui disent QUAND il a plu
+//   tmn / tmx    = temperatures min et max — tracees sur leur PROPRE echelle
+//   tMin / tMax  = bornes de l'echelle des temperatures
+//
+// Deux echelles independantes : les mm et les °C n'ont ni unite ni zero communs, et les
+// temperatures sont souvent negatives. Les superposer sur une echelle unique ecraserait
+// la pluie contre l'axe des la premiere journee a 25 °C.
+function serieStation(k) {
+  if (!D.meteo || !D.meteo.frames) return null;
+  const n = D.meteo.frames.length;
+  const out = new Array(n).fill(null);
+  const outH = new Array(n).fill(null);
+  const oTmn = new Array(n).fill(null);
+  const oTmx = new Array(n).fill(null);
+  let mx = 0, mxH = 0;
+  let tLo = Infinity, tHi = -Infinity;
+  for (let j = 0; j < n; j++) {
+    const fr = meteoStaFrame(j, k);
+    if (!fr) continue;
+    const v = fr.p24;
+    if (v != null) { out[j] = v; if (v > mx) mx = v; }
+    const v1 = fr.p1;
+    if (v1 != null) { outH[j] = v1; if (v1 > mxH) mxH = v1; }
+    if (fr.tmn != null) { oTmn[j] = fr.tmn; if (fr.tmn < tLo) tLo = fr.tmn; if (fr.tmn > tHi) tHi = fr.tmn; }
+    if (fr.tmx != null) { oTmx[j] = fr.tmx; if (fr.tmx < tLo) tLo = fr.tmx; if (fr.tmx > tHi) tHi = fr.tmx; }
+  }
+  const aPluie = (mx > 0 || mxH > 0);
+  const aTemp  = isFinite(tLo) && isFinite(tHi);
+  if (!aPluie && !aTemp) return null;
+  return {
+    vals: out, max: mx, hVals: mxH > 0 ? outH : null, hMax: mxH, aPluie: aPluie,
+    tmn: oTmn, tmx: oTmx, tMin: aTemp ? tLo : null, tMax: aTemp ? tHi : null, aTemp: aTemp
+  };
+}
+
+// Couleurs des courbes de station. Constantes partagees par le trace ET la legende :
+// les redeclarer de part et d'autre les ferait fatalement diverger.
+// ROUGE pour la temperature maximale — c'est la convention du thermometre, et elle se
+// distingue franchement du bleu des grandeurs d'eau.
+const STA_TMAX_COL = 'rgba(200,45,40,.95)';
+const STA_TMIN_COL = 'rgba(200,45,40,.55)';   // meme teinte, atténuée : c'est le minimum
+// Bleu des graduations de l'axe mm (gauche). L'axe °C (droite) reprend EXACTEMENT cette
+// couleur : les deux axes appartiennent au meme cadre de lecture, et les differencier
+// ferait croire que la couleur de l'axe code la grandeur.
+const STA_AXIS_COL = 'rgba(70,110,160,.95)';
+
+// Trace le graphique d'une station dans un rectangle donne. UNE seule implementation
+// pour la sparkline de l'etiquette et pour la modale agrandie : sans ca, tout reglage
+// (couleur, echelle, ordre de superposition) devrait etre reporte deux fois et les deux
+// vues divergeraient.
+//
+// Grammaire, reprise de celle des ouvrages :
+//   barres bleu pale  = pluie du pas de temps (p1) — quand il a plu
+//   courbe bleue      = cumul 24 h glissant (p24) — echelle de GAUCHE, en mm
+//   courbes orangees  = temperatures min et max   — echelle de DROITE, en °C
+//   bande grise       = futur (au-dela de la frame courante)
+//   trait rouge       = frame courante
+// opts.axes : dessine les graduations chiffrees et les titres d'axes (modale seulement ;
+// dans une sparkline de 42 px ils seraient illisibles).
+function drawStationChart(cx2, s, x, y, w, h, sxu, opts) {
+  opts = opts || {};
+  const n = s.vals.length;
+  if (!(w > 10 && h > 6 && n > 1)) return;
+  const fsAx = opts.fsAxis || Math.max(7, Math.round(8 * sxu));
+  const xOf = j => x + (j / (n - 1)) * w;
+
+  // Echelle pluie (gauche) : de 0 au max de la fenetre.
+  const pTop = Math.max(s.max, s.hMax || 0);
+  const yP = v => y + h - (pTop > 0 ? (v / pTop) * h : 0);
+  // Echelle temperature (droite) : bornes de la fenetre, elargies de 1 °C pour que les
+  // extremes ne collent pas aux bords.
+  let tLo = s.tMin, tHi = s.tMax;
+  if (s.aTemp && tHi - tLo < 1) { tLo -= 1; tHi += 1; }   // serie plate : evite /0
+  const yT = v => y + h - ((v - tLo) / Math.max(tHi - tLo, 0.0001)) * h;
+
+  // Bande "futur".
+  const xFut = xOf(Math.min(frame + 1, n - 1));
+  if (xFut < x + w) {
+    cx2.fillStyle = 'rgba(150,150,160,.12)';
+    cx2.fillRect(xFut, y, x + w - xFut, h);
+  }
+
+  // Axes.
+  cx2.strokeStyle = 'rgba(80,80,90,.6)';
+  cx2.lineWidth = Math.max(0.8, 0.8 * sxu);
+  cx2.beginPath();
+  cx2.moveTo(x, y); cx2.lineTo(x, y + h); cx2.lineTo(x + w, y + h);
+  cx2.stroke();
+
+  // Barres de pluie horaire.
+  if (s.hVals && pTop > 0) {
+    cx2.fillStyle = 'rgba(150,175,205,.75)';
+    const bw = Math.max(1, (w / n) * 0.8);
+    for (let j = 0; j < n; j++) {
+      const v = s.hVals[j];
+      if (v == null || v <= 0) continue;
+      const hh = (v / pTop) * h;
+      cx2.fillRect(xOf(j) - bw / 2, y + h - hh, bw, hh);
+    }
+  }
+
+  // Courbe de cumul 24 h.
+  const trace = (arr, color, lw, dash) => {
+    cx2.save();
+    if (dash) cx2.setLineDash(dash);
+    cx2.strokeStyle = color;
+    cx2.lineWidth = Math.max(1, lw * sxu);
+    cx2.beginPath();
+    let started = false;
+    for (let j = 0; j < n; j++) {
+      const v = arr.vals[j];
+      if (v == null) { started = false; continue; }
+      const px = xOf(j), py = arr.y(v);
+      if (!started) { cx2.moveTo(px, py); started = true; } else { cx2.lineTo(px, py); }
+    }
+    cx2.stroke();
+    cx2.restore();
+  };
+  if (s.aPluie && pTop > 0) trace({ vals: s.vals, y: yP }, STA_AXIS_COL, 1.4);
+  if (s.aTemp) {
+    // Rouge : convention du thermometre. Le maximum en trait plein, le minimum dans la
+    // meme teinte atténuée et tiretee — la forme distingue les deux, pas la couleur.
+    trace({ vals: s.tmx, y: yT }, STA_TMAX_COL, 1.2);
+    trace({ vals: s.tmn, y: yT }, STA_TMIN_COL, 1.2, [3 * sxu, 2 * sxu]);
+  }
+
+  // Repere de la frame courante. GRIS neutre et non rouge : depuis que les courbes de
+  // temperature sont rouges, un repere rouge se lirait comme une donnee.
+  const xCur = xOf(Math.min(frame, n - 1));
+  cx2.strokeStyle = 'rgba(90,90,100,.55)';
+  cx2.lineWidth = Math.max(1, 1 * sxu);
+  cx2.beginPath();
+  cx2.moveTo(xCur, y); cx2.lineTo(xCur, y + h);
+  cx2.stroke();
+
+  // Reperes d'echelle.
+  cx2.font = fsAx + 'px "Segoe UI",Arial,sans-serif';
+  cx2.textBaseline = 'top';
+  if (opts.axes) {
+    // Modale : graduations chiffrees des deux cotes.
+    // Les DEUX axes dans la meme couleur (STA_AXIS_COL) : ils forment un seul cadre de
+    // lecture. Une couleur differente par axe suggererait que la teinte code la grandeur,
+    // ce que font deja les courbes elles-memes.
+    cx2.fillStyle = STA_AXIS_COL;
+    cx2.textAlign = 'right';
+    if (s.aPluie && pTop > 0) {
+      for (const f of [0, 0.5, 1]) {
+        const v = pTop * f;
+        cx2.fillText(fmt1(v), x - 4 * sxu, yP(v) - fsAx / 2);
+      }
+      cx2.fillText('mm', x - 4 * sxu, y - fsAx * 1.6);
+    }
+    cx2.textAlign = 'left';
+    if (s.aTemp) {
+      for (const f of [0, 0.5, 1]) {
+        const v = tLo + (tHi - tLo) * f;
+        cx2.fillText(fmt1(v), x + w + 4 * sxu, yT(v) - fsAx / 2);
+      }
+      cx2.fillText('°C', x + w + 4 * sxu, y - fsAx * 1.6);
+    }
+  } else {
+    // Sparkline : un seul repere par grandeur, en haut, sans graduation. Meme couleur
+    // d'axe des deux cotes, comme dans la modale.
+    cx2.fillStyle = STA_AXIS_COL;
+    if (s.aPluie && pTop > 0) {
+      cx2.textAlign = 'left';
+      cx2.fillText(fmt1(pTop) + ' mm', x + 2 * sxu, y);
+    }
+    if (s.aTemp) {
+      cx2.textAlign = 'right';
+      cx2.fillText(fmt1(tHi) + '°', x + w - 2 * sxu, y);
+    }
+  }
+  cx2.textAlign = 'left';
 }
 
 function ratioColor(r) {
@@ -1461,6 +1631,406 @@ function drawLeftSegments(ctx, segments, x, y, defaultFont) {
 function fmt2(v) {
   // Formate un nombre avec 2 decimales et virgule (locale fr)
   return v.toFixed(2).replace('.', ',');
+}
+
+// Formate a 1 decimale, virgule decimale (public francophone, comme fmt2).
+function fmt1(v) {
+  return (v == null) ? null : v.toFixed(1).replace('.', ',');
+}
+
+// --- Stations meteo : icone + sigle + pluie 24 h + triangle -------------------
+// Fonction separee de drawZonesMeteo pour la lisibilite, mais soumise a la MEME
+// condition : les stations font partie du calque « Zones meteo » et n'apparaissent que
+// s'il est coche. C'est le comportement d'origine, voulu — le calque est une aide de
+// lecture ponctuelle, qu'on active quand on s'interesse a la meteo.
+//
+// Ordre de peinture : APRES les remplissages de zone (sinon une zone voile les icones)
+// mais AVANT les etiquettes d'ouvrages, qui doivent passer devant.
+const STA_TRI      = '▼';   // etiquette repliee : le clic la deplie
+const STA_TRI_OPEN = '▲';   // etiquette depliee : le clic la replie
+
+// Remontee de l'icone de station, en pixels IMAGE. Deux raisons cumulees :
+//  - le bloc texte sous l'icone porte deux lignes (nom, puis pluie + triangle) ;
+//  - il faut degager la hauteur de l'ANNEAU d'alerte, dont le rayon depasse l'icone de
+//    ~48 % de sa demi-largeur (cf. STA_RING_K).
+// Sans ce decalage l'ensemble descend sous la position geographique reelle de la station.
+// Pendant de BARR_DY pour les barrages de reservoir.
+const STA_ICON_DY = -16;
+
+// Seuils d'alerte de la pluie 24 h, en mm. ABSOLUS (cf. commentaire dans
+// drawStationsMeteo) : 20 mm ~ p95 des stations du bassin, 40 mm ~ p99.
+const STA_PLUIE_ELEVEE = 20;   // anneau orange
+const STA_PLUIE_FORTE  = 40;   // anneau rouge
+
+// Rayon de l'anneau d'alerte, en fraction de la TAILLE de l'icone : demi-diagonale du
+// carre (√2/2) majoree de 5 %, comme l'anneau des barrages de reservoir. Ce sont les
+// COINS de l'icone qui sont les points les plus eloignes du centre, d'ou la diagonale et
+// non la demi-largeur.
+// Constante partagee par le TRACE de l'anneau et par le calcul de la place a lui laisser
+// au-dessus du nom : les deux doivent bouger ensemble, sinon le texte remord l'anneau.
+const STA_RING_K = Math.SQRT2 / 2 * 1.05;   // ~0,742
+
+// File d'attente des etiquettes de station a dessiner AU PREMIER PLAN.
+//
+// Les marqueurs de station (icone + nom + pluie + triangle) appartiennent au calque de
+// FOND : ils doivent rester sous les etiquettes d'ouvrages, comme les contours de zone.
+// Mais une etiquette de station DEPLIEE est un objet ouvert a la demande : elle doit
+// passer DEVANT tout le reste, sinon les icones et les valeurs des ouvrages se peignent
+// par-dessus son cartouche et le rendent illisible.
+//
+// On collecte donc les etiquettes pendant la passe de fond et on les rend dans une
+// seconde passe, appelee en fin de draw(). Un simple deplacement de l'appel ne suffirait
+// pas : il ferait aussi passer les 11 marqueurs devant les ouvrages.
+let staLabelQueue = [];
+
+function drawStationsMeteo(sx, sy) {
+  staBounds.length = 0;
+  staLabelBounds.length = 0;
+  staSparkBounds.length = 0;
+  staLabelQueue = [];
+  if (!zonesVisibles) return;
+  if (!D.meteo || !D.meteo.stations || !D.meteo.stations.length) return;
+
+  const staIm = iconImgs['station-meteo'];
+  // MEME taille que l'icone barrage des reservoirs, pour que les deux familles de
+  // marqueurs pesent pareil dans l'image.
+  const staSz = Math.max(18, Math.round(30 * sx));
+  const fsSta = Math.max(8, Math.round(10.5 * sx));
+  // Ligne de mesure : legerement plus petite que le sigle et NON gras. Le contraste
+  // gras/normal distingue l'identite de la mesure, comme les libelles de zone
+  // distinguent le nom (gras) de la superficie (normal).
+  const fsVal = Math.max(8, Math.round(fsSta * 0.92));
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round';               // sans ca, les angles du lisere bavent
+
+  D.meteo.stations.forEach((st, k) => {
+    // Icone remontee de STA_ICON_DY px image : le bloc texte sous elle a gagne une
+    // ligne (nom + pluie + triangle), et sans ce decalage l'ensemble descendait sous la
+    // position geographique de la station. Meme principe que BARR_DY pour les barrages
+    // de reservoir, dont l'icone est calee au-dessus de son texte d'ancrage.
+    const sx0 = st.x * sx, sy0 = st.y * sy + STA_ICON_DY * sy;
+
+    // Valeur de pluie de la frame courante : sert a l'anneau d'alerte ci-dessous ET a
+    // la ligne de texte plus bas. Lue une seule fois.
+    const fr  = meteoStaFrame(frame, k);
+    const mes = st.mes || { t: false, n: false, p: false };
+    const p24 = (mes.p && fr && fr.p24 != null) ? fr.p24 : null;
+
+    // Anneau d'alerte quand la pluie est ELEVEE ou FORTE, exactement comme l'anneau des
+    // barrages de reservoir : meme epaisseur (4 * sx), meme rayon (demi-diagonale de
+    // l'icone x 1,05, car ce sont les COINS de l'icone carree qui sont les plus eloignes
+    // du centre), memes couleurs que ratioColor().
+    //
+    // Seuils ABSOLUS en mm/24h, et non un ratio du max de la station comme pour les
+    // deversements. Deux raisons :
+    //  - la distribution de la pluie est tres asymetrique (mediane ~0, p90 de 10-18 mm,
+    //    maxima de 48 a 95 mm selon la station) : un ratio ferait de 31 mm une alerte a
+    //    CMMW et pas a CMIM, alors que c'est la meme pluie ;
+    //  - le max depend de la fenetre affichee, donc le seuil bougerait entre les vues
+    //    Heure / Jour / Semaine / Mois.
+    // 20 mm ~ p95 (episode notable), 40 mm ~ p99 (episode marquant).
+    let staTint = null;
+    if (p24 !== null) {
+      if (p24 >= STA_PLUIE_FORTE)      staTint = ratioColor(95).f;   // rouge
+      else if (p24 >= STA_PLUIE_ELEVEE) staTint = ratioColor(75).f;   // orange
+    }
+    if (staTint) {
+      const ringR = staSz * STA_RING_K;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx0, sy0, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = staTint;
+      ctx.lineWidth = Math.max(2.5, 4 * sx);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // L'icone garde ses couleurs d'origine : c'est l'anneau qui porte l'alerte, comme
+    // pour les barrages et les rosaces de centrale. La teinter en plus serait redondant.
+    if (staIm && staIm.complete && staIm.naturalWidth) {
+      ctx.drawImage(staIm, sx0 - staSz / 2, sy0 - staSz / 2, staSz, staSz);
+    }
+
+    // Sigle HQ sous l'icone. SANS cartouche : le rectangle blanc dessinait une
+    // delimitation visible qui alourdissait l'image (11 stations + 12 centrales +
+    // reservoirs). La lisibilite par-dessus le profil vient d'un lisere blanc autour
+    // des lettres (strokeText avant fillText).
+    //
+    // labelDx/labelDy (px image, optionnels dans config/layout, champ stationsMeteo) :
+    // decalent le BLOC TEXTE sans bouger l'icone, qui doit rester sur la position
+    // geographique projetee. Sert a degager une etiquette d'ouvrage voisine — CMIX
+    // tombe par exemple sous celle de Manouane-A. Reglage par station dans le layout
+    // plutot qu'en dur ici : c'est deja la convention pour iconDx/iconDy des reservoirs.
+    // tx0 : abscisse du BLOC TEXTE, distincte de sx0 (l'icone), qui reste sur la
+    // position geographique projetee.
+    const tx0 = sx0 + (st.labelDx || 0) * sx;
+    // Le texte doit commencer sous l'ANNEAU, pas sous l'icone. L'anneau a pour rayon la
+    // demi-DIAGONALE de l'icone carree (x 1,05), soit ~1,48 x sa demi-largeur : partir de
+    // staSz / 2 laissait le lisere blanc du nom mordre l'anneau par le bas, qui
+    // apparaissait alors incomplet. On derive la marge du rayon reel (STA_RING_K, la meme
+    // constante que le trace) pour que les deux restent lies, et on ajoute la demi-
+    // epaisseur du trait.
+    const ringClear = staSz * STA_RING_K + Math.max(2.5, 4 * sx) / 2;
+    const ty0 = sy0 + (st.labelDy || 0) * sy + ringClear + 2 * sy;
+    // NOM en clair plutot que le sigle : « Windigo » se lit sans decodage, la ou CMRW
+    // demande de connaitre la nomenclature HQ. Le sigle reste dans l'en-tete de
+    // l'etiquette depliee, sous la forme « Windigo (CMRW) ».
+    const nomSta = st.nom || st.code;
+    ctx.font = 'bold ' + fsSta + 'px "Segoe UI",Arial,sans-serif';
+    ctx.strokeStyle = 'rgba(255,255,255,.85)';
+    ctx.lineWidth = Math.max(2, 3 * sx);
+    ctx.strokeText(nomSta, tx0, ty0);
+    ctx.fillStyle = '#000000';
+    ctx.fillText(nomSta, tx0, ty0);
+
+    // --- Ligne sous la station : PLUIE 24 h uniquement ---
+    // Une seule grandeur, la meme que celle affichee sur les ouvrages (mm/24h) : le
+    // lecteur compare ainsi directement la station a l'ouvrage qu'elle alimente. La
+    // temperature vit dans l'etiquette depliable, pas ici.
+    //
+    // 'mes' dit ce que la station MESURE (cf. render-animation.ps1), ce qui distingue
+    // « pas de capteur » (-> N/D permanent) d'une valeur ponctuellement absente
+    // (-> rien). Les 4 stations sans pluviometre affichent donc N/D, ce qui garde une
+    // presentation uniforme sur les 11 marqueurs.
+    // fr / mes / p24 sont lus plus haut (l'anneau d'alerte en a besoin avant l'icone).
+    const valTxt = mes.p
+      ? ((p24 !== null) ? fmt1(p24) + ' mm/24h' : null)
+      : 'N/D';
+
+    const tyVal = ty0 + fsSta + 2 * sy;
+    let triX = tx0, triY = tyVal;
+    if (valTxt) {
+      // GRAS : c'est la seule mesure affichee en permanence sous la station, elle doit
+      // primer sur le nom. La police est posee ICI, avant measureText, car la largeur du
+      // gras differe de celle du normal : la mesurer autrement decalerait le centrage et
+      // la position du triangle.
+      ctx.font = 'bold ' + fsVal + 'px "Segoe UI",Arial,sans-serif';
+      // Le triangle est pose a DROITE du texte : on decale donc l'ensemble vers la
+      // gauche de la demi-largeur du triangle pour que le bloc reste centre sur la
+      // station (sinon il derive a droite et chevauche le voisin).
+      const wVal = ctx.measureText(valTxt).width;
+      const wTri = ctx.measureText(STA_TRI + ' ').width;
+      const cx   = tx0 - wTri / 2;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      // Lisere legerement plus epais que pour le texte normal : un gras pose sur le
+      // trace du profil demande un peu plus de degagement pour rester detache.
+      ctx.lineWidth = Math.max(2, 3 * sx);
+      ctx.strokeText(valTxt, cx, tyVal);
+      // Gris tres soutenu : en gras, le poids suffit a faire primer la mesure sur le nom,
+      // sans avoir besoin d'un noir franc qui alourdirait 11 marqueurs.
+      ctx.fillStyle = '#222222';
+      ctx.fillText(valTxt, cx, tyVal);
+      triX = cx + wVal / 2 + wTri / 2;
+    }
+
+    // --- Triangle : deplie / replie l'etiquette ---
+    // Affiche pour TOUTES les stations, y compris celles sans pluviometre : la
+    // coherence de presentation prime, et elles ont de toute facon une temperature a
+    // montrer dans l'etiquette. Inerte seulement si la station ne mesure rien du tout.
+    const actif = !!(mes.t || mes.p || mes.n);
+    const ouvert = actif && staOuvertes.has(k);
+    const glyph = ouvert ? STA_TRI_OPEN : STA_TRI;
+    ctx.font = 'bold ' + fsVal + 'px "Segoe UI",Arial,sans-serif';
+    ctx.strokeStyle = 'rgba(255,255,255,.85)';
+    ctx.lineWidth = Math.max(2, 2.5 * sx);
+    ctx.strokeText(glyph, triX, triY);
+    ctx.fillStyle = actif ? 'rgba(40,70,110,.95)' : 'rgba(150,150,150,.75)';
+    ctx.fillText(glyph, triX, triY);
+
+    // Boite cliquable, enregistree PENDANT le dessin et en pixels IMAGE (division par
+    // sx/sy). La recalculer dans le hitTest dupliquerait la geometrie : c'est
+    // exactement ce qui a produit des zones cliquables decalees ailleurs dans ce
+    // fichier. Ici la boite suit le dessin par construction.
+    const wTri2 = ctx.measureText(glyph).width;
+    staBounds[k] = actif ? {
+      x0: (triX - wTri2 / 2 - 3 * sx) / sx,
+      y0: (triY - 2 * sy) / sy,
+      x1: (triX + wTri2 / 2 + 3 * sx) / sx,
+      y1: (triY + fsVal + 2 * sy) / sy
+    } : null;
+
+    // --- Etiquette depliee : mise en file pour la passe de PREMIER PLAN ---
+    // Ne pas la dessiner ici : elle serait recouverte par les etiquettes d'ouvrages,
+    // dessinees plus loin dans draw(). Cf. staLabelQueue.
+    if (ouvert) {
+      staLabelQueue.push({ st: st, k: k, fr: fr, mes: mes,
+                          cx: tx0, topY: triY + fsVal + 3 * sy, fsBase: fsVal });
+    }
+  });
+  ctx.restore();
+}
+
+// Seconde passe : les etiquettes de station, PAR-DESSUS tout le reste (ouvrages, legende).
+// Appelee en fin de draw().
+function drawStationLabelsTop(sx, sy) {
+  for (const q of staLabelQueue) {
+    drawStationLabel(q.st, q.k, q.fr, q.mes, q.cx, q.topY, sx, sy, q.fsBase);
+  }
+}
+
+// Etiquette d'une station depliee, au MEME style que celles des ouvrages :
+// cartouche blanc borde, en-tete « icone + Nom (CODE) » avec le triangle de fermeture,
+// separateur, lignes de mesures, puis sparkline de pluie en bas.
+//
+// Structure calquee sur l'etiquette de reservoir (fond + bordure rgba(80,80,80,.6),
+// en-tete a 10 % de la hauteur, separateur a 22 %, sparkline dans le bas) pour que le
+// lecteur reconnaisse immediatement le meme objet. Difference assumee : la geometrie est
+// CALCULEE ici (largeur sur le texte le plus long, hauteur sur le nombre de lignes) au
+// lieu d'etre lue dans label_width_res/label_height_res — une station porte 2 lignes,
+// pas 4, et 11 cartouches au gabarit des reservoirs couvriraient le profil.
+function drawStationLabel(st, k, fr, mes, cx, topY, sx, sy, fsBase) {
+  // Metriques REPRISES TELLES QUELLES des etiquettes de centrales et de reservoirs
+  // (cf. lignes fsName/fsTotal/fsIcon/fsDetail/fsArrow de leurs blocs respectifs) :
+  // une station doit avoir le meme poids typographique qu'un ouvrage, sinon elle se lit
+  // comme un objet de second rang. Les planchers (11, 12, 10, 18) sont ceux des ouvrages.
+  const fsName = Math.max(11, Math.round(17 * sx));   // nom, en gras
+  const fs     = Math.max(10, Math.round(16 * sx));   // lignes de valeurs (= fsDetail)
+  const iconSz = Math.max(12, Math.round(30 * sx));   // icone de ligne (= fsIcon)
+  const fsArw  = Math.max(18, Math.round(28 * sx));   // triangle (= fsArrow)
+  const iconHd = Math.max(12, Math.round(fsName * 1.40));  // icone d'en-tete, comme les ouvrages
+  // Gouttieres : 8 px a gauche comme les ouvrages (leftX = lx + 8 * sx).
+  const padX   = Math.max(6, 8 * sx);
+  const padY   = Math.max(5, 7 * sy);
+  // Pas vertical : celui des reservoirs, dont les lignes sont espacees de ~0,150 x 228
+  // = 34 px image. On reprend cette valeur a l'echelle, avec pour plancher la hauteur de
+  // l'icone (30 px) plus 2 px, sinon deux lignes voisines se chevaucheraient.
+  const lh     = Math.max(iconSz + 2 * sy, Math.round(34 * sy));
+
+  const pTxt = mes.p
+    ? ((fr && fr.p24 != null) ? fmt1(fr.p24) + ' mm/24h' : 'n/d')
+    : 'N/D';
+  const tTxt = mes.t
+    ? ((fr && fr.tmn != null && fr.tmx != null) ? fmt1(fr.tmn) + ' / ' + fmt1(fr.tmx) + ' °C' : 'n/d')
+    : 'N/D';
+
+  // En-tete : nom en clair suivi du sigle HQ entre parentheses.
+  const titre = (st.nom || st.code) + ' (' + st.code + ')';
+  // Chaque ligne porte son icone, comme sur les etiquettes d'ouvrages ou aucune valeur
+  // n'apparait sans pictogramme.
+  const rows = [
+    { icon: 'pluie',       txt: pTxt },
+    { icon: 'temperature', txt: tTxt }
+  ];
+
+  // Sparkline : pluie ET temperature. Presente des qu'une des deux grandeurs existe sur
+  // la fenetre — une station sans pluviometre garde donc un graphe de temperature.
+  // Hauteur 45 px comme les sparklines de centrales et de reservoirs, plus la marge
+  // basse de 4 px qu'elles utilisent aussi.
+  const pl = serieStation(k);
+  const sparkH = pl ? (45 * sy) : 0;
+  const sparkMb = pl ? (4 * sy) : 0;
+
+  ctx.save();
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+
+  // --- Geometrie : largeur sur le contenu le plus large ---
+  ctx.font = 'bold ' + fsName + 'px "Segoe UI",Arial,sans-serif';
+  const wTitre = ctx.measureText(titre).width + iconHd + 4 * sx + fsArw;  // + place du triangle
+  ctx.font = fs + 'px "Segoe UI",Arial,sans-serif';
+  let wRows = 0;
+  for (const r of rows) {
+    const w = ctx.measureText(r.txt).width + (r.icon ? iconSz + 4 * sx : 0);
+    if (w > wRows) wRows = w;
+  }
+  // Plancher a 150 px image : en dessous, la sparkline devient illisible et les deux
+  // echelles se chevauchent.
+  const boxW = Math.max(wTitre, wRows, 150 * sx) + padX * 2;
+  const headH = iconHd + Math.max(5, 7 * sy);
+  const boxH = headH + rows.length * lh + sparkH + sparkMb + padY * 2;
+
+  // Centree sur la station, bornee au canvas pour ne pas sortir de l'image.
+  const bx = Math.max(2, Math.min(cv.width - boxW - 2, cx - boxW / 2));
+  const by = Math.max(2, Math.min(cv.height - boxH - 2, topY));
+
+  // --- Cartouche : memes couleurs que les etiquettes d'ouvrages ---
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(bx, by, boxW, boxH);
+  ctx.strokeStyle = 'rgba(80,80,80,.6)';
+  ctx.lineWidth = Math.max(1, 0.9 * sx);
+  ctx.strokeRect(bx, by, boxW, boxH);
+
+  const leftX = bx + padX;
+  let y = by + padY;
+
+  // --- En-tete : icone station + « Nom (CODE) » ---
+  const hdIm = iconImgs['station-meteo'];
+  let hx = leftX;
+  if (hdIm && hdIm.complete && hdIm.naturalWidth) {
+    ctx.drawImage(hdIm, hx, y, iconHd, iconHd);
+    hx += iconHd + 4 * sx;
+  }
+  ctx.font = 'bold ' + fsName + 'px "Segoe UI",Arial,sans-serif';
+  ctx.fillStyle = '#111';
+  ctx.fillText(titre, hx, y + (iconHd - fsName) / 2);
+
+  // Triangle de fermeture, cadre a droite et a la MEME taille que celui des ouvrages
+  // (fsArrow = 28 * sx), a 6 px du bord comme eux.
+  ctx.font = 'bold ' + fsArw + 'px "Segoe UI",Arial,sans-serif';
+  ctx.fillStyle = '#1a1a2e';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('▴', bx + boxW - 6 * sx, y + iconHd / 2);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  y += headH;
+
+  // --- Separateur ---
+  ctx.beginPath();
+  ctx.moveTo(leftX, y - Math.max(2, 3 * sy));
+  ctx.lineTo(bx + boxW - 6 * sx, y - Math.max(2, 3 * sy));
+  ctx.strokeStyle = 'rgba(120,120,120,.55)';
+  ctx.lineWidth = Math.max(0.8, 0.8 * sx);
+  ctx.stroke();
+
+  // --- Lignes de mesures ---
+  // Icone et texte centres sur la MEME ligne de base, comme le fait drawLeftSegments
+  // pour les ouvrages : l'icone (30 px) est plus haute que le texte (16 px), donc le
+  // texte se centre sur elle et non l'inverse.
+  ctx.font = fs + 'px "Segoe UI",Arial,sans-serif';
+  ctx.textBaseline = 'middle';
+  for (const r of rows) {
+    let x = leftX;
+    const yMid = y + iconSz / 2;
+    if (r.icon) {
+      const im = iconImgs[r.icon];
+      if (im && im.complete && im.naturalWidth) {
+        ctx.drawImage(im, x, yMid - iconSz / 2, iconSz, iconSz);
+      }
+      x += iconSz + 4 * sx;
+    }
+    ctx.fillStyle = '#555';   // meme intensite que les valeurs des ouvrages
+    ctx.fillText(r.txt, x, yMid);
+    y += lh;
+  }
+  ctx.textBaseline = 'top';
+
+  // --- Sparkline (pluie + temperature) ---
+  // Trace par drawStationChart, la meme fonction que la modale agrandie : les deux vues
+  // ne peuvent donc pas diverger.
+  if (pl) {
+    const plotX = leftX;
+    const plotY = y + Math.max(2, 3 * sy);
+    const plotW = boxW - padX * 2;
+    const plotH = sparkH - Math.max(4, 6 * sy);
+    drawStationChart(ctx, pl, plotX, plotY, plotW, plotH, sx, { fsAxis: Math.max(8, Math.round(10 * sx)) });
+    // Zone cliquable du graphe : ouvre la modale agrandie, comme les sparklines
+    // d'ouvrages. En pixels image.
+    staSparkBounds[k] = {
+      x0: plotX / sx, y0: plotY / sy,
+      x1: (plotX + plotW) / sx, y1: (plotY + plotH) / sy
+    };
+  }
+
+  ctx.restore();
+
+  // Boite de l'etiquette : un clic dessus la referme (comme l'en-tete d'une etiquette
+  // d'ouvrage). En pixels image, comme staBounds.
+  staLabelBounds[k] = { x0: bx / sx, y0: by / sy, x1: (bx + boxW) / sx, y1: (by + boxH) / sy };
 }
 
 // --- Turbinage : configuration de groupes estimee ---------------------------
@@ -1559,6 +2129,11 @@ function draw(i) {
   // Calque de fond : regroupements de pluie (voir drawZonesMeteo). Dessine ici,
   // avant la legende et les ouvrages, pour rester SOUS tout le reste.
   drawZonesMeteo(sx, sy);
+  // Stations meteo : APRES les remplissages de zone (sinon une zone les voile), mais
+  // toujours dans le calque de fond pour passer SOUS les etiquettes d'ouvrages.
+  // Appel inconditionnel : contrairement aux contours, les stations et leur mesure ne
+  // dependent pas de la case « Zones meteo ».
+  drawStationsMeteo(sx, sy);
   const lw = D.labelW * sx;
   const lh = D.labelH * sy;
 
@@ -1660,7 +2235,11 @@ function draw(i) {
           // partie du vocabulaire fixe de la legende, dont la composition ne doit
           // pas changer sous l'effet d'une case a cocher. Choix assume : quand le
           // calque est masque, elle designe un symbole alors absent de l'image.
-          { icon: 'station-meteo', text: 'Station météo' }
+          { icon: 'station-meteo', text: 'Station météo' },
+          // Sous « Station meteo » : la temperature n'est lisible que dans l'etiquette
+          // d'une station (min/max du pas de temps affiche), a la difference de la pluie
+          // qui figure aussi sur les ouvrages.
+          { icon: 'temperature', text: 'T° min/max (°C)' }
         ] }
     ];
     // La legende a desormais une composition FIXE : plus aucune entree n'apparait
@@ -2160,10 +2739,11 @@ function draw(i) {
         drawLeftSegments(ctx, segs, leftX, ly + lh*0.5476, fontDetail);
       }
       let cPluie24 = null;
-      if (c.zoneMeteo && D.meteo && D.meteo.zones && D.meteo.frames && D.meteo.frames[i]) {
+      if (c.zoneMeteo && D.meteo && D.meteo.zones) {
+        const czFr = meteoZoneFrame(i);
         const czi = D.meteo.zones.findIndex(z => z.key === c.zoneMeteo);
-        if (czi >= 0 && D.meteo.frames[i][czi] && D.meteo.frames[i][czi].p24 != null) {
-          cPluie24 = D.meteo.frames[i][czi].p24;
+        if (czFr && czi >= 0 && czFr[czi] && czFr[czi].p24 != null) {
+          cPluie24 = czFr[czi].p24;
         }
       }
       if (cPluie24 !== null) {
@@ -2355,10 +2935,11 @@ function draw(i) {
       // (champ zoneMeteo dans config/layout). Null si pas de zone, pas de donnee
       // meteo dans cette vue, ou aucune pluie mesuree sur la fenetre.
       let pluie24 = null;
-      if (r.zoneMeteo && D.meteo && D.meteo.zones && D.meteo.frames && D.meteo.frames[i]) {
+      if (r.zoneMeteo && D.meteo && D.meteo.zones) {
+        const rzFr = meteoZoneFrame(i);
         const zi = D.meteo.zones.findIndex(z => z.key === r.zoneMeteo);
-        if (zi >= 0 && D.meteo.frames[i][zi] && D.meteo.frames[i][zi].p24 != null) {
-          pluie24 = D.meteo.frames[i][zi].p24;
+        if (rzFr && zi >= 0 && rzFr[zi] && rzFr[zi].p24 != null) {
+          pluie24 = rzFr[zi].p24;
         }
       }
 
@@ -2723,6 +3304,10 @@ function draw(i) {
     }
   }
 
+  // DERNIERE passe : les etiquettes de station depliees, par-dessus tout le reste.
+  // Elles sont mises en file par drawStationsMeteo (calque de fond) et rendues ici, sinon
+  // les icones et les valeurs des ouvrages se peignent par-dessus leur cartouche.
+  drawStationLabelsTop(sx, sy);
 }
 
 // Facteur de rasterisation du calque #ov. Le canvas est etire en CSS a 100 % de
@@ -2834,6 +3419,13 @@ function go(i) {
   if (typeof modalTurbIdx !== 'undefined' && modalTurbIdx >= 0 && typeof drawTurbineModal === 'function') {
     drawTurbineModal();
   }
+  if (typeof modalStaChartIdx !== 'undefined' && modalStaChartIdx >= 0 && typeof drawBigChartStation === 'function') {
+    // Le graphe ET l'en-tete de valeurs suivent le curseur. On appelle le trace
+    // directement (pas openModalStation, qui reprogramme un requestAnimationFrame et
+    // s'empilerait a chaque frame pendant la lecture).
+    refreshModalStationStats();
+    drawBigChartStation();
+  }
 }
 
 // Bascule de periode (setPeriode reconstruit la vue et repositionne le slider)
@@ -2868,6 +3460,12 @@ if (zoneToggle) {
   zoneToggle.addEventListener('change', () => {
     zonesVisibles = zoneToggle.checked;
     localStorage.setItem('hq-zones-meteo', zonesVisibles ? '1' : '0');
+    // Toutes les etiquettes de station repliees a chaque bascule du calque : on active
+    // « Zones meteo » pour lire la carte, pas pour retrouver des cartouches ouverts lors
+    // d'une consultation precedente. Vider dans les DEUX sens (et non seulement a
+    // l'activation) evite aussi qu'une etiquette masquee reste ouverte a l'insu du
+    // lecteur et resurgisse au prochain affichage du calque.
+    staOuvertes.clear();
     draw(frame);
   });
 }
@@ -3049,6 +3647,40 @@ function hitTestMapToggleRes(xImg, yImg) {
   }
   return -1;
 }
+// Triangle d'une station meteo. staBounds[k] vaut null pour une station qui n'a rien
+// a montrer : son triangle est dessine (coherence de presentation) mais reste inerte.
+function hitTestStationMeteo(xImg, yImg) {
+  if (!D.meteo || !D.meteo.stations) return -1;
+  for (let k = 0; k < D.meteo.stations.length; k++) {
+    const b = staBounds[k];
+    if (!b) continue;
+    if (xImg >= b.x0 && xImg <= b.x1 && yImg >= b.y0 && yImg <= b.y1) return k;
+  }
+  return -1;
+}
+// Cartouche d'une etiquette de station depliee (clic = refermer). Rempli seulement pour
+// les etiquettes effectivement dessinees, donc vide quand tout est replie.
+function hitTestStationLabel(xImg, yImg) {
+  if (!D.meteo || !D.meteo.stations) return -1;
+  for (let k = 0; k < D.meteo.stations.length; k++) {
+    const b = staLabelBounds[k];
+    if (!b) continue;
+    if (xImg >= b.x0 && xImg <= b.x1 && yImg >= b.y0 && yImg <= b.y1) return k;
+  }
+  return -1;
+}
+// Sparkline dans une etiquette de station depliee (clic = modale agrandie). Doit etre
+// teste AVANT hitTestStationLabel, qui couvre tout le cartouche et refermerait
+// l'etiquette au lieu d'ouvrir la modale.
+function hitTestStationSpark(xImg, yImg) {
+  if (!D.meteo || !D.meteo.stations) return -1;
+  for (let k = 0; k < D.meteo.stations.length; k++) {
+    const b = staSparkBounds[k];
+    if (!b) continue;
+    if (xImg >= b.x0 && xImg <= b.x1 && yImg >= b.y0 && yImg <= b.y1) return k;
+  }
+  return -1;
+}
 // Zone sparkline d'un reservoir etendu (45 px de haut, 4 px marge bas).
 function hitTestReservoirNiveauArrow(xImg, yImg) {
   if (!D.reservoirs) return -1;
@@ -3096,6 +3728,9 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
   let cursor = 'default';
   if (hitTestInfoCentrale(x, y) !== -1)            { cursor = 'pointer'; }
   else if (hitTestInfoReservoir(x, y) !== -1)      { cursor = 'pointer'; }
+  else if (hitTestStationMeteo(x, y) !== -1)       { cursor = 'pointer'; }
+  else if (hitTestStationSpark(x, y) !== -1)       { cursor = 'pointer'; }
+  else if (hitTestStationLabel(x, y) !== -1)       { cursor = 'pointer'; }
   else if (hitTestMapToggle(x, y) !== -1)          { cursor = 'pointer'; }
   else if (hitTestMapToggleRes(x, y) !== -1)       { cursor = 'pointer'; }
   else if (hitTestLabelHeader(x, y) !== -1)        { cursor = 'pointer'; }
@@ -3167,6 +3802,26 @@ hoverLayer.addEventListener('click', (ev)=>{
   if (kInfoC !== -1) { openInfoModalCentrale(kInfoC); return; }
   const kInfoR = hitTestInfoReservoir(x, y);
   if (kInfoR !== -1) { openInfoModalReservoir(kInfoR); return; }
+
+  // Priorite 0c : triangle d'une station meteo -> deplie ou replie son etiquette.
+  // Haut dans l'ordre parce que la cible est petite : une etiquette d'ouvrage qui la
+  // recouvre lui volerait le clic. Les stations qui ne mesurent rien ont
+  // staBounds[k] = null et ne repondent jamais ici — triangle visible mais inerte.
+  const kSta = hitTestStationMeteo(x, y);
+  if (kSta !== -1) {
+    if (staOuvertes.has(kSta)) staOuvertes.delete(kSta); else staOuvertes.add(kSta);
+    draw(frame);
+    return;
+  }
+  // Priorite 0d : clic sur la sparkline d'une etiquette station -> modale agrandie.
+  // AVANT le test du cartouche, qui l'englobe et refermerait l'etiquette.
+  const kStaSpk = hitTestStationSpark(x, y);
+  if (kStaSpk !== -1) { openModalStation(kStaSpk); return; }
+
+  // Priorite 0e : clic ailleurs dans une etiquette de station depliee -> la refermer,
+  // comme l'en-tete d'une etiquette d'ouvrage.
+  const kStaLab = hitTestStationLabel(x, y);
+  if (kStaLab !== -1) { staOuvertes.delete(kStaLab); draw(frame); return; }
 
   // Priorite 0b : clic sur le triangle toggle sur la carte -> ouvre ou ferme l'etiquette.
   const kToggle = hitTestMapToggle(x, y);
@@ -3912,6 +4567,10 @@ function openInfoModalReservoir(k) {
   modalInfoEl.classList.add('open');
 }
 
+// NB : le detail d'une station vit dans son ETIQUETTE depliable sur le schema
+// (drawStationLabel), pas dans une modale — deux lignes suffisent (pluie 24 h et
+// temperature min/max) et le lecteur garde le profil sous les yeux.
+
 function closeInfoModal() {
   modalInfoEl.classList.remove('open');
   modalInfoCIdx = -1; modalInfoRIdx = -1;
@@ -3923,6 +4582,7 @@ function closeModal() {
   modalResIdx = -1;
   modalTurbIdx = -1;
   modalNivResIdx = -1;
+  modalStaChartIdx = -1;
 }
 
 // ----- Modale grand graphique pour un RESERVOIR : courbes deversement + apport -----
@@ -4262,6 +4922,127 @@ function openModalNivRes(k) {
   requestAnimationFrame(drawBigChartNivRes);
 }
 
+// --- Modale : graphique agrandi d'une station meteo ---
+// Ouverte par un clic sur la sparkline de l'etiquette, comme pour les ouvrages. Le trace
+// passe par drawStationChart, la meme fonction que la sparkline : seules la taille et
+// l'option 'axes' (graduations chiffrees) changent.
+// Valeurs de la frame courante dans l'en-tete de la modale. Extraite pour que le
+// rafraichissement par frame ne repasse pas par openModalStation.
+function refreshModalStationStats() {
+  if (modalStaChartIdx < 0) return;
+  const st = D.meteo.stations[modalStaChartIdx];
+  const fr = meteoStaFrame(frame, modalStaChartIdx);
+  const mes = st.mes || {};
+  const pC = (mes.p && fr && fr.p24 != null) ? fmt1(fr.p24) + ' mm/24h' : (mes.p ? '—' : 'N/D');
+  const tC = (mes.t && fr && fr.tmn != null && fr.tmx != null)
+    ? fmt1(fr.tmn) + ' / ' + fmt1(fr.tmx) + ' °C' : (mes.t ? '—' : 'N/D');
+  modalStats.textContent = 'Pluie : ' + pC + '  ·  T° min/max : ' + tC;
+}
+
+function openModalStation(k) {
+  modalStaChartIdx = k;
+  modalIdx = -1; modalResIdx = -1; modalTurbIdx = -1; modalNivResIdx = -1;
+  modalTable.innerHTML = '';
+  const st = D.meteo.stations[k];
+  modalTitle.textContent = (st.nom || st.code) + ' (' + st.code + ') — station météo';
+  refreshModalStationStats();
+
+  // La note dit ce que les valeurs SONT : une mesure ponctuelle, a distinguer des
+  // moyennes de zone affichees sur les ouvrages.
+  const zonesP = (st.p && st.p.length) ? st.p.join(', ') : null;
+  modalNote.innerHTML =
+    'Mesures brutes de cette station (identifiant Hydro-Qu&eacute;bec ' + st.id + '). ' +
+    'Barres : pluie tomb&eacute;e pendant le pas de temps ; courbe bleue : cumul sur 24 h glissantes ' +
+    '(&eacute;chelle de gauche, mm). Courbes rouges : temp&eacute;rature maximale (trait plein) et ' +
+    'minimale (tirets), &eacute;chelle de droite en &deg;C.' +
+    (zonesP ? ' Cette station alimente la pluie de : ' + zonesP + '.' : '') +
+    ' Les valeurs affich&eacute;es sur les ouvrages sont, elles, une <b>moyenne</b> des stations de leur zone.';
+
+  modal.classList.add('open');
+  requestAnimationFrame(drawBigChartStation);
+}
+
+function drawBigChartStation() {
+  if (modalStaChartIdx < 0) return;
+  const s = serieStation(modalStaChartIdx);
+  const w = modalCv.width  = modalCv.clientWidth;
+  const h = modalCv.height = modalCv.clientHeight;
+  const cx = modalCtx;
+  cx.clearRect(0, 0, w, h);
+  if (!s) return;
+  // Marges : symetriques a gauche et a droite, les deux axes portant des graduations.
+  const pad = { l: 56, r: 56, t: 30, b: 42 };
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  drawStationChart(cx, s, pad.l, pad.t, plotW, plotH, 1, { axes: true, fsAxis: 11 });
+
+  // Etiquettes de temps sous l'axe : debut, milieu, fin de la fenetre.
+  const n = s.vals.length;
+  if (n > 1 && D.timestamps) {
+    cx.font = '11px "Segoe UI",Arial,sans-serif';
+    cx.fillStyle = 'rgba(90,90,100,.9)';
+    cx.textBaseline = 'top';
+    const marks = [0, Math.floor((n - 1) / 2), n - 1];
+    for (const j of marks) {
+      const ts = D.timestamps[j];
+      if (!ts) continue;
+      const x = pad.l + (j / (n - 1)) * plotW;
+      cx.textAlign = (j === 0) ? 'left' : (j === n - 1 ? 'right' : 'center');
+      cx.fillText(String(ts).substring(0, 10).replace(/\//g, '-'), x, pad.t + plotH + 6);
+    }
+    cx.textAlign = 'left';
+  }
+
+  // --- Legende visuelle, au meme format que celle des modales d'ouvrages ---
+  // Cadre blanc semi-opaque, pastille de couleur puis libelle. Les pastilles reprennent
+  // exactement les couleurs du trace (cf. drawStationChart) : une divergence ici rendrait
+  // la legende trompeuse.
+  const items = [];
+  if (s.aPluie && Math.max(s.max, s.hMax || 0) > 0) {
+    items.push({ col: 'rgba(150,175,205,.75)', txt: 'Pluie (mm)', kind: 'bar' });
+    items.push({ col: 'rgba(70,110,160,.95)',  txt: 'Cumul 24 h glissantes (mm)', kind: 'line' });
+  }
+  if (s.aTemp) {
+    items.push({ col: STA_TMAX_COL, txt: 'T° maximale (°C)', kind: 'line' });
+    items.push({ col: STA_TMIN_COL, txt: 'T° minimale (°C)', kind: 'dash' });
+  }
+  if (!items.length) return;
+
+  cx.font = '12px "Segoe UI",Arial';
+  const swW = 22, swH = 7, pX = 8, pY = 6, gapY = 18;
+  const bw = Math.max.apply(null, items.map(it => cx.measureText(it.txt).width)) + swW + 8 + 2 * pX;
+  const bh = items.length * gapY + 2 * pY;
+  // Coin haut gauche du trace, decale vers l'interieur : les deux axes chiffres occupent
+  // les marges, et le debut de fenetre est la zone la moins chargee en donnees.
+  const lx2 = pad.l + 10, ly2 = pad.t + 8;
+  cx.fillStyle = 'rgba(255,255,255,.88)';
+  cx.fillRect(lx2, ly2, bw, bh);
+  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+  cx.strokeRect(lx2, ly2, bw, bh);
+  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  items.forEach((it, li) => {
+    const yy = ly2 + pY + li * gapY;
+    if (it.kind === 'bar') {
+      cx.fillStyle = it.col;
+      cx.fillRect(lx2 + pX, yy + 1, swW, swH + 2);
+    } else {
+      // Trait (plein ou tirete) plutot qu'un rectangle : la legende doit montrer la
+      // FORME du trace, pas seulement sa couleur — c'est ce qui distingue min de max.
+      cx.save();
+      if (it.kind === 'dash') cx.setLineDash([3, 2]);
+      cx.strokeStyle = it.col;
+      cx.lineWidth = 2;
+      cx.beginPath();
+      cx.moveTo(lx2 + pX, yy + swH / 2 + 2);
+      cx.lineTo(lx2 + pX + swW, yy + swH / 2 + 2);
+      cx.stroke();
+      cx.restore();
+    }
+    cx.fillStyle = '#333';
+    cx.fillText(it.txt, lx2 + pX + swW + 8, yy);
+  });
+}
+
 function drawBigChartNivRes() {
   if (modalNivResIdx < 0) return;
   const r = D.reservoirs[modalNivResIdx];
@@ -4381,10 +5162,12 @@ document.addEventListener('keydown', (ev)=>{
   }
 });
 modalCv.addEventListener('click', (ev)=>{
-  if (modalIdx < 0 && modalResIdx < 0 && modalNivResIdx < 0) return;
+  if (modalIdx < 0 && modalResIdx < 0 && modalNivResIdx < 0 && modalStaChartIdx < 0) return;
   const r = modalCv.getBoundingClientRect();
   const xPix = (ev.clientX - r.left) * (modalCv.width / r.width);
-  const pad = { l: 60, r: 20 };
+  // La modale station a ses propres marges (deux axes chiffres, donc symetriques) :
+  // reprendre l:60/r:20 y decalerait la frame ciblee de plusieurs pas.
+  const pad = (modalStaChartIdx >= 0) ? { l: 56, r: 56 } : { l: 60, r: 20 };
   const innerW = modalCv.width - pad.l - pad.r;
   const t = (xPix - pad.l) / innerW;
   const f = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
@@ -4392,6 +5175,7 @@ modalCv.addEventListener('click', (ev)=>{
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
+  else if (modalStaChartIdx >= 0) { refreshModalStationStats(); drawBigChartStation(); }
 });
 
 window.addEventListener('resize', ()=>{
@@ -4399,6 +5183,7 @@ window.addEventListener('resize', ()=>{
   else if (modalResIdx >= 0) drawBigChartRes();
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
   else if (modalTurbIdx >= 0) drawTurbineModal();
+  else if (modalStaChartIdx >= 0) drawBigChartStation();
 });
 
 // ---------------------------------------------------------------------------
