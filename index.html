@@ -345,9 +345,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.14.3</span>
+    <span title="Version de la PWA install&eacute;e">v2.14.4</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-16 18:54</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-17 07:56</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -788,12 +788,23 @@ function rebuildHoraireFromLoadedMonths() {
   }));
   const timestamps = first.timestamps.slice();
   const riverSummaries = (first.riverSummaries || []).slice();
-  // Meteo : on conserve la structure { zones, frames } du premier mois, puis on
-  // concatene les frames des mois suivants. Les `zones` sont la config (stable
-  // entre mois) — si jamais elles divergent, on garde celles du premier mois.
+  // Meteo : on repart de l'objet du premier mois, puis on concatene les frames des
+  // mois suivants. Seules les `frames` varient d'un mois a l'autre ; tout le reste
+  // (zones, stations) est de la CONFIG, stable entre mois — si jamais elle diverge,
+  // on garde celle du premier mois.
+  //
+  // Object.assign plutot qu'un objet littéral : n'enumerer que { zones, frames }
+  // laissait tomber tous les autres champs, et `stations` disparaissait donc de la
+  // vue Heure — la seule qui passe par cette fusion (les vues Jour/Semaine/Mois
+  // lisent sub.meteo directement). Les icones de stations et leurs sigles etaient
+  // absents du schema en vue Heure, alors que la legende les annoncait.
+  // Tout champ ajoute plus tard cote meteo est desormais conserve sans retouche ici.
   let meteo = null;
   if (first.meteo && first.meteo.frames) {
-    meteo = { zones: first.meteo.zones.slice(), frames: first.meteo.frames.slice() };
+    meteo = Object.assign({}, first.meteo, {
+      zones:  (first.meteo.zones || []).slice(),
+      frames: first.meteo.frames.slice()
+    });
   }
   // Concatene les mois suivants. Sécurité : on apparie par ID (centrale.id, reservoir.nom)
   // plutôt que par index — si la config bassin change entre deux régénérations partielles
