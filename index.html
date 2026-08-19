@@ -92,6 +92,10 @@
    position:fixed, donc hors flux : sans reservation explicite, le contenu centre
    par justify-content passe DESSOUS et se fait masquer. */
 :root{--ctrl-h:48px}
+/* Fond porte AUSSI par <html> : body fait height:100vh PLUS un padding-bottom de
+   --ctrl-h, il ne couvre donc pas toute la hauteur du document. Sans fond sur
+   <html>, tout depassement laisse voir le blanc par defaut du navigateur. */
+html{background:#1a1a2e}
 /* padding-bottom (et non une soustraction sur height) : le centrage vertical
    s'opere ainsi dans l'espace RESTANT, au-dessus de la barre. C'est ce qui
    manquait — l'image etait centree sur toute la hauteur de fenetre, donc son bas
@@ -112,7 +116,13 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    contenu et le max-height:100% de l'image n'a rien a quoi se rapporter.
    min-height:0 leve la taille minimale automatique des enfants flex, qui sinon
    empeche #wrap de se reduire sous la hauteur naturelle de l'image. */
-#wrap{position:relative;display:inline-block;max-width:100%;max-height:100%;min-height:0}
+/* display:flex et non inline-block : un inline-block repose sur une ligne de
+   texte et reserve sous l'image la place des jambages (descenders). #img etant
+   contraint par max-height:100%, cette reserve restait visible sous le schema
+   sous forme d'une bande claire de la LARGEUR du schema, juste sous la barre de
+   controle. flex supprime la ligne de base, donc la bande. (line-height:0 aurait
+   aussi marche, mais flex evite d'avoir a la restaurer sur les enfants.) */
+#wrap{position:relative;display:flex;max-width:100%;max-height:100%;min-height:0}
 /* La reserve pour la barre est desormais portee par le padding-bottom du body :
    la hauteur disponible ici est donc deja nette de la barre, et max-height:100%
    suffit. (Avant : calc(100vh - 54px), constante en dur qui ne correspondait plus
@@ -157,15 +167,27 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    Necessite viewport-fit=cover, ajoute dynamiquement en JS (voir plus bas) : on
    ne met PAS de <meta viewport> statique, sinon on perdrait le pinch-zoom qui
    sert a consulter la version bureau sur telephone. */
+/* Largeur calee sur le schema, pas sur la fenetre : #wrap suit la largeur de
+   l'image, donc en 16:9 sur un ecran large il reste des bandes de fond de chaque
+   cote. Une barre a left:0;right:0 s'y etendait et debordait hors du schema.
+   --wrap-w est publiee par le JS de resize (le CSS ne peut pas lire la largeur
+   d'un autre element) ; le repli 100vw couvre l'instant avant la 1re mesure.
+
+   Centrage par left:50% + translateX(-50%) et NON par left:0;right:0 + margin
+   auto : avec left, right ET width specifies, la contrainte est sur-determinee et
+   le moteur resout en ignorant "right", ce qui collait la barre au bord gauche.
+   Le translate ne depend d'aucune resolution de bloc conteneur. */
 #ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
-      position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(26,26,46,.92);
-      padding:8px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
+      position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:20;
+      background:rgba(26,26,46,.92);
+      width:min(100%, var(--wrap-w, 100vw));
+      padding:5px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
 /* Case du calque des zones meteo, placee juste apres "Maintenant". La barre etant
    sombre, le libelle est clair ; accent-color teinte la case sans la redessiner. */
 #zoneToggleWrap{display:flex;align-items:center;gap:6px;color:#d8dde8;
-      font-size:14px;cursor:pointer;user-select:none;white-space:nowrap}
-#zoneToggleWrap input{accent-color:#6b9fd0;width:15px;height:15px;cursor:pointer;margin:0}
+      font-size:12px;cursor:pointer;user-select:none;white-space:nowrap}
+#zoneToggleWrap input{accent-color:#6b9fd0;width:13px;height:13px;cursor:pointer;margin:0}
 #zoneToggleWrap:hover{color:#fff}
 /* Bouton Actualiser : en PWA installee (display:standalone) il n'y a plus de
    barre d'adresse, donc plus de bouton recharger du navigateur. Ce bouton
@@ -194,7 +216,10 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    viewport VISUEL -> des qu'on pince pour zoomer, la barre sort de l'ecran.
    transform-origin bottom left + scale compensent le zoom pour que la barre
    garde une taille lisible a l'ecran quel que soit le facteur. */
+/* Meme neutralisation du translateX(-50%) que pour .vv-zoomfix : ici aussi c'est
+   le JS qui pose left et transform. */
 body.vv-pinned #ctrl{position:absolute;left:0;right:auto;bottom:auto;
+                     transform:none;
                      transform-origin:0 100%;will-change:transform,top,width}
 /* Meme compensation de zoom, mais pour le BUREAU (pinch trackpad / ecran tactile).
    Volontairement distincte de .vv-pinned, qui embarque en plus une mise en page
@@ -202,7 +227,11 @@ body.vv-pinned #ctrl{position:absolute;left:0;right:auto;bottom:auto;
    l'appliquer au bureau ferait disparaitre le selecteur de vue.
    Ici on ne touche QUE a l'echelle et au positionnement — la barre garde tous ses
    controles et sa taille apparente a l'ecran quel que soit le facteur de zoom. */
+/* left explicite (calcule en JS) et transform reserve au scale : le
+   translateX(-50%) du CSS de base doit etre neutralise ici, sinon il s'ajoute au
+   scale inverse pose par place() et decale la barre d'une demi-largeur. */
 body.vv-zoomfix #ctrl{position:absolute;left:0;right:auto;bottom:auto;
+                      transform:none;
                       transform-origin:0 100%;will-change:transform,top,width}
 @supports (padding: env(safe-area-inset-bottom)) {
   #ctrl{bottom:env(safe-area-inset-bottom);
@@ -249,18 +278,35 @@ body.vv-pinned #btnRefresh{display:none}
 @media (any-pointer: coarse) and (max-device-width: 900px) and (max-width: 1100px) {
   #slider{height:28px;touch-action:none}
   #ctrl button{padding:9px 18px}
-  #ctrl select{padding:8px 10px}
+  /* height explicite pour surcharger le plafond de 22px du CSS de base, qui est
+     trop bas pour une cible tactile (min. recommande ~32px ici, le reste de la
+     zone cliquable venant du gap de la barre). */
+  #ctrl select{padding:6px 8px;font-size:13px;height:32px}
   #ctrl{gap:12px}
 }
-button{padding:5px 16px;font-size:13px;border-radius:6px;border:none;cursor:pointer;
+/* Boutons compacts : a 100% de zoom la barre paraissait massive par rapport au
+   schema. Le padding horizontal est le poste dominant (5 boutons de navigation
+   cote a cote), la hauteur suit le font-size. */
+button{padding:4px 11px;font-size:12px;border-radius:5px;border:none;cursor:pointer;
        background:#4a6fa5;color:#fff;transition:background .15s}
 button:hover{background:#5a82bf}
 #sliderWrap{display:flex;flex-direction:column;align-items:center;gap:2px}
 #sliderTs{font-size:11px;color:#aab;line-height:1;min-height:13px;letter-spacing:.2px}
 #slider{width:360px;cursor:pointer;accent-color:#4a9aff}
-select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
+/* Selecteurs volontairement plus compacts que les boutons : ce sont des reglages
+   secondaires (pas de temps, vitesse), pas l'action principale de la barre.
+   line-height:1.1 + height explicite : sans hauteur imposee, un <select> se
+   dimensionne sur la metrique de la police du systeme et depasse alors nettement
+   les boutons voisins. field-sizing:content (Chromium recent) evite en plus qu'il
+   se cale sur l'option la plus longue ("Tres rapide") plutot que sur la choisie. */
+select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
+       border-radius:4px;background:#2a2a4e;field-sizing:content;
        color:#eee;border:1px solid #555;cursor:pointer}
-#fi{font-size:12px;color:#778;min-width:80px;text-align:right}
+/* Compteur de frames ("136 / 136") masque partout : l'information est deja portee
+   par l'horodatage affiche au-dessus du curseur, et le retirer raccourcit la barre
+   d'autant. textContent continue d'etre mis a jour en JS (sans effet ici), pour
+   ne pas disperser la logique d'affichage des frames. */
+#fi{display:none;font-size:12px;color:#778;min-width:80px;text-align:right}
 /* Disclaimer : pose en bas-gauche, sous #generatedAt, avec 1 ligne vide entre
    les deux. #generatedAt est ancre a 85.4% (meme hauteur que la 1re ligne des
    faits saillants) ; on descend donc de 2 lignes (sa ligne + 1 vide) a
@@ -345,9 +391,9 @@ select{padding:4px 8px;font-size:12px;border-radius:5px;background:#2a2a4e;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.15.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.15.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-18 18:57</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-19 07:57</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -481,6 +527,10 @@ const ctx = cv.getContext('2d');
 // (cv.width/height) : les deux evoluent independamment et resize() doit pouvoir
 // corriger l'une sans que l'autre ait bouge. Voir le commentaire dans resize().
 let cvCssW = 0, cvCssH = 0;
+// Derniere largeur de schema publiee dans --wrap-w (largeur de la barre de
+// controle). Suivie separement de cvCssW : la variable doit etre reecrite meme
+// quand resize() sort en avance parce que la geometrie du canvas est inchangee.
+let lastWrapW = 0;
 // Filtrage haute qualite : les icones PNG sont en 512x512 et sont reduites a
 // ~26 px. Sans ceci le canvas utilise un reechantillonnage 'low' qui rend les
 // icones floues, alors que les memes PNG affiches en <img> dans les modales
@@ -3339,6 +3389,16 @@ function resize() {
   const rs = rasterScale();
   const nw = Math.round(w * rs), nh = Math.round(h * rs);
 
+  // Largeur du schema publiee pour la barre de controle, qui est en position:fixed
+  // et ne peut donc pas heriter de la largeur de #wrap en CSS seul (voir --wrap-w
+  // dans la regle #ctrl). Pose AVANT le garde de sortie anticipee ci-dessous :
+  // une fenetre qui s'elargit sans changer la geometrie du canvas (image deja
+  // limitee par la hauteur) doit tout de meme reajuster la barre.
+  if (w !== lastWrapW) {
+    lastWrapW = w;
+    document.documentElement.style.setProperty('--wrap-w', w + 'px');
+  }
+
   // Deux geometries INDEPENDANTES, a tester separement :
   //
   //  - la taille CSS (w x h), qui doit coller au pixel pres a l'image de fond,
@@ -5235,8 +5295,14 @@ window.addEventListener('resize', ()=>{
     // Le padding-bottom du body amputait donc la hauteur pour rien, #img retrecissait,
     // et le calque se retrouvait cale sur une geometrie qui n'existait plus
     // -> anneaux et etiquettes decales, barre qui remonte.
+    // Seul .vv-pinned (telephone) sort reellement la barre du flux : elle y est
+    // superposee au schema. .vv-zoomfix (bureau) ne fait que compenser l'echelle
+    // du pinch — la barre reste posee au bas de l'ecran et continue donc de
+    // reserver sa place. Mettre --ctrl-h a 0px dans ce cas retirait le
+    // padding-bottom du body : la hauteur utile etait amputee pour une barre qui
+    // reserve pourtant sa place, et le bas du schema passait sous la barre.
     var b = document.body.classList;
-    if (b.contains('vv-pinned') || b.contains('vv-zoomfix')) {
+    if (b.contains('vv-pinned')) {
       if (last !== 0) {
         last = 0;
         document.documentElement.style.setProperty('--ctrl-h', '0px');
@@ -5324,18 +5390,35 @@ window.addEventListener('resize', ()=>{
     if (!applied) {
       applied = true;
       document.body.classList.add('vv-zoomfix');
-      // La barre sort du flux : --ctrl-h doit tomber a 0, sinon le padding-bottom
-      // du body ampute la hauteur utile pour une barre qui ne reserve plus rien
-      // — c'est ce qui decalait le calque et faisait remonter la barre.
-      if (window.__syncCtrlH) window.__syncCtrlH();
+      // Pas de __syncCtrlH() ici : contrairement a .vv-pinned, la barre continue
+      // de reserver sa place au bas de l'ecran (voir le garde dans sync()).
+      // Forcer --ctrl-h a 0 amputait la hauteur utile pour rien et faisait passer
+      // le bas du schema sous la barre.
     }
-    var hCss = ctrl.offsetHeight;
-    ctrl.style.width = (vv.width * scale) + 'px';   // largeur ecran, avant scale inverse
+    // Largeur : on garde le calage sur le schema (--wrap-w) plutot que sur le
+    // viewport, pour que la barre ne deborde pas dans les bandes de fond pendant
+    // un pinch comme hors zoom. Exprimee avant le scale inverse (donc x scale)
+    // pour qu'apres mise a l'echelle elle retombe sur la largeur visee. Repli sur
+    // le viewport visuel si --wrap-w n'a pas encore ete mesuree.
+    var wrapW = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--wrap-w')
+    ) || vv.width;
+    ctrl.style.width = (Math.min(wrapW, vv.width) * scale) + 'px';
     ctrl.style.transform = 'scale(' + (1 / scale) + ')';
-    ctrl.style.left = vv.offsetLeft + 'px';
+    // margin-inline:auto ne centre plus rien ici (position:absolute + left
+    // explicite), donc le centrage est calcule : la barre etant plus etroite que
+    // le viewport depuis le calage sur --wrap-w, la laisser a offsetLeft la
+    // collait au bord gauche. La demi-marge est en px ecran, donc non divisee par
+    // scale (le transform s'applique apres, origine bas-gauche).
+    var barW = Math.min(wrapW, vv.width);
+    ctrl.style.left = (vv.offsetLeft + (vv.width - barW) / 2) + 'px';
+    // offsetHeight lu APRES avoir pose largeur et transform : la largeur decide
+    // du nombre de lignes (flex-wrap), donc de la hauteur. Le lire avant donnait
+    // la hauteur de la mise en page precedente et posait la barre trop haut.
+    var hCss = ctrl.offsetHeight;
     // transform-origin en bas a gauche : le HAUT doit etre pose de facon que le
     // BAS tombe au bord inferieur du viewport visuel apres mise a l'echelle.
-    ctrl.style.top = (vv.offsetTop + vv.height - hCss) + 'px';
+    ctrl.style.top = (vv.offsetTop + vv.height - hCss / scale) + 'px';
   }
   function schedule() {
     if (raf) return;
