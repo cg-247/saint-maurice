@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-21 18:57</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-22 06:28</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.15.1</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.15.2</span>
 </footer>
 
 <script>
@@ -281,6 +281,21 @@ function stemWidth(plotW, nPts, base) {
   return Math.max(0.4, Math.min(base, pas * 0.7));
 }
 
+// --- Acces aux frames meteo, tolerant aux deux formes ---
+// Depuis l'ajout des mesures par station (v2.15.0), frames[i] est un OBJET
+// { z:[zones], s:[stations] }. Avant, c'etait directement le TABLEAU des zones.
+// Cet accesseur absorbe les deux formes, comme meteoZoneFrame() du template
+// bureau : sans lui, l'indexation numerique fr[zi] tombait sur undefined avec la
+// nouvelle forme, pluieSerie() retournait null et TOUT le panneau du bas (pluie
+// ET apport naturel, qui l'a rejoint en v2.14.0) disparaissait du graphique.
+// Les datasets deja rendus et les tranches mensuelles en cache navigateur
+// (servies par le service worker) restent lisibles sans re-rendu.
+function meteoZoneFrame(i) {
+  const fr = (D && D.meteo && D.meteo.frames) ? D.meteo.frames[i] : null;
+  if (!fr) return null;
+  return Array.isArray(fr) ? fr : (fr.z || null);   // forme ancienne : tableau nu
+}
+
 // Serie de pluie 24 h (mm) d'une zone meteo + son max. Identique a la fonction du
 // meme nom dans animation.html.tpl — garder les deux alignees.
 // Retourne DEUX series, comme la fonction homonyme du template bureau :
@@ -300,7 +315,7 @@ function pluieSerie(zoneKey) {
   const outH = new Array(n).fill(null);
   let mx = 0, mxH = 0;
   for (let k = 0; k < n; k++) {
-    const fr = D.meteo.frames[k];
+    const fr = meteoZoneFrame(k);
     if (!fr || !fr[zi]) continue;
     const v = fr[zi].p24;
     if (v != null) { out[k] = v; if (v > mx) mx = v; }
@@ -399,7 +414,10 @@ function mergeHoraire(prev, curr) {
     const zones = curr.meteo.zones || [];
     // p1 comme p24 : la frame de remplissage doit porter les MEMES champs que les
     // vraies, sinon un futur test sur p1 verrait 'undefined' au lieu de null.
-    const nullFrame = zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null, p1: null }));
+    // Forme { z:[...] } comme les frames reelles depuis la v2.15.0 : un tableau nu
+    // resterait lisible via la branche de compatibilite de meteoZoneFrame(), mais
+    // melanger les deux formes dans un meme tableau de frames est un piege.
+    const nullFrame = { z: zones.map(() => ({ n: null, tmn: null, tmx: null, p24: null, p1: null })) };
     const prevFrames = (prev.meteo && Array.isArray(prev.meteo.frames))
       ? prev.meteo.frames
       : new Array(prev.timestamps.length).fill(nullFrame);
