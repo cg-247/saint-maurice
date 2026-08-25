@@ -91,7 +91,15 @@
    Valeur de repli = hauteur nominale sur une seule ligne. La barre est en
    position:fixed, donc hors flux : sans reservation explicite, le contenu centre
    par justify-content passe DESSOUS et se fait masquer. */
-:root{--ctrl-h:48px}
+/* --ctrl-fs : taille de reference de la barre de controle. Toutes ses dimensions
+   (boutons, selecteurs, libelles, slider, espacements) sont en em et en
+   decoulent, donc un seul nombre regle l'echelle de la barre entiere.
+   Volontairement CONSTANTE, et non indexee sur la taille du schema : la barre est
+   posee sur le viewport, pas sur l'image. L'avoir liee a la taille affichee de
+   l'image la faisait enfler au zoom (a 200 % elle couvrait le bas du schema).
+   Le zoom navigateur l'agrandit ensuite optiquement, comme tout le reste de la
+   page — c'est le comportement attendu. */
+:root{--ctrl-h:48px;--ctrl-fs:12px}
 /* Fond porte AUSSI par <html> : body fait height:100vh PLUS un padding-bottom de
    --ctrl-h, il ne couvre donc pas toute la hauteur du document. Sans fond sur
    <html>, tout depassement laisse voir le blanc par defaut du navigateur. */
@@ -177,17 +185,26 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    auto : avec left, right ET width specifies, la contrainte est sur-determinee et
    le moteur resout en ignorant "right", ce qui collait la barre au bord gauche.
    Le translate ne depend d'aucune resolution de bloc conteneur. */
-#ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
+/* font-size:--ctrl-fs (constante, cf. :root) et enfants en em : un seul nombre
+   regle l'echelle de toute la barre, ce qui evite d'avoir a retoucher dix regles
+   pour la rendre plus ou moins compacte.
+
+   flex-wrap:nowrap : le retour a la ligne etait la cause du debordement. Des que
+   la barre manquait de place, un controle passait a la ligne, sa hauteur doublait
+   et elle empietait sur le bas du schema. Le slider etant desormais compressible,
+   c'est lui qui cede la place et tout tient sur une seule ligne. */
+#ctrl{display:flex;align-items:center;gap:.8em;flex-wrap:nowrap;justify-content:center;
       position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:20;
       background:rgba(26,26,46,.92);
       width:min(100%, var(--wrap-w, 100vw));
-      padding:5px 12px;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
+      font-size:var(--ctrl-fs, 12px);
+      padding:.4em 1em;border-top:1px solid #2a2a4e;box-shadow:0 -2px 8px rgba(0,0,0,.4);
       backdrop-filter:blur(4px)}
 /* Case du calque des zones meteo, placee juste apres "Maintenant". La barre etant
    sombre, le libelle est clair ; accent-color teinte la case sans la redessiner. */
-#zoneToggleWrap{display:flex;align-items:center;gap:6px;color:#d8dde8;
-      font-size:12px;cursor:pointer;user-select:none;white-space:nowrap}
-#zoneToggleWrap input{accent-color:#6b9fd0;width:13px;height:13px;cursor:pointer;margin:0}
+#zoneToggleWrap{display:flex;align-items:center;gap:.5em;color:#d8dde8;
+      font-size:1em;cursor:pointer;user-select:none;white-space:nowrap}
+#zoneToggleWrap input{accent-color:#6b9fd0;width:1.1em;height:1.1em;cursor:pointer;margin:0}
 #zoneToggleWrap:hover{color:#fff}
 /* Bouton Actualiser : en PWA installee (display:standalone) il n'y a plus de
    barre d'adresse, donc plus de bouton recharger du navigateur. Ce bouton
@@ -277,22 +294,39 @@ body.vv-pinned #btnRefresh{display:none}
    virtuelle de 980 px qu'iOS applique en l'absence de meta viewport. */
 @media (any-pointer: coarse) and (max-device-width: 900px) and (max-width: 1100px) {
   #slider{height:28px;touch-action:none}
-  #ctrl button{padding:9px 18px}
-  /* height explicite pour surcharger le plafond de 22px du CSS de base, qui est
-     trop bas pour une cible tactile (min. recommande ~32px ici, le reste de la
-     zone cliquable venant du gap de la barre). */
-  #ctrl select{padding:6px 8px;font-size:13px;height:32px}
-  #ctrl{gap:12px}
+  /* Cibles tactiles : on ne remet PAS de px ici (les regles em plus bas, de meme
+     specificite mais declarees apres, l'emporteraient). On agit sur la variable —
+     toute la barre en em s'agrandit d'un coup, et les proportions restent celles
+     du bureau. */
+  :root{--ctrl-fs:15px}
+  #ctrl button{padding:.6em 1.2em}
+  #ctrl select{padding:.4em .55em;height:2.15em}
+  #ctrl{gap:.8em}
 }
-/* Boutons compacts : a 100% de zoom la barre paraissait massive par rapport au
-   schema. Le padding horizontal est le poste dominant (5 boutons de navigation
-   cote a cote), la hauteur suit le font-size. */
 button{padding:4px 11px;font-size:12px;border-radius:5px;border:none;cursor:pointer;
        background:#4a6fa5;color:#fff;transition:background .15s}
+/* Boutons DE LA BARRE en em : ils suivent --ctrl-fs. Regle limitee a #ctrl — les
+   boutons des modales gardent leur taille en px.
+   flex-shrink:0 + nowrap : avec flex-wrap:nowrap sur la barre, un bouton sans
+   cette protection se laisserait comprimer et son libelle se casserait sur deux
+   lignes ("Main-tenant"). C'est le slider qui doit absorber, pas eux. */
+#ctrl button{padding:.35em .95em;font-size:1em;border-radius:.4em;
+             flex-shrink:0;white-space:nowrap}
+#ctrl select{flex-shrink:0}
+#zoneToggleWrap{flex-shrink:0}
 button:hover{background:#5a82bf}
-#sliderWrap{display:flex;flex-direction:column;align-items:center;gap:2px}
-#sliderTs{font-size:11px;color:#aab;line-height:1;min-height:13px;letter-spacing:.2px}
-#slider{width:360px;cursor:pointer;accent-color:#4a9aff}
+/* Le slider ABSORBE la place restante au lieu d'imposer une largeur : c'est lui,
+   avec sa largeur fixe de 360px, qui poussait le selecteur de vue a la ligne
+   suivante des que la barre devenait juste — le retour a la ligne faisait alors
+   doubler sa hauteur et deborder sur le schema. flex:1 1 auto + min-width:0
+   le laissent se comprimer ; les boutons et selecteurs, eux, gardent leur taille
+   (flex-shrink par defaut sur du contenu non extensible). Le max-width borne sa
+   largeur sur les fenetres tres larges, ou un curseur pleine largeur serait
+   inconfortable a viser. */
+#sliderWrap{display:flex;flex-direction:column;align-items:center;gap:.15em;
+            flex:1 1 auto;min-width:0;max-width:34em}
+#sliderTs{font-size:.92em;color:#aab;line-height:1;min-height:1.1em;letter-spacing:.2px}
+#slider{width:100%;min-width:0;cursor:pointer;accent-color:#4a9aff}
 /* Selecteurs volontairement plus compacts que les boutons : ce sont des reglages
    secondaires (pas de temps, vitesse), pas l'action principale de la barre.
    line-height:1.1 + height explicite : sans hauteur imposee, un <select> se
@@ -302,6 +336,11 @@ button:hover{background:#5a82bf}
 select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
        border-radius:4px;background:#2a2a4e;field-sizing:content;
        color:#eee;border:1px solid #555;cursor:pointer}
+/* Selecteurs DE LA BARRE en em, comme les boutons. height en em plutot qu'en px :
+   c'est ce plafond qui, fixe, decalait le selecteur par rapport aux boutons quand
+   le zoom changeait. Reste legerement sous 1em pour garder le rang de reglage
+   secondaire. */
+#ctrl select{padding:.15em .45em;font-size:.92em;height:1.85em;border-radius:.35em}
 /* Compteur de frames ("136 / 136") masque partout : l'information est deja portee
    par l'horodatage affiche au-dessus du curseur, et le retirer raccourcit la barre
    d'autant. textContent continue d'etre mis a jour en JS (sans effet ici), pour
@@ -391,9 +430,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.15.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.15.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-25 08:00</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-25 11:26</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -2247,6 +2286,12 @@ function draw(i) {
     // disclaimer, dont il partageait la regle CSS (0.95vw).
     const topREl = document.getElementById('topRight');
     if (topREl) topREl.style.fontSize = lgFsCss + 'px';
+    // NB : la barre de controle n'est PAS indexee sur lgFsCss. Ces textes-ci sont
+    // de l'habillage du SCHEMA et doivent suivre sa taille ; la barre, elle, est
+    // un element d'interface pose sur le viewport, qui doit garder une taille
+    // constante A L'ECRAN. L'y avoir indexee la faisait enfler avec l'image (a
+    // 200 % en mode application, elle couvrait le bas du schema). Sa taille est
+    // donc fixee en CSS via --ctrl-fs, hors de cette fonction.
 
     // --- Contenu declaratif : 4 colonnes (en-tete + lignes) ---
     const lgCols = [
