@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-25 19:52</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-26 08:01</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.15.3</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.15.4</span>
 </footer>
 
 <script>
@@ -699,7 +699,11 @@ function drawBigChart() {
   // panneau du bas (les paliers portent l'unite : '420 m³/s' fait ~48 px a 10 px).
   // hasApportM est calcule ici, avant pad, parce que la marge en depend.
   const hasApportM = !!(c.apports && c.maxApport);
-  const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: 30 };
+  // b:42 (et non 30) pour loger la 2e ligne des ticks — la borne horaire d'une
+  // journee partielle, posee sous la date par drawTick(). Meme valeur que le
+  // template bureau, ou pad.b ne descend jamais sous 42 pour cette raison. Avec
+  // 30, la 2e ligne tombait sous le bord du canvas et etait tronquee.
+  const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: 42 };
   cx.clearRect(0, 0, w, h);
 
   // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
@@ -733,26 +737,57 @@ function drawBigChart() {
     cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
 
-  // Ticks X : format uniforme 'd mois' (ex. '23 juin') pour horaire/journalier,
-  // adapte a la periode active :
-  //   horaire      'yyyy-MM-dd HH:mm'           -> 'd mois' (un tick par jour, sans heure)
-  //   journalier   'yyyy-MM-dd' (ou + suffixe)  -> 'd mois'
-  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'   -> 'sem. du d mois' (debut de semaine)
-  //   mensuel      'yyyy-MM'                    -> 'yyyy-MM' tel quel
-  const MOIS_FR = ['janv','fevr','mars','avr','mai','juin','juil','aout','sept','oct','nov','dec'];
-  // Formate 'yyyy-MM-dd...' -> 'd mois' (le 'd' initial est sans zero de tete
-  // pour rester compact : "8 mai" plutot que "08 mai").
-  const fmtDayMonth = (ts) => {
-    const m = ts.match(/^\d{4}-(\d{2})-(\d{2})/);
-    if (!m) return ts.slice(-5);
-    const mois = MOIS_FR[parseInt(m[1], 10) - 1] || m[1];
-    return parseInt(m[2], 10) + ' ' + mois;
-  };
+  // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
+  // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
+  // sont des fichiers separes, sans module partage.
+  //   horaire      'yyyy-MM-dd HH:mm'          -> 'MM/JJ HH:mm'
+  //   journalier   'yyyy-MM-dd'                -> 'MM/JJ'
+  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'  -> 'MM/JJ -> MM/JJ'
+  //   mensuel      'yyyy-MM'                   -> 'yyyy-MM' tel quel (sans jour,
+  //                                              l'annee est la seule mise en contexte)
+  // Remplace l'ancien format textuel ('23 juin', 'sem. du 17 aout'), qui divergeait
+  // du bureau et rendait la lecture croisee des deux versions inconfortable.
   const fmtTick = (ts) => {
     if (!ts) return '';
-    if (D.periode === 'mensuel') return ts;
-    if (D.periode === 'hebdomadaire') return 'sem. du ' + fmtDayMonth(ts);
-    return fmtDayMonth(ts);
+    const s = String(ts);
+    // Vue mois ('yyyy-MM' sans jour qui suit) : on garde l'annee.
+    if (/^\d{4}-\d{2}(?!-)/.test(s)) return s;
+    // Autres vues : on retire l'annee de CHAQUE date presente (la vue semaine en
+    // contient deux, d'ou le remplacement global).
+    return s.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$2/$3');
+  };
+  // Separe un libelle en { main, sub }, comme dateAxeParts() du bureau :
+  //   main = 'MM/JJ' (ou 'MM/JJ HH:mm', 'MM/JJ -> MM/JJ', 'yyyy-MM')
+  //   sub  = '(HH:mm)' pour une journee partielle, sinon ''
+  // Le suffixe est sorti du libelle principal pour etre pose sur une 2e ligne :
+  // en une seule ligne, il doublait la largeur du dernier tick et chevauchait ses
+  // voisins. Le libelle source est "AAAA-MM-JJ — jusqu'a HH:mm" avec tiret
+  // cadratin, apostrophe typographique et 'a' accentue ; le motif tolere les
+  // variantes, sinon le suffixe resterait sur la 1re ligne.
+  // '00:00' est rendu '24:00' : la borne appartient a la journee affichee.
+  const fmtTickParts = (ts) => {
+    if (!ts) return { main: '', sub: '' };
+    const s = String(ts);
+    const m = s.match(/^(.*?)\s*[—–-]\s*jusqu['’]\s*[aàÀA]\s*(\d{1,2}:\d{2})\s*$/i);
+    if (!m) return { main: fmtTick(s), sub: '' };
+    const hhmm = m[2] === '00:00' ? '24:00' : m[2];
+    return { main: fmtTick(m[1]), sub: '(' + hhmm + ')' };
+  };
+  // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
+  // horaire d'une journee partielle en dessous, plus petite et discrete.
+  // ~0.78x la taille de base (minimum 8px), comme drawTickLabel() du bureau.
+  // Restaure police et couleur en sortie.
+  const drawTick = (ts, x, y, baseFont) => {
+    const p = fmtTickParts(ts);
+    cx.fillText(p.main, x, y);
+    if (!p.sub) return;
+    const prevFont = cx.font, prevFill = cx.fillStyle;
+    const mSize = /(\d+(?:\.\d+)?)px/.exec(baseFont || cx.font);
+    const size = mSize ? Math.max(8, Math.round(parseFloat(mSize[1]) * 0.78)) : 8;
+    cx.font = (baseFont || cx.font).replace(/(\d+(?:\.\d+)?)px/, size + 'px');
+    cx.fillStyle = '#999';
+    cx.fillText(p.sub, x, y + size + 3);
+    cx.font = prevFont; cx.fillStyle = prevFill;
   };
   cx.fillStyle = '#666';
   cx.textAlign = 'center'; cx.textBaseline = 'top';
@@ -794,7 +829,7 @@ function drawBigChart() {
       const isFirst = tickIdx.length === 0;
       const isLast = k === dayIdx.length - 1;
       const align = isFirst ? 'left' : (isLast ? 'right' : 'center');
-      const w = cx.measureText(fmtTick(String(D.timestamps[i] || ''))).width;
+      const w = cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width;
       const x = xOf(i);
       if (!isFirst && !isLast && x - lastX < gapFor(lastAlign, lastW, align, w)) continue;
       tickIdx.push(i);
@@ -807,8 +842,8 @@ function drawBigChart() {
     const lastDayIdx = dayIdx[dayIdx.length - 1];
     if (tickIdx[tickIdx.length - 1] !== lastDayIdx) {
       const prev = tickIdx[tickIdx.length - 1];
-      const prevW = cx.measureText(fmtTick(String(D.timestamps[prev] || ''))).width;
-      const lastW = cx.measureText(fmtTick(String(D.timestamps[lastDayIdx] || ''))).width;
+      const prevW = cx.measureText(fmtTickParts(String(D.timestamps[prev] || '')).main).width;
+      const lastW = cx.measureText(fmtTickParts(String(D.timestamps[lastDayIdx] || '')).main).width;
       if (tickIdx.length > 1 && xOf(lastDayIdx) - xOf(prev) < gapFor('center', prevW, 'right', lastW)) {
         tickIdx.pop();
       }
@@ -824,7 +859,7 @@ function drawBigChart() {
       const isFirst = tickIdx.length === 0;
       const isLast = i === N - 1;
       const align = isFirst ? 'left' : (isLast ? 'right' : 'center');
-      const w = cx.measureText(fmtTick(String(D.timestamps[i] || ''))).width;
+      const w = cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width;
       const x = xOf(i);
       if (!isFirst && !isLast && x - lastX < gapFor(lastAlign, lastW, align, w)) continue;
       tickIdx.push(i);
@@ -846,7 +881,7 @@ function drawBigChart() {
     const x = xOf(i);
     // Premier/dernier tick colles au bord (gauche/droite) pour eviter que le
     // texte deborde du canvas ; intermediaires centres. S'applique a toutes
-    // les periodes (le libelle 'sem. du d mois' en hebdomadaire est assez
+    // les periodes (le libelle 'MM/JJ -> MM/JJ' en hebdomadaire est assez
     // long pour deborder aux extremites s'il restait centre).
     if (tickIdx.length > 1) {
       if (k === 0)                       cx.textAlign = 'left';
@@ -855,7 +890,7 @@ function drawBigChart() {
     } else {
       cx.textAlign = 'center';
     }
-    cx.fillText(fmtTick(String(D.timestamps[i] || '')), x, h - pad.b + 6);
+    drawTick(String(D.timestamps[i] || ''), x, h - pad.b + 6, '11px "Segoe UI",Arial');
   }
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
@@ -918,9 +953,12 @@ function drawBigChart() {
     const topY = rainTop;
     const base = rainTop + rainInnerH;
     // Echelle Y arrondie sur une echelle 1-2-5, pour que les paliers tombent sur des
-    // nombres ronds (cf. drawRainPanel du template bureau). 4 paliers et non 5 : la
-    // hauteur disponible est plus faible sur telephone.
-    const RAIN_ROWS_M = 4;
+    // nombres ronds. 5 paliers comme drawRainPanel du template bureau (qui sert a la
+    // fois aux centrales et aux reservoirs) : avec 4, le sommet arrondi tombait sur
+    // un multiple different pour un meme maximum — Grand-Mere (849 m3/s) donnait un
+    // axe a 2000 sur mobile contre 1000 au bureau, soit des traits d'apport ecrases
+    // de moitie et deux graphiques impossibles a comparer.
+    const RAIN_ROWS_M = 5;
     const stepRawM = plM.max / RAIN_ROWS_M;
     const p10M = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, stepRawM))));
     let stepM = p10M;
