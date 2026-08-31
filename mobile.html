@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-30 17:31</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-08-31 11:21</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.15.4</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.15.5</span>
 </footer>
 
 <script>
@@ -626,7 +626,10 @@ function render() {
       trendHtml = '<span class="trend-down">' + Math.round(tr) + ' m³/s en ' + trUnit + '</span>';
     } else {
       const unit = { horaire:'h', journalier:'j', hebdomadaire:'sem', mensuel:'mois' }[D.periode] || 'h';
-      const stTxt = (stab == null) ? 'stable' : 'stable depuis ' + stab + unit;
+      // stab peut etre une chaine ('">72h"' en horaire) : le suffixe est deja inclus.
+      const stTxt = (stab == null) ? 'stable'
+                  : (typeof stab === 'string' ? 'stable depuis ' + stab
+                                              : 'stable depuis ' + stab + unit);
       trendHtml = '<span class="trend-flat">' + stTxt + '</span>';
     }
   }
@@ -659,7 +662,6 @@ function render() {
       '<span>min <b>' + fmtInt(stats.min) + '</b></span>' +
       '<span>moy <b>' + fmtInt(stats.avg) + '</b></span>' +
       '<span>max <b>' + fmtInt(stats.max) + '</b></span>' +
-      '<span>n=<b>' + stats.n + '</b></span>' +
     '</div>';
 
   drawBigChart();
@@ -699,11 +701,14 @@ function drawBigChart() {
   // panneau du bas (les paliers portent l'unite : '420 m³/s' fait ~48 px a 10 px).
   // hasApportM est calcule ici, avant pad, parce que la marge en depend.
   const hasApportM = !!(c.apports && c.maxApport);
-  // b:42 (et non 30) pour loger la 2e ligne des ticks — la borne horaire d'une
-  // journee partielle, posee sous la date par drawTick(). Meme valeur que le
-  // template bureau, ou pad.b ne descend jamais sous 42 pour cette raison. Avec
-  // 30, la 2e ligne tombait sous le bord du canvas et etait tronquee.
-  const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: 42 };
+  // Vues Heure et Jour : l'axe X ne porte que 'MM/JJ' sur UNE ligne (ni heure
+  // accolee, ni 2e ligne '(HH:mm)') — voir fmtTickParts(). b:30 suffit alors, et
+  // les 12 px liberes reviennent au graphe. Ailleurs (Semaine/Mois) on garde 42
+  // pour loger la 2e ligne des ticks — la borne horaire d'une journee partielle,
+  // posee sous la date par drawTick(). Avec 30, elle tombait sous le bord du
+  // canvas et etait tronquee.
+  const dateOnlyM = (D.periode === 'horaire' || D.periode === 'journalier');
+  const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: dateOnlyM ? 30 : 42 };
   cx.clearRect(0, 0, w, h);
 
   // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
@@ -765,13 +770,21 @@ function drawBigChart() {
   // cadratin, apostrophe typographique et 'a' accentue ; le motif tolere les
   // variantes, sinon le suffixe resterait sur la 1re ligne.
   // '00:00' est rendu '24:00' : la borne appartient a la journee affichee.
+  // En vues Heure et Jour, l'axe X mobile ne porte QUE la date 'MM/JJ' : l'heure
+  // du point (vue Heure) et la 2e ligne '(HH:mm)' des journees partielles sont
+  // supprimees. Ecran etroit : deux lignes de tick et un suffixe horaire
+  // surchargeaient l'axe pour une precision inutile a cette taille. Les vues
+  // Semaine/Mois gardent le comportement d'origine (elles n'ont ni l'un ni l'autre).
+  // dateOnlyM est defini plus haut, avec pad (dont la hauteur b en depend).
   const fmtTickParts = (ts) => {
     if (!ts) return { main: '', sub: '' };
     const s = String(ts);
     const m = s.match(/^(.*?)\s*[—–-]\s*jusqu['’]\s*[aàÀA]\s*(\d{1,2}:\d{2})\s*$/i);
-    if (!m) return { main: fmtTick(s), sub: '' };
+    // Retire l'heure accolee a la date ('MM/JJ HH:mm' -> 'MM/JJ').
+    const stripH = (x) => dateOnlyM ? x.replace(/\s+\d{1,2}:\d{2}(:\d{2})?$/, '') : x;
+    if (!m) return { main: stripH(fmtTick(s)), sub: '' };
     const hhmm = m[2] === '00:00' ? '24:00' : m[2];
-    return { main: fmtTick(m[1]), sub: '(' + hhmm + ')' };
+    return { main: stripH(fmtTick(m[1])), sub: dateOnlyM ? '' : '(' + hhmm + ')' };
   };
   // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
   // horaire d'une journee partielle en dessous, plus petite et discrete.
@@ -1017,7 +1030,27 @@ function drawBigChart() {
     // ---- APPORT NATUREL : 2e serie, echelle propre en m3/s a DROITE ----
     let apTopM = 0;
     if (hasApportM) {
-      const apStepRawM = c.maxApport / RAIN_ROWS_M;
+      // Echelle DYNAMIQUE (mobile seulement) : calibree sur le max de la FENETRE
+      // visible, pas sur c.maxApport (max historique de la centrale). Sur un
+      // panneau qui ne fait qu'un tiers d'une hauteur deja reduite, une fenetre
+      // calme rapportee a la crue printaniere donnait une bande ecrasee a ~7 %
+      // de la hauteur, illisible.
+      //
+      // Deux garde-fous contre le sautillement d'echelle qui avait motive le max
+      // historique a l'origine (cf. maxApportByC dans render-animation.ps1) :
+      //   1. l'arrondi au palier propre 1/2/5x10^n ci-dessous ne laisse l'echelle
+      //      prendre que des valeurs discretes — elle ne bouge qu'au franchissement
+      //      d'un palier, pas a chaque frame ;
+      //   2. un plancher a 1/8 du max historique borne le facteur de zoom, pour
+      //      qu'une pointe de quelques m3/s ne remplisse pas le panneau comme une
+      //      crue et qu'il reste une notion d'echelle absolue.
+      let apWinM = 0;
+      for (let i = 0; i < N; i++) {
+        const v = c.apports[i];
+        if (v != null && v > apWinM) apWinM = v;
+      }
+      const apRefM = Math.max(apWinM, c.maxApport / 8);
+      const apStepRawM = apRefM / RAIN_ROWS_M;
       const ap10M = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, apStepRawM))));
       let apStepM = ap10M;
       for (const mult of [1, 2, 5, 10]) { apStepM = mult * ap10M; if (apStepM >= apStepRawM) break; }
