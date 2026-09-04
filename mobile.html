@@ -150,10 +150,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-04 14:33</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-04 15:02</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.15.5</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.16.0</span>
 </footer>
 
 <script>
@@ -1321,26 +1321,64 @@ init();
   // (pas de spinner, pas de toast) : refreshData() ne re-rend que si l'empreinte a
   // change. Garde-fous : pas pendant un refresh en cours, et au plus une fois / 30 s
   // (evite de spammer le reseau quand on bascule rapidement entre apps).
+  //
+  // Il faut PLUSIEURS declencheurs, pas seulement 'visibilitychange' : en PWA
+  // installee, revenir a l'app depuis une autre application ne masque pas
+  // forcement le document, donc aucun 'visibilitychange' ne partait et les
+  // donnees restaient celles de l'ouverture. On ajoute 'focus' (retour du focus)
+  // et 'pageshow' (restauration bfcache / reprise d'une session gelee, ou ni
+  // 'load' ni 'visibilitychange' ne repassent). Le garde-fou des 30 s absorbe les
+  // declenchements redondants, donc empiler les sources est sans cout reseau.
   const MIN_REFETCH_GAP = 30000; // ms
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
+  function autoRefetch() {
+    if (document.visibilityState === 'hidden') return;
     if (refreshing) return;
     if (performance.now() - lastFetchAt < MIN_REFETCH_GAP) return;
     refreshing = true;
     refreshData()
       .catch(() => { /* hors-ligne : on garde les donnees actuelles, silencieux */ })
       .finally(() => { refreshing = false; });
-  });
+  }
+  document.addEventListener('visibilitychange', autoRefetch);
+  window.addEventListener('focus', autoRefetch);
+  window.addEventListener('pageshow', autoRefetch);
 })();
 
 // Enregistrement du service worker (PWA installable). Silencieux si non supporte
 // ou en file:// : ne doit jamais bloquer l'affichage.
 if ('serviceWorker' in navigator) {
+  // Un SW plus recent prend le controle => la page tourne encore sur l'ANCIEN code
+  // applicatif. On recharge. Garde-fou : une seule fois par chargement, sinon un SW
+  // qui se reinstalle en boucle bouclerait le reload.
+  var swReloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (swReloading) return;
+    swReloading = true;
     window.location.reload();
   });
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
+    // updateViaCache:'none' => sw.js toujours revalide contre le reseau, jamais lu
+    // depuis le cache HTTP du navigateur, sinon reg.update() peut relire un sw.js
+    // perime et ne rien detecter alors qu'une version est publiee.
+    navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).then(function (reg) {
+      if (!reg) return;
+      // Sans reg.update(), la PWA installee restait des jours sur l'ancienne
+      // version : le navigateur ne revalide sw.js qu'a l'enregistrement (et au plus
+      // une fois par 24 h selon son heuristique), et les HTML etant servis en
+      // stale-while-revalidate, la page affichee restait l'ancienne meme apres mise
+      // en cache de la nouvelle. On force la verification a l'ouverture, au retour
+      // au premier plan, et toutes les 30 min ; le nouveau SW active declenche
+      // 'controllerchange' ci-dessus, qui recharge sur le code neuf.
+      function checkForUpdate() {
+        if (document.visibilityState === 'hidden') return;
+        reg.update().catch(function () { /* hors-ligne : sans effet */ });
+      }
+      checkForUpdate();
+      document.addEventListener('visibilitychange', checkForUpdate);
+      window.addEventListener('focus', checkForUpdate);
+      window.addEventListener('pageshow', checkForUpdate);
+      setInterval(checkForUpdate, 30 * 60 * 1000);
+    }).catch(function () { /* ignore */ });
   });
 }
 </script>

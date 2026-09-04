@@ -430,9 +430,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.15.5</span>
+    <span title="Version de la PWA install&eacute;e">v2.16.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-04 14:33</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-04 15:02</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -458,10 +458,14 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <button id="btnNext">&#9654;&#9654;</button>
   <button id="btnEnd" title="Aller au plus r&eacute;cent">&#9197; Maintenant</button>
   <!-- Calque des zones meteo. Bascule oui/non, donc une case a cocher : un bouton
-       radio supposerait un choix entre plusieurs options exclusives. Masque par
-       defaut (cf. zonesVisibles), l'etat est retenu dans localStorage. -->
+       radio supposerait un choix entre plusieurs options exclusives. TOUJOURS
+       decochee au chargement (cf. zonesVisibles) : l'etat n'est pas persiste.
+       autocomplete="off" empeche le navigateur de restaurer la case cochee lors
+       d'un retour arriere / d'une restauration de session de PWA — sans lui, la
+       restauration se fait avant notre JS et laisserait la case cochee sans zone
+       dessinee. -->
   <label id="zoneToggleWrap" title="Secteurs qui alimentent naturellement les ouvrages. Le km&sup2; indique l'envergure de la zone d'influence.">
-    <input type="checkbox" id="zoneToggle"> Zones m&eacute;t&eacute;o
+    <input type="checkbox" id="zoneToggle" autocomplete="off"> Zones m&eacute;t&eacute;o
   </label>
   <div id="sliderWrap">
     <span id="sliderTs">&#8212;</span>
@@ -1115,9 +1119,28 @@ async function autoRefresh(opts) {
     autoRefreshing = false;
   }
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') autoRefresh();
-});
+// Declencheurs du re-fetch automatique. Il en faut PLUSIEURS : en PWA installee
+// sur Windows, 'visibilitychange' seul ne suffit pas. Une fenetre PWA qu'on quitte
+// pour une autre application reste 'visible' aux yeux du document tant qu'elle
+// n'est pas minimisee ou masquee — on revenait donc sur l'app sans qu'aucun
+// evenement ne se declenche, et les donnees restaient celles de l'ouverture.
+//   - visibilitychange : onglet/fenetre re-affiche (minimise -> restaure).
+//   - focus           : retour du focus a la fenetre (alt-tab, clic sur la PWA).
+//   - pageshow        : chargement, ET restauration depuis le cache de navigation
+//                       (bfcache) ou reprise d'une session PWA gelee, cas ou ni
+//                       'load' ni 'visibilitychange' ne repassent.
+// Le throttle de 30 s dans autoRefresh() absorbe les declenchements redondants
+// (alt-tab en rafale = 1 seul appel reseau), donc empiler les sources est sans
+// cout. Le re-fetch ne touche qu'au manifest tant que rien n'a change.
+(function setupAutoRefreshTriggers() {
+  function trigger() {
+    if (document.visibilityState === 'hidden') return;
+    autoRefresh();
+  }
+  document.addEventListener('visibilitychange', trigger);
+  window.addEventListener('focus', trigger);
+  window.addEventListener('pageshow', trigger);
+})();
 
 // --- Bouton "Actualiser" ---
 // En PWA installee (display:standalone) il n'y a pas de barre d'adresse, donc
@@ -1364,11 +1387,15 @@ function zonePath(c, pts, sx, sy) {
 // Dessine toutes les zones. Appelee tot dans draw(), juste apres le clearRect :
 // les zones sont un CALQUE DE FOND, elles doivent passer sous les etiquettes,
 // anneaux et sparklines (sinon elles les voileraient).
-// Etat du calque des zones meteo, persiste entre les sessions.
-// MASQUE PAR DEFAUT : les zones sont une aide de lecture ponctuelle, pas une
-// information que le lecteur vient chercher. Il les active via la case « Zones
-// meteo » de la barre de controle, placee juste apres le bouton « Maintenant ».
-let zonesVisibles = (localStorage.getItem('hq-zones-meteo') === '1');
+// Etat du calque des zones meteo. VOLONTAIREMENT NON PERSISTE.
+// MASQUE PAR DEFAUT, ET REMIS A ZERO A CHAQUE CHARGEMENT : les zones sont une aide
+// de lecture ponctuelle, pas une information que le lecteur vient chercher. Le
+// calque avait ete memorise dans localStorage ('hq-zones-meteo'), mais en PWA
+// installee ce souvenir survivait des semaines : on rouvrait l'app sur une carte
+// voilee de contours sans avoir rien demande, et le meme etat se propageait du
+// mobile au bureau. On repart donc toujours de « decoche » — l'utilisateur active
+// la case « Zones meteo » de la barre de controle quand il en a besoin.
+let zonesVisibles = false;
 
 function drawZonesMeteo(sx, sy) {
   if (!zonesVisibles) return;
@@ -3556,15 +3583,19 @@ btnEnd.addEventListener('click',()=>{ stop(); go(N-1); });
 slider.addEventListener('input',()=>{ stop(); go(+slider.value); });
 speedSel.addEventListener('change',()=>{ if(playing){stop();startPlay();} });
 
-// --- Calque des zones meteo : bascule + memorisation ---
-// La case reflete l'etat lu du localStorage au chargement (masque par defaut),
-// sinon elle afficherait "coche" sans zone dessinee.
+// --- Calque des zones meteo : bascule (etat non persiste) ---
+// La case part TOUJOURS decochee (cf. zonesVisibles), y compris en PWA installee.
+// On force checked=false explicitement : le navigateur restaure sinon l'etat des
+// cases a cocher lors d'un retour arriere ou d'une restauration de session, ce qui
+// laisserait la case cochee alors que zonesVisibles vaut false (case cochee, aucune
+// zone dessinee).
+// L'ancienne clef localStorage est purgee pour ne pas laisser de residu.
 const zoneToggle = document.getElementById('zoneToggle');
 if (zoneToggle) {
-  zoneToggle.checked = zonesVisibles;
+  zoneToggle.checked = false;
+  try { localStorage.removeItem('hq-zones-meteo'); } catch (e) { /* mode prive */ }
   zoneToggle.addEventListener('change', () => {
     zonesVisibles = zoneToggle.checked;
-    localStorage.setItem('hq-zones-meteo', zonesVisibles ? '1' : '0');
     // Toutes les etiquettes de station repliees a chaque bascule du calque : on active
     // « Zones meteo » pour lire la carte, pas pour retrouver des cartouches ouverts lors
     // d'une consultation precedente. Vider dans les DEUX sens (et non seulement a
@@ -5562,11 +5593,51 @@ window.addEventListener('resize', ()=>{
     }
     return;
   }
+  // Un SW plus recent qui prend le controle (skipWaiting + clients.claim dans
+  // sw.js) => la page en cours execute encore l'ANCIEN code applicatif. On
+  // recharge pour repartir sur le nouveau. Garde-fou : une seule fois par
+  // chargement, sinon un SW qui se reinstalle en boucle bouclerait le reload.
+  var reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (reloading) return;
+    reloading = true;
     window.location.reload();
   });
+
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { /* ignore */ });
+    // updateViaCache:'none' => sw.js est toujours revalide contre le reseau, jamais
+    // servi depuis le cache HTTP du navigateur. Sans cela, reg.update() pouvait
+    // relire un sw.js perime (GitHub Pages sert les fichiers avec un max-age de
+    // 10 min, mais le cache disque peut le garder plus longtemps) et ne rien
+    // detecter alors qu'une nouvelle version etait publiee.
+    navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).then(function (reg) {
+      if (!reg) return;
+
+      // PROBLEME CORRIGE ICI : sans ces appels, la PWA installee restait sur
+      // l'ancienne version de l'application pendant des jours. Deux causes se
+      // cumulaient :
+      //   1. Le navigateur ne verifie sw.js qu'a l'enregistrement (et selon sa
+      //      propre heuristique, au plus une fois par 24 h). Une PWA qu'on garde
+      //      ouverte ou qui reprend une session gelee ne repassait jamais par la.
+      //   2. Les HTML sont servis en stale-while-revalidate : la nouvelle page est
+      //      mise en cache en arriere-plan, mais celle AFFICHEE reste l'ancienne.
+      //      Il fallait fermer puis rouvrir l'app pour voir la mise a jour.
+      // On force donc reg.update() a l'ouverture, au retour au premier plan et
+      // toutes les 30 min. Quand un nouveau SW est trouve, il passe activated,
+      // 'controllerchange' se declenche et la page se recharge sur le code neuf.
+      function checkForUpdate() {
+        if (document.visibilityState === 'hidden') return;
+        reg.update().catch(function () { /* hors-ligne : sans effet */ });
+      }
+      checkForUpdate();
+      // Meme raison que pour le re-fetch des donnees : en PWA installee, revenir
+      // a la fenetre ne produit pas toujours un 'visibilitychange'. On ecoute
+      // aussi 'focus' et 'pageshow' (reprise de session gelee / bfcache).
+      document.addEventListener('visibilitychange', checkForUpdate);
+      window.addEventListener('focus', checkForUpdate);
+      window.addEventListener('pageshow', checkForUpdate);
+      setInterval(checkForUpdate, 30 * 60 * 1000);
+    }).catch(function () { /* ignore */ });
   });
 })();
 
