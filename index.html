@@ -145,13 +145,17 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
 #modal-card{position:relative;background:#fff;border-radius:8px;padding:18px 22px 22px;
             width:min(90vw, 1200px);height:min(78vh, 700px);
             box-shadow:0 10px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
-#modal-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px}
-#modal-stats{font-size:15px;color:#333;margin-bottom:8px}
-#modal-canvas{flex:1 1 auto;display:block;width:100%;cursor:crosshair}
-#modal-note{font-size:12px;color:#888;text-align:left;margin-top:8px;line-height:1.4}
+/* Carte modale = colonne flex de hauteur fixe. Titre, stats, tableau et note portent
+   flex-shrink:0 : ils gardent leur hauteur naturelle. Seul le canvas cede (flex:1 1 0 +
+   min-height:0), sinon un tableau ou une note un peu longs poussent la note hors du
+   cadre — c'etait le cas sur la modale de niveau, dont le tableau fait plusieurs lignes. */
+#modal-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;flex:0 0 auto}
+#modal-stats{font-size:15px;color:#333;margin-bottom:8px;flex:0 0 auto}
+#modal-canvas{flex:1 1 0;min-height:120px;display:block;width:100%;cursor:crosshair}
+#modal-note{font-size:12px;color:#888;text-align:left;margin-top:8px;line-height:1.4;flex:0 0 auto}
 #modal-note:empty{display:none}
 #modal-note b{color:#555}
-#modal-table{font-size:13px;margin-bottom:6px}
+#modal-table{font-size:13px;margin-bottom:6px;flex:0 0 auto}
 #modal-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
              font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-close:hover{color:#000}
@@ -430,9 +434,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.16.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.17.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-15 08:53</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-15 11:15</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -3267,9 +3271,15 @@ function draw(i) {
 
       // Lignes 2+ (apport, niveau, sparkline) : toujours visibles (plus de compact).
       if (true) {
-        // Ligne 2 : niveau amont.
+        // Ligne 2 : remplissage du reservoir.
+        // Le % remplace l'altitude : 404,15 m ne dit pas si le reservoir est haut ou bas,
+        // et n'est pas comparable d'un ouvrage a l'autre (404 m a Gouin vs 161 m a
+        // Mekinac decrit la geographie). Repli sur les metres quand la hauteur utile est
+        // inconnue. Le detail chiffre reste dans la modale.
         if (nivEff !== null) {
-          const nivTxt = nivStale ? 'n/d' : (nivEff.toFixed(2) + ' m');
+          const pctLbl = resFillPct(r, nivEff);
+          const nivTxt = nivStale ? 'n/d'
+            : (pctLbl != null ? Math.round(pctLbl) + ' %' : nivEff.toFixed(2) + ' m');
           const nivEndX = drawLeftSegments(ctx, [
             { icon: 'niveau', size: fsIcon },
             { text: nivTxt, color: 'rgba(110,110,110,.95)' }
@@ -3546,6 +3556,9 @@ function go(i) {
     drawBigChartRes();
   }
   if (typeof modalNivResIdx !== 'undefined' && modalNivResIdx >= 0 && typeof drawBigChartNivRes === 'function') {
+    // Le graphe ET l'en-tete suivent le curseur : le bilan (apport - deversement) change
+    // a chaque frame, pas seulement le trace.
+    if (typeof refreshModalNivResStats === 'function') refreshModalNivResStats();
     drawBigChartNivRes();
   }
   if (typeof modalTurbIdx !== 'undefined' && modalTurbIdx >= 0 && typeof drawTurbineModal === 'function') {
@@ -3817,6 +3830,51 @@ function hitTestStationSpark(xImg, yImg) {
   }
   return -1;
 }
+// --- Remplissage estime d'un reservoir ---
+// Le niveau publie par HQ est une cote ABSOLUE (altitude de la surface de l'eau), pas une
+// profondeur : comparer 418 m (Manouane-A) a 161 m (Mekinac) decrit la geographie, pas
+// l'etat de remplissage. On ramene donc le niveau a un % de la plage exploitee, dont
+// l'etendue (marnage) vient du tableau 7 du PDE BVSM 2016 (donnees HQ 2010).
+//
+// Le zero est cale sur l'observe (fillZero = max observe - marnage), faute de cote
+// minimale publiee. Retourne null si le marnage est inconnu (Cinconsine).
+// pct est borne a [0,110] : Mekinac depasse son marnage habituel, qui n'est pas une
+// borne stricte, et on veut le montrer sans casser la jauge.
+function resFillPct(r, niv) {
+  if (niv == null || r.fillZero == null || r.fillSpan == null || r.fillSpan <= 0) return null;
+  const pct = (niv - r.fillZero) / r.fillSpan * 100;
+  return Math.max(0, Math.min(110, pct));
+}
+
+// Fiabilite du calage : si l'historique n'a jamais vu le reservoir plein ni vide, le zero
+// est mal cale et le % trop optimiste. fillCover = amplitude observee / marnage.
+function resFillFiable(r) {
+  return r.fillCover != null && r.fillCover >= 0.6;
+}
+
+// --- Bilan hydrique : apport - deversement (m3/s) ---
+// Repond a "que fait le reservoir MAINTENANT", la ou le % repond a "ou en est-il".
+// Deux reservoirs a 90 % peuvent l'un se remplir, l'autre se vider : le % seul ne le dit
+// pas. Conservation de masse, verifiee sur l'historique (correlation 0,69-0,90 avec la
+// variation de niveau).
+//
+// Seuil a 5 m3/s : en dessous, l'ecart n'est pas significatif face au bruit des mesures
+// (apport est un agregat journalier, deversement un instantane) -> on annonce l'equilibre
+// plutot qu'une fausse tendance.
+var BILAN_SEUIL = 5;
+function resBilan(r, i) {
+  if (!r.apportsEff || !r.devsEff) return null;
+  const a = r.apportsEff[i], d = r.devsEff[i];
+  if (a == null || d == null) return null;
+  return a - d;
+}
+function resBilanEtat(b) {
+  if (b == null) return null;
+  if (b > BILAN_SEUIL)  return { txt: 'accumule', fleche: '↑', col: '#1a7f37' };
+  if (b < -BILAN_SEUIL) return { txt: 'relâche',  fleche: '↓', col: '#b35309' };
+  return { txt: 'équilibre', fleche: '→', col: '#555' };
+}
+
 // Zone sparkline d'un reservoir etendu (45 px de haut, 4 px marge bas).
 function hitTestReservoirNiveauArrow(xImg, yImg) {
   if (!D.reservoirs) return -1;
@@ -5030,6 +5088,101 @@ function drawBigChartRes() {
   });
 }
 
+// En-tete de la modale niveau. Extrait d'openModalNivRes pour que le rafraichissement
+// par frame (cf. boucle d'animation) ne reconstruise pas toute la modale : seules les
+// valeurs courantes changent, la note reste identique.
+function refreshModalNivResStats() {
+  if (modalNivResIdx < 0) return;
+  const r = D.reservoirs[modalNivResIdx];
+  const cur = r.niveauxEff[frame];
+  const minV = r.minNiv != null ? r.minNiv.toFixed(2) + ' m' : '—';
+  const maxV = r.maxNiv != null ? r.maxNiv.toFixed(2) + ' m' : '—';
+  const curV = cur != null ? cur.toFixed(2) + ' m' : '—';
+  const pct = resFillPct(r, cur);
+  const bil = resBilan(r, frame);
+  const bilEtat = resBilanEtat(bil);
+  // En-tete : niveau brut seulement. Remplissage et bilan sont calcules en detail dans
+  // le tableau ci-dessous, les repeter ici ferait doublon.
+  modalStats.textContent =
+    'Courant : ' + curV + '  ·  ' +
+    'Min : ' + minV + '  ·  ' +
+    'Max : ' + maxV;
+  renderModalNivResTable(r, cur, pct, bil, bilEtat);
+}
+
+// Detail du calcul, sur le modele du tableau de puissance estimee des centrales : on
+// montre les termes ET la formule, pour que le lecteur puisse refaire l'operation et
+// juger lui-meme de la validite de l'estimation.
+function renderModalNivResTable(r, cur, pct, bil, bilEtat) {
+  // Memes styles que le tableau de puissance des turbines (uniformite d'affichage).
+  // vertical-align:top en plus : les libelles portent ici 2-3 lignes de formule.
+  const tdS = 'style="padding:3px 10px 3px 0;color:#555;font-size:13px;vertical-align:top"';
+  const tdV = 'style="padding:3px 10px 3px 0;font-weight:600;color:#1a1a2e;font-size:13px"';
+  const sub = 'style="font-size:11px;color:#aaa"';
+  const f2 = v => (v == null ? '—' : v.toFixed(2));
+  const vir = v => String(v).replace('.', ',');
+  let tbl = '<table style="margin-top:10px;border-collapse:collapse">';
+  let marn = null;
+
+  // --- Remplissage estime : une seule ligne, formule entierement substituee ---
+  // Le detail du zero (max observe - marnage) est inline dans la formule plutot que sur
+  // une ligne separee : le lecteur voit la chaine complete d'un coup d'oeil.
+  if (pct != null) {
+    marn = (r.hq && r.hq.marnage_m != null) ? r.hq.marnage_m : Math.round(r.fillSpan * 100) / 100;
+    // Resultat en tete de cellule, calcul ensuite : on lit d'abord le total, la
+    // justification vient apres (meme lecture que la page turbines).
+    // Formule exprimee avec le vocabulaire de l'en-tete (courant, max) plutot qu'avec un
+    // terme intermediaire ('niveau bas') que le lecteur devait aller chercher ailleurs.
+    // Appel de note 1 sur la premiere occurrence de 'hauteur utile' : la definition et la
+    // source sont sous le graphique (modalNote), pas ici, pour ne pas couper le calcul.
+    tbl += '<tr><td ' + tdS + '>Remplissage estim&eacute;<br><span ' + sub + '>' +
+           '(courant &minus; (max &minus; hauteur utile<sup>1</sup>)) / hauteur utile &times; 100' +
+           '</span></td>' +
+           '<td ' + tdV + '>' +
+           '<b>~' + Math.round(pct) + '&nbsp;%</b> = ' +
+           '(' + f2(cur) + ' &minus; (' + f2(r.maxNiv) + ' &minus; ' + vir(marn) + ')) / ' +
+           vir(marn) + ' &times; 100' +
+           '</td></tr>';
+  }
+
+  // --- Bilan hydrique : la formule dit les grandeurs, la valeur dit l'operation ---
+  // Apport et deversement ne sont plus detailles sur leurs propres lignes : les deux
+  // nombres apparaissent deja dans l'operation substituee.
+  if (bilEtat) {
+    const a = r.apportsEff[frame], d = r.devsEff[frame];
+    tbl += '<tr><td ' + tdS + '>Bilan hydrique<br><span ' + sub + '>' +
+           'eau re&ccedil;ue &minus; eau rel&acirc;ch&eacute;e aux vannes</span></td>' +
+           '<td ' + tdV + '><span style="color:' + bilEtat.col + '">' +
+           '<b>' + (bil > 0 ? '+' : '') + Math.round(bil) + '&nbsp;m&sup3;/s</b> ' +
+           bilEtat.fleche + ' ' + bilEtat.txt +
+           ' = ' + Math.round(a) + ' &minus; ' + Math.round(d) +
+           '</span></td></tr>';
+  }
+
+  tbl += '</table>';
+  modalTable.innerHTML = tbl;
+}
+
+// Note de bas de page 1, affichee SOUS le graphique (modalNote) : definition et source de
+// la hauteur utile. Separee du tableau pour ne pas couper la lecture du calcul.
+// Deux provenances, jamais presentees pareil : une valeur publiee est une donnee, une
+// valeur deduite de l'historique est une hypothese.
+function noteHauteurUtile(r) {
+  if (r.fillZero == null || !(r.fillSpan > 0)) return '';
+  const marn = (r.hq && r.hq.marnage_m != null) ? r.hq.marnage_m : Math.round(r.fillSpan * 100) / 100;
+  const v = String(marn).replace('.', ',');
+  if (r.fillSource === 'observe') {
+    return '<sup>1</sup> <b style="color:#b35309">Hauteur utile estim&eacute;e</b> de ' + v + '&nbsp;m &mdash; ' +
+           'c\'est la hauteur d\'eau entre le r&eacute;servoir vide et plein. ' +
+           '<b>Aucun document officiel ne la publie pour cet ouvrage</b> : elle est d&eacute;duite de ' +
+           'l\'&eacute;cart entre le minimum et le maximum observ&eacute;s depuis le d&eacute;but de l\'historique. ' +
+           'C\'est donc un <b>minimum</b> &mdash; la hauteur r&eacute;elle est probablement plus grande.';
+  }
+  return '<sup>1</sup> <b>Hauteur utile</b> de ' + v + '&nbsp;m &mdash; hauteur d\'eau entre le ' +
+         'r&eacute;servoir vide et plein (appel&eacute;e <i>marnage</i>). Source : Plan directeur de l\'eau ' +
+         'du bassin versant de la Saint-Maurice (2016), donn&eacute;es Hydro-Qu&eacute;bec 2010.';
+}
+
 function openModalNivRes(k) {
   modalNivResIdx = k;
   modalIdx = -1;
@@ -5040,18 +5193,58 @@ function openModalNivRes(k) {
   const r = D.reservoirs[k];
   const cur = r.niveauxEff[frame];
   modalTitle.textContent = r.nom + ' — niveau du réservoir';
-  const minV = r.minNiv != null ? r.minNiv.toFixed(2) + ' m' : '—';
-  const maxV = r.maxNiv != null ? r.maxNiv.toFixed(2) + ' m' : '—';
-  const curV = cur != null ? cur.toFixed(2) + ' m' : '—';
-  modalStats.textContent =
-    'Courant : ' + curV + '  ·  ' +
-    'Min : ' + minV + '  ·  ' +
-    'Max : ' + maxV;
+  const pct = resFillPct(r, cur);
+  const bil = resBilan(r, frame);
+  const bilEtat = resBilanEtat(bil);
+  // Remplit l'en-tete ET le tableau de calcul (vides juste au-dessus).
+  refreshModalNivResStats();
   // Note : date de debut de l'historique extraite du timestamp du min
+  let note = '';
   if (r.minNivTs) {
     const d = r.minNivTs.substring(0, 10).replace(/\//g, '-');
-    modalNote.innerHTML = 'Donn&eacute;es accumul&eacute;es depuis le ' + d + '. Min et max se mettent &agrave; jour automatiquement.';
+    note = 'Donn&eacute;es accumul&eacute;es depuis le ' + d + '. Min et max se mettent &agrave; jour automatiquement.';
   }
+  // Le niveau est une cote absolue : sans cette precision, un lecteur compare 418 m a
+  // 161 m et croit voir un ecart de remplissage alors qu'il regarde la geographie.
+  note += (note ? ' ' : '') +
+    'Le niveau est une <b>altitude absolue</b> (hauteur de la surface de l\'eau au-dessus du niveau de la mer), ' +
+    'pas une profondeur : les valeurs ne sont pas comparables d\'un r&eacute;servoir &agrave; l\'autre.';
+  if (pct != null) {
+    // Marnage et source sont en note sous le tableau de calcul : pas de doublon ici.
+    note += ' Le <b>remplissage</b> est une <b>estimation</b> : Hydro-Qu&eacute;bec ne publie pas le niveau ' +
+      'du r&eacute;servoir vide, donc ce point de d&eacute;part est calcul&eacute; &agrave; partir du maximum observ&eacute;.';
+    if (r.fillSource === 'observe') {
+      // Le detail de l'estimation est dans la note 1 : ici on ne garde que la consequence.
+      note += ' Le pourcentage se recalera &agrave; mesure que l\'historique s\'allonge.';
+    } else if (!resFillFiable(r)) {
+      note += ' <b>Prudence</b> : l\'historique ne couvre que ' + Math.round((r.fillCover || 0) * 100) +
+        '&nbsp;% de la hauteur utile, le calibrage est donc encore approximatif.';
+    }
+    note += ' Il s\'agit d\'un pourcentage de <b>niveau</b>, pas de volume.';
+  } else {
+    note += ' L\'historique de cet ouvrage ne montre pas de variation exploitable : le remplissage ne peut pas &ecirc;tre estim&eacute;.';
+  }
+  // Le % dit "ou en est-on", le bilan dit "que fait l'ouvrage". Sans cette distinction, on
+  // s'attend a tort a ce qu'un reservoir plein deverse : c'est l'inverse qui s'observe
+  // (on deverse pour vider, donc le niveau baisse pendant qu'on deverse).
+  if (bilEtat) {
+    note += ' Le <b>bilan</b> est la diff&eacute;rence entre l\'apport re&ccedil;u et le d&eacute;versement : ' +
+      'positif, le r&eacute;servoir accumule ; n&eacute;gatif, il rel&acirc;che plus qu\'il ne re&ccedil;oit. ' +
+      'C\'est lui qui explique la variation du niveau, et non l\'inverse : un r&eacute;servoir ne d&eacute;verse pas ' +
+      'parce qu\'il est plein, il se vide parce qu\'on le d&eacute;verse.';
+    if (r.bilanMoy != null) {
+      const bm = Math.round(r.bilanMoy);
+      note += ' Sur toute la p&eacute;riode, son bilan moyen est de ' + (bm > 0 ? '+' : '') + bm + '&nbsp;m&sup3;/s' +
+        (bm > 20 ? ' : il stocke nettement plus qu\'il ne rel&acirc;che.' :
+         bm < -20 ? ' : il rel&acirc;che nettement plus qu\'il ne re&ccedil;oit directement (aliment&eacute; en cascade par l\'amont).' :
+         ' : entr&eacute;es et sorties s\'&eacute;quilibrent, l\'ouvrage est en transit.');
+    }
+  }
+  // La note 1 vient en premier, juste sous le graphique : elle est appelee depuis le
+  // tableau, donc le lecteur qui suit l'exposant doit la trouver en tete. Une ligne vide
+  // la separe du reste de l'explication.
+  const n1 = noteHauteurUtile(r);
+  modalNote.innerHTML = (n1 ? n1 + '<div style="height:8px"></div>' : '') + note;
   modal.classList.add('open');
   requestAnimationFrame(drawBigChartNivRes);
 }
@@ -5184,7 +5377,9 @@ function drawBigChartNivRes() {
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
   // b: 42 — cf. note sur les ticks sur 2 lignes dans drawBigChart().
-  const pad = { l: 68, r: 20, t: 28, b: 42 };
+  // r: large quand l'axe droit (remplissage %) est trace, etroit sinon.
+  const aDroite = (r.fillZero != null && r.fillSpan > 0);
+  const pad = { l: 68, r: aDroite ? 58 : 20, t: 28, b: 42 };
   cx.clearRect(0, 0, w, h);
 
   const niveaux = r.niveauxEff;
@@ -5193,6 +5388,15 @@ function drawBigChartNivRes() {
   if (r.minNiv != null && r.minNiv < yMin) yMin = r.minNiv;
   if (r.maxNiv != null && r.maxNiv > yMax) yMax = r.maxNiv;
   if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+  // Quand le marnage est connu, l'echelle englobe toute la plage d'exploitation (0-100 %)
+  // meme si l'historique ne l'a pas parcourue : sinon 0 % et 100 % tombent hors cadre et
+  // l'axe droit devient illisible.
+  const fZ = r.fillZero, fS = r.fillSpan;
+  const aPct = (fZ != null && fS > 0);
+  if (aPct) {
+    if (fZ < yMin) yMin = fZ;
+    if (fZ + fS > yMax) yMax = fZ + fS;
+  }
   const spread = Math.max(yMax - yMin, 0.5);
   const yBot = yMin - spread * 0.08;
   const yTop = yMax + spread * 0.08;
@@ -5214,11 +5418,78 @@ function drawBigChartNivRes() {
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
   cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
   cx.textAlign = 'right'; cx.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = pad.t + (g / 5) * innerH;
-    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    const val = yTop - (g / 5) * (yTop - yBot);
-    cx.fillText(val.toFixed(2) + ' m', pad.l - 6, y);
+  if (aPct) {
+    // Axe gradue DANS le marnage : 0 m = bas de la plage exploitee, fS = haut. Plus
+    // parlant que l'altitude absolue (404,42 m ne dit pas si le reservoir est haut ;
+    // 3,24 m sur un marnage de 3 m, si). Graduations calees sur des valeurs rondes du
+    // marnage, pas sur les bornes du cadre, pour rester lisibles.
+    const stepRaw = fS / 5;
+    const mag = Math.pow(10, Math.floor(Math.log10(stepRaw)));
+    // 2,5 exclu des pas candidats : arrondi a l'entier il donnerait une suite irreguliere
+    // (0, 3, 5, 8, 10...). On garde des pas dont les multiples restent ronds.
+    const step = ([1, 2, 5, 10].find(m => m * mag >= stepRaw) || 10) * mag;
+    // Decimales imposees par le pas lui-meme : un pas de 0,5 exige une decimale.
+    const dec = (step < 1) ? 1 : 0;
+    const relBot = yBot - fZ, relTop = yTop - fZ;
+    for (let v = Math.ceil(relBot / step) * step; v <= relTop + 1e-9; v += step) {
+      const y = yOf(fZ + v);
+      cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+      // -0 possible sur la graduation zero : normalise pour ne pas afficher '-0,0 m'.
+      const vv = (Math.abs(v) < 1e-9) ? 0 : v;
+      cx.fillText(vv.toFixed(dec).replace('.', ',') + ' m', pad.l - 6, y);
+    }
+  } else {
+    for (let g = 0; g <= 5; g++) {
+      const y = pad.t + (g / 5) * innerH;
+      cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+      const val = yTop - (g / 5) * (yTop - yBot);
+      cx.fillText(val.toFixed(2) + ' m', pad.l - 6, y);
+    }
+  }
+  // Titre de l'axe gauche.
+  if (aPct) {
+    const estime = (r.fillSource === 'observe');
+    const marnTxt = (r.hq && r.hq.marnage_m != null)
+      ? String(r.hq.marnage_m)
+      : (Math.round(fS * 100) / 100).toFixed(2);
+    cx.save();
+    cx.translate(14, pad.t + innerH / 2);
+    cx.rotate(-Math.PI / 2);
+    cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillStyle = '#666'; cx.font = '10px "Segoe UI",Arial';
+    cx.fillText('Hauteur d\'eau utile (sur ' + marnTxt.replace('.', ',') + ' m'
+                + (estime ? ', estimée' : '') + ')', 0, 0);
+    cx.restore();
+  }
+
+  // --- Axe DROIT : remplissage en % de la plage d'exploitation ---
+  // C'est le repere qui manque a l'axe en metres : 404 m ne dit pas si le reservoir est
+  // haut ou bas, 99 % si. Il rend aussi les reservoirs comparables entre eux, ce que les
+  // altitudes absolues interdisent (404 m a Gouin vs 161 m a Mekinac).
+  if (aPct) {
+    cx.fillStyle = '#1a6e2a'; cx.font = '11px "Segoe UI",Arial';
+    cx.textAlign = 'left'; cx.textBaseline = 'middle';
+    for (let p = 0; p <= 100; p += 25) {
+      const val = fZ + (p / 100) * fS;
+      if (val < yBot || val > yTop) continue;
+      const y = yOf(val);
+      // Reperes 0 % et 100 % marques d'un trait : bornes de la plage exploitee.
+      if (p === 0 || p === 100) {
+        cx.save();
+        cx.strokeStyle = 'rgba(26,110,42,.45)'; cx.lineWidth = 1;
+        cx.setLineDash([3, 3]);
+        cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+        cx.restore();
+      }
+      cx.fillText(p + ' %', pad.l + innerW + 6, y);
+    }
+    cx.save();
+    cx.translate(pad.l + innerW + 46, pad.t + innerH / 2);
+    cx.rotate(Math.PI / 2);
+    cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillStyle = '#1a6e2a'; cx.font = '10px "Segoe UI",Arial';
+    cx.fillText('Réservoir plein à', 0, 0);
+    cx.restore();
   }
 
   // Ticks X
@@ -5236,9 +5507,15 @@ function drawBigChartNivRes() {
     cx.setLineDash([6, 4]);
     cx.beginPath(); cx.moveTo(pad.l, yM); cx.lineTo(pad.l + innerW, yM); cx.stroke();
     cx.restore();
-    cx.fillStyle = '#c0392b'; cx.font = 'bold 10px "Segoe UI",Arial';
+    cx.font = 'bold 10px "Segoe UI",Arial';
     cx.textAlign = 'right'; cx.textBaseline = 'bottom';
-    cx.fillText('min ' + r.minNiv.toFixed(2) + ' m', pad.l + innerW - 4, yM - 2);
+    // Meme repere que l'axe : position dans le marnage si connu, altitude sinon.
+    const tMin = 'min ' + (aPct ? (r.minNiv - fZ).toFixed(2).replace('.', ',') : r.minNiv.toFixed(2)) + ' m';
+    const wMin = cx.measureText(tMin).width;
+    cx.fillStyle = 'rgba(255,255,255,.82)';
+    cx.fillRect(pad.l + innerW - 4 - wMin - 3, yM - 2 - 11, wMin + 6, 11);
+    cx.fillStyle = '#c0392b';
+    cx.fillText(tMin, pad.l + innerW - 4, yM - 2);
   }
 
   // Ligne MAX historique (vert pointille)
@@ -5249,9 +5526,14 @@ function drawBigChartNivRes() {
     cx.setLineDash([6, 4]);
     cx.beginPath(); cx.moveTo(pad.l, yM); cx.lineTo(pad.l + innerW, yM); cx.stroke();
     cx.restore();
-    cx.fillStyle = '#1a6e2a'; cx.font = 'bold 10px "Segoe UI",Arial';
+    cx.font = 'bold 10px "Segoe UI",Arial';
     cx.textAlign = 'right'; cx.textBaseline = 'top';
-    cx.fillText('max ' + r.maxNiv.toFixed(2) + ' m', pad.l + innerW - 4, yM + 2);
+    const tMax = 'max ' + (aPct ? (r.maxNiv - fZ).toFixed(2).replace('.', ',') : r.maxNiv.toFixed(2)) + ' m';
+    const wMax = cx.measureText(tMax).width;
+    cx.fillStyle = 'rgba(255,255,255,.82)';
+    cx.fillRect(pad.l + innerW - 4 - wMax - 3, yM + 2, wMax + 6, 11);
+    cx.fillStyle = '#1a6e2a';
+    cx.fillText(tMax, pad.l + innerW - 4, yM + 2);
   }
 
   // Courbe niveau (bleu). Grandeur en METRES, distincte du deversement (m3/s) :
@@ -5276,13 +5558,75 @@ function drawBigChartNivRes() {
     cx.fillStyle = blueStroke;
     cx.beginPath(); cx.arc(xCur, yOf(nCur), 4, 0, 2 * Math.PI); cx.fill();
     cx.fillStyle = '#222'; cx.font = 'bold 12px "Segoe UI",Arial';
-    const txt = nCur.toFixed(2) + ' m';
+    // Position dans le marnage, avec l'altitude reelle entre parentheses : l'axe montre
+    // le marnage, mais la mesure brute d'HQ reste accessible.
+    const txt = aPct
+      ? (nCur - fZ).toFixed(2).replace('.', ',') + ' m (' + nCur.toFixed(2).replace('.', ',') + ' m alt.)'
+      : nCur.toFixed(2) + ' m';
     const txtW = cx.measureText(txt).width;
     const fitsRight = (xCur + 6 + txtW) <= (pad.l + innerW - 2);
+    const yC = yOf(nCur);
+    // Les etiquettes min/max sont ancrees a droite du trace, sur leur ligne pointillee.
+    // Quand le niveau courant les frole, les textes se superposent : on bascule alors
+    // l'etiquette de l'autre cote de la courbe. 13 px = hauteur de texte + marge.
+    const SEUIL = 13;
+    let dessus = true;                       // par defaut au-dessus du point
+    const prochMax = (r.maxNiv != null) && Math.abs(yC - yOf(r.maxNiv)) < SEUIL;
+    const prochMin = (r.minNiv != null) && Math.abs(yC - yOf(r.minNiv)) < SEUIL;
+    if (prochMax && !prochMin) dessus = false;   // max est juste au-dessus -> passer dessous
+    else if (prochMin && !prochMax) dessus = true;
+    // Garde-fous de cadre : ne pas sortir en haut ni en bas de l'aire de trace.
+    if (dessus && yC - 4 - 12 < pad.t) dessus = false;
+    if (!dessus && yC + 4 + 12 > pad.t + innerH) dessus = true;
+
+    const tx = xCur + (fitsRight ? 6 : -6);
+    const ty = dessus ? yC - 4 : yC + 4;
+    // Fond blanc semi-opaque : meme a distance, la grille et la courbe passent sous le
+    // texte et nuisent a la lecture.
+    const padX = 3, hTxt = 13;
+    cx.save();
+    cx.fillStyle = 'rgba(255,255,255,.82)';
+    cx.fillRect(fitsRight ? tx - padX : tx - txtW - padX,
+                dessus ? ty - hTxt : ty,
+                txtW + 2 * padX, hTxt);
+    cx.restore();
+    cx.fillStyle = '#222';
     cx.textAlign = fitsRight ? 'left' : 'right';
-    cx.textBaseline = 'bottom';
-    cx.fillText(txt, xCur + (fitsRight ? 6 : -6), yOf(nCur) - 4);
+    cx.textBaseline = dessus ? 'bottom' : 'top';
+    cx.fillText(txt, tx, ty);
   }
+
+  // --- Legende (coin haut gauche, ou se trouvait la jauge) ---
+  // Meme format que les autres modales : cadre blanc, pastille, libelle.
+  (function () {
+    const items = [{ col: blueStroke, txt: 'Niveau (m)', kind: 'line' }];
+    if (r.minNiv != null) items.push({ col: '#c0392b', txt: 'Min historique', kind: 'dash' });
+    if (r.maxNiv != null) items.push({ col: '#1a6e2a', txt: 'Max historique', kind: 'dash' });
+    cx.save();
+    cx.font = '11px "Segoe UI",Arial';
+    const swW = 20, swH = 7, pX = 8, pY = 6, gapY = 16;
+    const bw2 = Math.max.apply(null, items.map(it => cx.measureText(it.txt).width)) + swW + 8 + 2 * pX;
+    const bh2 = items.length * gapY + 2 * pY;
+    const lx = pad.l + 10, ly = pad.t + 10;
+    cx.fillStyle = 'rgba(255,255,255,.88)';
+    cx.fillRect(lx, ly, bw2, bh2);
+    cx.strokeStyle = '#dde'; cx.lineWidth = 1;
+    cx.strokeRect(lx, ly, bw2, bh2);
+    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    items.forEach((it, li) => {
+      const yy = ly + pY + li * gapY;
+      cx.fillStyle = it.col;
+      if (it.kind === 'line') {
+        cx.fillRect(lx + pX, yy + swH / 2, swW, 2.4);
+      } else if (it.kind === 'dash') {
+        cx.fillRect(lx + pX, yy + swH / 2, 7, 1.6);
+        cx.fillRect(lx + pX + 12, yy + swH / 2, 7, 1.6);
+      }
+      cx.fillStyle = '#333';
+      cx.fillText(it.txt, lx + pX + swW + 8, yy);
+    });
+    cx.restore();
+  })();
 
 }
 modalClose.addEventListener('click', closeModal);
