@@ -434,9 +434,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.17.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.17.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-15 17:45</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-09-16 08:49</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -5198,47 +5198,15 @@ function openModalNivRes(k) {
   const bilEtat = resBilanEtat(bil);
   // Remplit l'en-tete ET le tableau de calcul (vides juste au-dessus).
   refreshModalNivResStats();
-  // Note : date de debut de l'historique extraite du timestamp du min
-  let note = '';
-  if (r.minNivTs) {
-    const d = r.minNivTs.substring(0, 10).replace(/\//g, '-');
-    note = 'Donn&eacute;es accumul&eacute;es depuis le ' + d + '. Min et max se mettent &agrave; jour automatiquement.';
-  }
-  // Le niveau est une cote absolue : sans cette precision, un lecteur compare 418 m a
-  // 161 m et croit voir un ecart de remplissage alors qu'il regarde la geographie.
-  note += (note ? ' ' : '') +
-    'Le niveau est une <b>altitude absolue</b> (hauteur de la surface de l\'eau au-dessus du niveau de la mer), ' +
-    'pas une profondeur : les valeurs ne sont pas comparables d\'un r&eacute;servoir &agrave; l\'autre.';
+  // Note courte : trois phrases, une par grandeur affichee. Le detail (provenance de la
+  // hauteur utile, calage du zero) est dans la note 1 sous le tableau, pas ici.
+  let note =
+    'Le niveau est une <b>altitude</b> (hauteur de la surface de l\'eau au-dessus du niveau de la mer).';
   if (pct != null) {
-    // Marnage et source sont en note sous le tableau de calcul : pas de doublon ici.
-    note += ' Le <b>remplissage</b> est une <b>estimation</b> : Hydro-Qu&eacute;bec ne publie pas le niveau ' +
-      'du r&eacute;servoir vide, donc ce point de d&eacute;part est calcul&eacute; &agrave; partir du maximum observ&eacute;.';
-    if (r.fillSource === 'observe') {
-      // Le detail de l'estimation est dans la note 1 : ici on ne garde que la consequence.
-      note += ' Le pourcentage se recalera &agrave; mesure que l\'historique s\'allonge.';
-    } else if (!resFillFiable(r)) {
-      note += ' <b>Prudence</b> : l\'historique ne couvre que ' + Math.round((r.fillCover || 0) * 100) +
-        '&nbsp;% de la hauteur utile, le calibrage est donc encore approximatif.';
-    }
-    note += ' Il s\'agit d\'un pourcentage de <b>niveau</b>, pas de volume.';
-  } else {
-    note += ' L\'historique de cet ouvrage ne montre pas de variation exploitable : le remplissage ne peut pas &ecirc;tre estim&eacute;.';
+    note += ' Le <b>% de remplissage</b> est une estimation calcul&eacute;e, non publi&eacute;e par Hydro-Qu&eacute;bec.';
   }
-  // Le % dit "ou en est-on", le bilan dit "que fait l'ouvrage". Sans cette distinction, on
-  // s'attend a tort a ce qu'un reservoir plein deverse : c'est l'inverse qui s'observe
-  // (on deverse pour vider, donc le niveau baisse pendant qu'on deverse).
   if (bilEtat) {
-    note += ' Le <b>bilan</b> est la diff&eacute;rence entre l\'apport re&ccedil;u et le d&eacute;versement : ' +
-      'positif, le r&eacute;servoir accumule ; n&eacute;gatif, il rel&acirc;che plus qu\'il ne re&ccedil;oit. ' +
-      'C\'est lui qui explique la variation du niveau, et non l\'inverse : un r&eacute;servoir ne d&eacute;verse pas ' +
-      'parce qu\'il est plein, il se vide parce qu\'on le d&eacute;verse.';
-    if (r.bilanMoy != null) {
-      const bm = Math.round(r.bilanMoy);
-      note += ' Sur toute la p&eacute;riode, son bilan moyen est de ' + (bm > 0 ? '+' : '') + bm + '&nbsp;m&sup3;/s' +
-        (bm > 20 ? ' : il stocke nettement plus qu\'il ne rel&acirc;che.' :
-         bm < -20 ? ' : il rel&acirc;che nettement plus qu\'il ne re&ccedil;oit directement (aliment&eacute; en cascade par l\'amont).' :
-         ' : entr&eacute;es et sorties s\'&eacute;quilibrent, l\'ouvrage est en transit.');
-    }
+    note += ' Le <b>bilan</b> est la diff&eacute;rence entre l\'apport re&ccedil;u et le d&eacute;versement.';
   }
   // La note 1 vient en premier, juste sous le graphique : elle est appelee depuis le
   // tableau, donc le lecteur qui suit l'exposant doit la trouver en tete. Une ligne vide
