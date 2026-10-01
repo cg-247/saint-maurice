@@ -119,6 +119,10 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
           text-align:center;color:#1a1a2e;pointer-events:none;z-index:2;width:90%}
 #titlebox h1{font-size:clamp(16px, 1.55vw, 28px);letter-spacing:.3px;font-weight:700}
 #titlebox #ts{font-size:clamp(13px, 1.22vw, 22px);color:#000;font-weight:600;margin-top:4px;min-height:24px}
+/* Puissance totale de la riviere : eclair + "X MW / Y MW installes (Z %)". */
+#titlebox #mwTotal{color:#555;font-weight:700;margin-top:2px}
+#titlebox #mwTotal img{height:1.1em;vertical-align:middle;margin-right:4px}
+#titlebox #mwTotal.stale{opacity:.45}
 /* max-height:100% + min-height:0 : donne a #img une reference de hauteur a
    laquelle se contraindre. Sans ca, un inline-block s'etire a la taille de son
    contenu et le max-height:100% de l'image n'a rien a quoi se rapporter.
@@ -423,6 +427,7 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="titlebox">
     <h1 id="titre">Saint-Maurice</h1>
     <div id="ts">&#8212;</div>
+    <div id="mwTotal"></div>
   </div>
   <div id="riverSummary"></div>
   <div id="disclaimer">
@@ -434,9 +439,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.17.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.18.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-01 14:34</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-01 17:18</div>
 </div>
 <div id="modal">
   <div id="modal-card">
@@ -2312,6 +2317,8 @@ function draw(i) {
     if (titreEl) titreEl.style.fontSize = Math.round(lgFsCss * 1.63) + 'px';
     const tsEl = document.getElementById('ts');
     if (tsEl) tsEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px';
+    const mwTotEl = document.getElementById('mwTotal');
+    if (mwTotEl) mwTotEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px';
     // Bloc haut-droite ("Mobile · v2.x.x") : restait en clamp(...vw...), donc il
     // grossissait avec la fenetre au lieu de suivre l'image. Meme ratio que le
     // disclaimer, dont il partageait la regle CSS (0.95vw).
@@ -3525,6 +3532,34 @@ function resize() {
   if (D) draw(frame);
 }
 
+// Puissance totale de la riviere sous la date du titre : somme des MW effectifs
+// (derniere valeur connue, comme les etiquettes) sur la somme des cap_mw installes.
+// Le % porte sur TOUTES les centrales ayant un cap_mw, y compris celles sans
+// donnee a cette frame (elles comptent pour 0 MW produits). Grise si au moins une
+// valeur sommee est perimee.
+function renderMwTotal(i) {
+  const el = document.getElementById('mwTotal');
+  if (!el) return;
+  let sum = 0, cap = 0, any = false, stale = false;
+  D.centrales.forEach(c => {
+    if (c.cap_mw) cap += c.cap_mw;
+    const v = c.mwsEff ? c.mwsEff[i] : null;
+    if (v !== null && v !== undefined) {
+      sum += v; any = true;
+      if (c.mwsStale[i]) stale = true;
+    }
+  });
+  if (!any) { el.innerHTML = ''; return; }
+  const s = Math.round(sum);
+  el.classList.toggle('stale', stale);
+  el.innerHTML = '<img src="assets/icons/eclair.png" alt="">' +
+    s.toLocaleString('fr-CA') + ' MW' +
+    (cap ? ' / ' + cap.toLocaleString('fr-CA') + ' MW install&eacute;s (' +
+           Math.round(sum / cap * 100) + ' %)' : '');
+  el.title = 'Puissance totale des centrales du Saint-Maurice : ' +
+    s.toLocaleString('fr-CA') + ' MW sur ' + cap.toLocaleString('fr-CA') + ' MW installés';
+}
+
 function go(i) {
   if (!D) return;
   frame = Math.max(0, Math.min(N-1, i));
@@ -3541,6 +3576,7 @@ function go(i) {
   // n'est plus a l'ecran. Affiche la meme info que le titre, en plus discret.
   if (sliderTs) sliderTs.textContent = ts;
   fi.textContent = (frame+1)+' / '+N;
+  renderMwTotal(frame);
   draw(frame);
   // Bandeau resume general de la riviere (4 vues, change avec la frame).
   // Pas d'en-tete : la date est deja visible dans la barre de controle et le
