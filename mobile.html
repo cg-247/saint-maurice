@@ -114,7 +114,14 @@ section#chartWrap{flex:1 1 auto;background:#fff;color:#1a1a2e;margin:0 12px;
                   border-radius:10px;padding:8px;
                   box-shadow:0 2px 10px rgba(0,0,0,.25);
                   min-height:340px}
-canvas#bigCv{display:block;width:100%;height:50vh;min-height:320px;max-height:520px}
+/* Le graphique peut etre plus large que l'ecran (un libelle par jour, toujours) :
+   #chartScroll defile horizontalement, #axisCv reste fixe par-dessus et porte les
+   axes Y, les titres et les legendes. */
+#chartBox{position:relative;height:50vh;min-height:320px;max-height:520px}
+#chartScroll{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden;
+             -webkit-overflow-scrolling:touch;scrollbar-width:thin}
+canvas#bigCv{display:block;height:100%}
+canvas#axisCv{position:absolute;left:0;top:0;pointer-events:none}
 
 /* FOOTER */
 footer{padding:14px;text-align:center;font-size:12px;color:#9ab;font-style:italic}
@@ -144,16 +151,19 @@ footer a{color:#bcd;text-decoration:underline}
 <section id="label" class="hidden" aria-live="polite"></section>
 
 <section id="chartWrap" class="hidden">
-  <canvas id="bigCv"></canvas>
+  <div id="chartBox">
+    <div id="chartScroll"><canvas id="bigCv"></canvas></div>
+    <canvas id="axisCv" aria-hidden="true"></canvas>
+  </div>
 </section>
 
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-02 10:57</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-02 14:01</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.18.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.18.1</span>
 </footer>
 
 <script>
@@ -542,6 +552,7 @@ function setPeriode(key) {
   D = views[key];
   N = D.timestamps.length;
   frame = N - 1;
+  bigScrollReset = true;
   // Re-aligne selectedIdx sur la centrale par son ID (les vues peuvent ne pas
   // partager le meme ordre, meme si en pratique elles le partagent).
   if (selectedIdx >= 0 && views.horaire && views.horaire.centrales[selectedIdx]) {
@@ -583,6 +594,7 @@ function buildChips() {
 
 function selectIdx(idx) {
   selectedIdx = idx;
+  bigScrollReset = true;
   const c = D.centrales[idx];
   localStorage.setItem(STORE_KEY, c.id);
   render();
@@ -677,23 +689,17 @@ function escapeHtml(s) {
 // legende fixe en haut-gauche (pas de tri par chevauchement), padding gauche reduit.
 const bigCv  = document.getElementById('bigCv');
 const bigCtx = bigCv.getContext('2d');
+const axisCv  = document.getElementById('axisCv');
+const axisCtx = axisCv.getContext('2d');
+// var (et non let) : setPeriode()/selectIdx() peuvent l'ecrire avant que
+// l'execution n'atteigne cette ligne.
+var bigScrollReset = true;
 
 function drawBigChart() {
   if (selectedIdx < 0 || !D) return;
   const c = D.centrales[selectedIdx];
   const arr = c.debits;
 
-  // Resolution retina : on multiplie la taille en pixels par devicePixelRatio
-  // pour eviter le flou sur ecrans haute densite, tout en gardant la taille CSS inchangee.
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const cssW = bigCv.clientWidth;
-  const cssH = bigCv.clientHeight;
-  bigCv.width  = Math.round(cssW * dpr);
-  bigCv.height = Math.round(cssH * dpr);
-  const cx = bigCtx;
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  const w = cssW, h = cssH;
   // pad.l = 64 : assez large pour un label "NNNN m³/s" (4 chiffres + unite) en
   // textAlign='right' a pad.l - 6. Avec pad.l=50, les centrales a fort debit
   // (Grand-Mere yMax~2800) avaient leur premier chiffre clippe hors canvas.
@@ -709,38 +715,6 @@ function drawBigChart() {
   // canvas et etait tronquee.
   const dateOnlyM = (D.periode === 'horaire' || D.periode === 'journalier');
   const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: dateOnlyM ? 30 : 42 };
-  cx.clearRect(0, 0, w, h);
-
-  // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
-  // Meme structure que la modale du template bureau (hydrogramme + hyetogramme) :
-  // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
-  const plM = pluieSerie(c.zoneMeteo);
-  const rainH = plM ? 0.33 : 0;
-  const rainGap = plM ? 26 : 0;   // plus serre qu'au bureau : hauteur ecran limitee
-
-  // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
-  let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
-  for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
-  const xSpan = Math.max(1, N - 1);
-  const innerW = w - pad.l - pad.r;
-  const totalH = h - pad.t - pad.b;
-  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
-  const rainTop = pad.t + innerH + rainGap;
-  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
-  const xOf = i => pad.l + (i / xSpan) * innerW;
-  const yOf = v => pad.t + (1 - v / yMax) * innerH;
-
-  // Grille horizontale + ticks Y (5 lignes)
-  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-  cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
-  cx.textAlign = 'right'; cx.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = pad.t + (g / 5) * innerH;
-    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
-  }
 
   // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
   // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
@@ -752,6 +726,7 @@ function drawBigChart() {
   //                                              l'annee est la seule mise en contexte)
   // Remplace l'ancien format textuel ('23 juin', 'sem. du 17 aout'), qui divergeait
   // du bureau et rendait la lecture croisee des deux versions inconfortable.
+  // Definies avant le dimensionnement : la largeur du graphe depend de celle des libelles.
   const fmtTick = (ts) => {
     if (!ts) return '';
     const s = String(ts);
@@ -775,7 +750,6 @@ function drawBigChart() {
   // supprimees. Ecran etroit : deux lignes de tick et un suffixe horaire
   // surchargeaient l'axe pour une precision inutile a cette taille. Les vues
   // Semaine/Mois gardent le comportement d'origine (elles n'ont ni l'un ni l'autre).
-  // dateOnlyM est defini plus haut, avec pad (dont la hauteur b en depend).
   const fmtTickParts = (ts) => {
     if (!ts) return { main: '', sub: '' };
     const s = String(ts);
@@ -786,6 +760,98 @@ function drawBigChart() {
     const hhmm = m[2] === '00:00' ? '24:00' : m[2];
     return { main: stripH(fmtTick(m[1])), sub: dateOnlyM ? '' : '(' + hhmm + ')' };
   };
+
+  // ---- Dimensionnement : graphe defilable horizontalement ----
+  // La largeur du graphe n'est plus celle de l'ecran : elle doit loger UN libelle
+  // par jour (vue Heure) ou par point (vues Jour/Semaine), sans en sauter. Si
+  // l'ecran est trop etroit, #chartScroll defile et s'ouvre sur la fin (donnees
+  // recentes). Les axes Y, titres et legendes sont traces sur #axisCv, fixe
+  // par-dessus, pour rester lisibles pendant le defilement.
+  const scrollEl = bigCv.parentElement;
+  const atEnd = scrollEl.scrollLeft >= scrollEl.scrollWidth - scrollEl.clientWidth - 2;
+  const viewW = scrollEl.clientWidth;
+  const innerWView = Math.max(1, viewW - pad.l - pad.r);
+  const xSpan = Math.max(1, N - 1);
+  const cx = bigCtx;
+  cx.setTransform(1, 0, 0, 1, 0, 0);
+  cx.font = '11px "Segoe UI",Arial';
+  let lblW = 0;
+  for (let i = 0; i < N; i++) {
+    lblW = Math.max(lblW, cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width);
+  }
+  // Points par libelle : 1 en Jour/Semaine ; en Heure, le nombre de points d'une
+  // journee complete (max par jour : les journees partielles des bornes en ont moins).
+  let ptsPerTick = 1;
+  if (D.periode === 'horaire') {
+    const cnt = {};
+    for (let i = 0; i < N; i++) {
+      const d = String(D.timestamps[i] || '').slice(0, 10);
+      cnt[d] = (cnt[d] || 0) + 1;
+    }
+    for (const k in cnt) ptsPerTick = Math.max(ptsPerTick, cnt[k]);
+  }
+  // 1,5 x libelle + 12 : le 1er tick est aligne a gauche (texte entier a droite de
+  // son ancre) et le 2e centre ; c'est la paire la plus exigeante (cf. gapFor).
+  const pxPerPt = (1.5 * lblW + 12) / ptsPerTick;
+  const innerW = Math.max(innerWView, Math.ceil(xSpan * pxPerPt));
+  const cssW = pad.l + innerW + pad.r;
+  bigCv.style.width = cssW + 'px';
+  // Hauteur lue APRES la largeur : une barre de defilement (bureau) peut la reduire.
+  const cssH = scrollEl.clientHeight;
+  // Resolution retina : on multiplie la taille en pixels par devicePixelRatio
+  // pour eviter le flou sur ecrans haute densite, tout en gardant la taille CSS inchangee.
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  bigCv.width  = Math.round(cssW * dpr);
+  bigCv.height = Math.round(cssH * dpr);
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  axisCv.style.width  = viewW + 'px';
+  axisCv.style.height = cssH + 'px';
+  axisCv.width  = Math.round(viewW * dpr);
+  axisCv.height = Math.round(cssH * dpr);
+  const ax = axisCtx;
+  ax.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = cssW, h = cssH;
+  cx.clearRect(0, 0, w, h);
+  ax.clearRect(0, 0, viewW, h);
+  // Bandes blanches sous les axes Y : les donnees qui defilent passent dessous.
+  ax.fillStyle = '#fff';
+  ax.fillRect(0, 0, pad.l, h);
+  ax.fillRect(viewW - pad.r, 0, pad.r, h);
+  // Decalage du canvas defilant quand il est cale sur la fin (position d'ouverture) :
+  // sert a placer les legendes de #axisCv d'apres les donnees alors visibles.
+  const maxScroll = Math.max(0, cssW - viewW);
+  const xOfView = i => xOf(i) - maxScroll;
+
+  // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
+  // Meme structure que la modale du template bureau (hydrogramme + hyetogramme) :
+  // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
+  const plM = pluieSerie(c.zoneMeteo);
+  const rainH = plM ? 0.33 : 0;
+  const rainGap = plM ? 26 : 0;   // plus serre qu'au bureau : hauteur ecran limitee
+
+  // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
+  let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
+  for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
+  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
+  const totalH = h - pad.t - pad.b;
+  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
+  const rainTop = pad.t + innerH + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
+  const xOf = i => pad.l + (i / xSpan) * innerW;
+  const yOf = v => pad.t + (1 - v / yMax) * innerH;
+
+  // Grille horizontale + ticks Y (5 lignes)
+  // (grille sur le canvas defilant, libelles sur #axisCv, fixe)
+  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+  ax.fillStyle = '#666'; ax.font = '11px "Segoe UI",Arial';
+  ax.textAlign = 'right'; ax.textBaseline = 'middle';
+  for (let g = 0; g <= 5; g++) {
+    const y = pad.t + (g / 5) * innerH;
+    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+    ax.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+  }
+
   // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
   // horaire d'une journee partielle en dessous, plus petite et discrete.
   // ~0.78x la taille de base (minimum 8px), comme drawTickLabel() du bureau.
@@ -835,6 +901,13 @@ function drawBigChart() {
       dayIdx.push(i);
     }
     dayIdx[dayIdx.length - 1] = N - 1;
+    // 1re journee trop partielle pour loger son libelle (aligne a gauche) avant celui
+    // du 2e jour : on sacrifie le sien plutot que celui d'une journee complete.
+    if (dayIdx.length > 2) {
+      const w0 = cx.measureText(fmtTickParts(String(D.timestamps[dayIdx[0]] || '')).main).width;
+      const w1 = cx.measureText(fmtTickParts(String(D.timestamps[dayIdx[1]] || '')).main).width;
+      if (xOf(dayIdx[1]) - xOf(dayIdx[0]) < gapFor('left', w0, 'center', w1)) dayIdx.shift();
+    }
     tickIdx = [];
     let lastX = -Infinity, lastAlign = 'left', lastW = 0;
     for (let k = 0; k < dayIdx.length; k++) {
@@ -980,21 +1053,20 @@ function drawBigChart() {
     const decM = stepM >= 1 ? 0 : 1;
     // Grille + paliers (au lieu des deux seuls reperes 0 / max).
     cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-    cx.fillStyle = '#666'; cx.font = '10px "Segoe UI",Arial';
-    cx.textAlign = 'right';
+    ax.fillStyle = '#666'; ax.font = '10px "Segoe UI",Arial';
+    ax.textAlign = 'right';
     for (let g = 0; g <= RAIN_ROWS_M; g++) {
       const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
       cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-      cx.textBaseline = (g === 0) ? 'top' : 'middle';
-      cx.fillText((yTopM * (1 - g / RAIN_ROWS_M)).toFixed(decM) + ' mm', pad.l - 6, y + (g === 0 ? 1 : 0));
+      ax.textBaseline = (g === 0) ? 'top' : 'middle';
+      ax.fillText((yTopM * (1 - g / RAIN_ROWS_M)).toFixed(decM) + ' mm', pad.l - 6, y + (g === 0 ? 1 : 0));
     }
-    cx.textBaseline = 'middle';
-    // Titre au-dessus du cadre.
-    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 11px "Segoe UI",Arial';
-    cx.textAlign = 'left'; cx.textBaseline = 'bottom';
+    // Titre au-dessus du cadre (fixe, sur #axisCv).
+    ax.fillStyle = '#1a1a2e'; ax.font = 'bold 11px "Segoe UI",Arial';
+    ax.textAlign = 'left'; ax.textBaseline = 'bottom';
     // « mm » seul et non « mm/24h » : les barres portent la pluie du pas de temps,
     // le cumul 24 h est desormais la courbe (cf. legende du panneau).
-    cx.fillText(hasApportM ? 'Pluie (mm) et apport (m³/s)' : 'Pluie (mm)', pad.l, topY - 3);
+    ax.fillText(hasApportM ? 'Pluie (mm) et apport (m³/s)' : 'Pluie (mm)', pad.l, topY - 3);
     // Deux formes pour deux lectures, sur la MEME echelle mm :
     //   BARRES = pluie tombee pendant le pas de temps (p1) -> quand il a plu
     //   COURBE = cumul 24 h glissant (p24)                 -> combien au total
@@ -1070,16 +1142,17 @@ function drawBigChart() {
       cx.stroke();
       // Axe droit, teinte de la serie. Unite sur chaque palier, comme l'axe des
       // debits et comme l'axe pluie en vis-a-vis.
-      cx.fillStyle = SERIES.apport.solid;
-      cx.font = '10px "Segoe UI",Arial';
-      cx.textAlign = 'left'; cx.textBaseline = 'middle';
+      // Sur #axisCv : x relatif a la largeur VISIBLE, pas a celle du graphe defilant.
+      ax.fillStyle = SERIES.apport.solid;
+      ax.font = '10px "Segoe UI",Arial';
+      ax.textAlign = 'left'; ax.textBaseline = 'middle';
       for (let g = 0; g <= RAIN_ROWS_M; g++) {
         const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
-        cx.fillText(Math.round(apTopM * (1 - g / RAIN_ROWS_M)) + ' m³/s', pad.l + innerW + 5, y);
+        ax.fillText(Math.round(apTopM * (1 - g / RAIN_ROWS_M)) + ' m³/s', viewW - pad.r + 5, y);
       }
     }
     // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les series.
-    cx.font = '11px "Segoe UI",Arial';
+    ax.font = '11px "Segoe UI",Arial';
     // Une entree par FORME (barres / courbe / stem), suffixee du cote de l'axe quand
     // les deux echelles coexistent — sinon rien ne dit laquelle lire pour quelle
     // serie. Suffixes abreges ('g.' / 'd.') : la largeur d'ecran est limitee.
@@ -1094,7 +1167,7 @@ function drawBigChart() {
     if (hasApportM) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel (éch. d.)' });
     const swW2 = 18, swH2 = 6, pX = 6, pY = 5;
     let lgWm = 0;
-    for (const it of lgM) lgWm = Math.max(lgWm, cx.measureText(it.t).width);
+    for (const it of lgM) lgWm = Math.max(lgWm, ax.measureText(it.t).width);
     const bw = lgWm + swW2 + 6 + 2 * pX;
     const bh = 14 * lgM.length + 2 * pY;
     const rYOf = v => base - Math.min(1, v / yTopM) * rainInnerH;
@@ -1102,45 +1175,47 @@ function drawBigChart() {
     // pluie) pour que le cadre evite aussi les stems d'apport.
     const seriesM = [plM.vals];
     if (hasApportM && apTopM > 0) seriesM.push(c.apports.map(v => (v == null ? null : v / apTopM * yTopM)));
-    const coP = pickCorner({ x0: pad.l, y0: topY, w: innerW, h: rainInnerH },
-                           bw, bh, seriesM, rYOf, xOf, null);
-    cx.fillStyle = 'rgba(255,255,255,.85)';
-    cx.fillRect(coP.x, coP.y, bw, bh);
-    cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-    cx.strokeRect(coP.x, coP.y, bw, bh);
-    cx.textAlign = 'left'; cx.textBaseline = 'top';
+    // Legendes sur #axisCv (fixes) : coin choisi d'apres la portion visible a
+    // l'ouverture, c.-a-d. le graphe cale sur la fin (xOfView).
+    const coP = pickCorner({ x0: pad.l, y0: topY, w: innerWView, h: rainInnerH },
+                           bw, bh, seriesM, rYOf, xOfView, null);
+    ax.fillStyle = 'rgba(255,255,255,.85)';
+    ax.fillRect(coP.x, coP.y, bw, bh);
+    ax.strokeStyle = '#dde'; ax.lineWidth = 1;
+    ax.strokeRect(coP.x, coP.y, bw, bh);
+    ax.textAlign = 'left'; ax.textBaseline = 'top';
     for (let k = 0; k < lgM.length; k++) {
       const yk = coP.y + pY + k * 14;
       const itM = lgM[k];
       if (itM.line) {
         // Echantillon en TRAIT : il doit ressembler a la courbe qu'il designe.
-        cx.strokeStyle = itM.c; cx.lineWidth = 1.3;
-        cx.beginPath();
-        cx.moveTo(coP.x + pX, yk + 3 + swH2 / 2);
-        cx.lineTo(coP.x + pX + swW2, yk + 3 + swH2 / 2);
-        cx.stroke();
+        ax.strokeStyle = itM.c; ax.lineWidth = 1.3;
+        ax.beginPath();
+        ax.moveTo(coP.x + pX, yk + 3 + swH2 / 2);
+        ax.lineTo(coP.x + pX + swW2, yk + 3 + swH2 / 2);
+        ax.stroke();
       } else {
-        cx.fillStyle = itM.c;
-        cx.fillRect(coP.x + pX, yk + 3, swW2, swH2);
+        ax.fillStyle = itM.c;
+        ax.fillRect(coP.x + pX, yk + 3, swW2, swH2);
       }
-      cx.fillStyle = '#333';
-      cx.fillText(itM.t, coP.x + pX + swW2 + 6, yk);
+      ax.fillStyle = '#333';
+      ax.fillText(itM.t, coP.x + pX + swW2 + 6, yk);
     }
   }
 
   // Titre du panneau des debits, symetrique de celui du panneau pluie. Seulement
   // quand le 2e panneau existe (sinon rien a distinguer).
   if (plM) {
-    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 11px "Segoe UI",Arial';
-    cx.textAlign = 'left'; cx.textBaseline = 'top';
-    cx.fillText('Débits (m³/s)', pad.l, pad.t + 1);
+    ax.fillStyle = '#1a1a2e'; ax.font = 'bold 11px "Segoe UI",Arial';
+    ax.textAlign = 'left'; ax.textBaseline = 'top';
+    ax.fillText('Débits (m³/s)', pad.l, pad.t + 1);
   }
 
   // Legende : coin choisi dynamiquement pour ne pas se poser sur les courbes
   // (l'ancien coin fixe haut-gauche tombait en plein dans les donnees des centrales
   // dont le debit est eleve en debut de fenetre).
   const lgSwW = 18, lgSwH = 6, lgGap = 16, lgPadX = 6, lgPadY = 5;
-  cx.font = '11px "Segoe UI",Arial';
+  ax.font = '11px "Segoe UI",Arial';
   // Ni apport ni pluie ici : les deux vivent dans le panneau du bas, qui a sa
   // propre legende. Cette legende ne decrit que les series du panneau des debits.
   const labels = [
@@ -1150,23 +1225,28 @@ function drawBigChart() {
   ];
   // Pas d'entree apport ici : il est descendu dans le panneau du bas, qui a sa
   // propre legende. L'y laisser serait un doublon pointant vers un autre cadre.
-  const wMax = Math.max.apply(null, labels.map(lb => cx.measureText(lb.t).width));
+  const wMax = Math.max.apply(null, labels.map(lb => ax.measureText(lb.t).width));
   const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
   const boxH = labels.length * lgGap + 2 * lgPadY;
   const lgTop = plM ? pad.t + 16 : pad.t;   // sous le titre du panneau, s'il y en a un
-  const coL = pickCorner({ x0: pad.l, y0: lgTop, w: innerW, h: pad.t + innerH - lgTop },
-                         boxW, boxH, [arr, c.turbs, c.devs], yOf, xOf, null);
-  cx.fillStyle = 'rgba(255,255,255,.85)';
-  cx.fillRect(coL.x, coL.y, boxW, boxH);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(coL.x, coL.y, boxW, boxH);
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
+  const coL = pickCorner({ x0: pad.l, y0: lgTop, w: innerWView, h: pad.t + innerH - lgTop },
+                         boxW, boxH, [arr, c.turbs, c.devs], yOf, xOfView, null);
+  ax.fillStyle = 'rgba(255,255,255,.85)';
+  ax.fillRect(coL.x, coL.y, boxW, boxH);
+  ax.strokeStyle = '#dde'; ax.lineWidth = 1;
+  ax.strokeRect(coL.x, coL.y, boxW, boxH);
+  ax.textAlign = 'left'; ax.textBaseline = 'top';
   labels.forEach((lb, k) => {
-    cx.fillStyle = lb.c;
-    cx.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 3, lgSwW, lgSwH);
-    cx.fillStyle = '#333';
-    cx.fillText(lb.t, coL.x + lgPadX + lgSwW + 6, coL.y + lgPadY + k * lgGap);
+    ax.fillStyle = lb.c;
+    ax.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 3, lgSwW, lgSwH);
+    ax.fillStyle = '#333';
+    ax.fillText(lb.t, coL.x + lgPadX + lgSwW + 6, coL.y + lgPadY + k * lgGap);
   });
+
+  // Ouverture sur les donnees recentes : au changement de centrale ou de vue, et
+  // tant que l'utilisateur etait deja en bout de course (sinon on respecte sa position).
+  if (bigScrollReset || atEnd) scrollEl.scrollLeft = maxScroll;
+  bigScrollReset = false;
 }
 
 // Redessine sur rotation / resize
@@ -1188,7 +1268,7 @@ init();
 (function setupPullToRefresh() {
   const THRESHOLD = 70;
   const MAX_PULL = 140;
-  let startY = 0;
+  let startY = 0, startX = 0;
   let dragging = false;
   let pulled = 0;
   let refreshing = false;  // bloque les nouveaux gestes pendant un refetch en cours
@@ -1269,6 +1349,7 @@ init();
     if (window.scrollY > 2) { dragging = false; return; }
     if (e.touches.length !== 1) { dragging = false; return; }
     startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX;
     dragging = true;
     pulled = 0;
   }, { passive: true });
@@ -1283,6 +1364,14 @@ init();
       return;
     }
     const dy = e.touches[0].clientY - startY;
+    const dx = e.touches[0].clientX - startX;
+    // Geste surtout horizontal (defilement du graphique, des chips) : ce n'est pas
+    // un tirer-pour-actualiser. Sans ce test, le preventDefault() plus bas bloquait
+    // le defilement horizontal des qu'il derivait un peu vers le bas.
+    if (pulled === 0 && Math.abs(dx) > dy) {
+      dragging = false;
+      return;
+    }
     if (dy <= 0) {
       if (pulled > 0) setPull(0);
       dragging = false;
