@@ -147,7 +147,7 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
        display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
 #modal.open{display:flex}
 #modal-card{position:relative;background:#fff;border-radius:8px;padding:18px 22px 22px;
-            width:min(90vw, 1200px);height:min(78vh, 700px);
+            width:min(99vw, 2600px);height:min(96vh, 1000px);
             box-shadow:0 10px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
 /* Carte modale = colonne flex de hauteur fixe. Titre, stats, tableau et note portent
    flex-shrink:0 : ils gardent leur hauteur naturelle. Seul le canvas cede (flex:1 1 0 +
@@ -155,6 +155,9 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
    cadre — c'etait le cas sur la modale de niveau, dont le tableau fait plusieurs lignes. */
 #modal-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;flex:0 0 auto}
 #modal-stats{font-size:15px;color:#333;margin-bottom:8px;flex:0 0 auto}
+#modal-var{display:none;font-size:13px;color:#333;margin:-2px 0 6px;flex:0 0 auto}
+#modal.varOn #modal-var{display:block}
+#modal-var select{font-size:13px;padding:1px 4px;margin-left:4px}
 #modal-canvas{flex:1 1 0;min-height:120px;display:block;width:100%;cursor:crosshair}
 #modal-note{font-size:12px;color:#888;text-align:left;margin-top:8px;line-height:1.4;flex:0 0 auto}
 #modal-note:empty{display:none}
@@ -163,6 +166,32 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
 #modal-close{position:absolute;top:8px;right:12px;background:transparent;border:none;
              font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
 #modal-close:hover{color:#000}
+/* Etiquette « Debits » a cote de la puissance totale (sparkline de toutes les centrales ; clic = modale comparative) */
+#titlebox{z-index:6}
+#totRow{display:flex;justify-content:center;align-items:center;gap:0;margin-top:2px}
+#titlebox #totRow #mwTotal{margin-top:0}
+#debitAll{pointer-events:auto;position:relative;display:inline-flex;align-items:center;color:#555;font-weight:700;padding:0}
+#debitAll .tri{cursor:pointer}
+#debitAll .tri{font-weight:700;color:#555577;line-height:1;cursor:pointer;padding:0 0 0 .25em}
+#debitCard .tri{color:#1a1a2e;padding:0 0 0 .8em}
+#debitCard .hd{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(120,120,120,.55);padding-bottom:.15em;margin-bottom:.3em}
+#debitCard .nm{font-size:.8em;color:#111;font-weight:700}
+#debitAll.open .tri{color:#1a1a2e}
+#debitCard{display:none;position:absolute;top:100%;right:0;margin-top:2px;z-index:5;background:#fff;border:1px solid rgba(80,80,80,.6);padding:.3em .45em .35em}
+#debitAll.open #debitCard{display:block}
+#debitCard canvas{display:block;width:9em;height:2.4em;cursor:pointer}
+#modal-all{position:fixed;inset:0;background:rgba(10,10,20,.78);z-index:100;display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+#modal-all.open{display:flex}
+#modal-all-card{position:relative;background:#fff;border-radius:8px;padding:18px 22px 16px;width:min(99vw, 2600px);height:min(96vh, 1000px);
+                box-shadow:0 10px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
+#modal-all-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;flex:0 0 auto}
+#modal-all-var{font-size:13px;color:#333;margin:2px 0 6px;flex:0 0 auto}
+#modal-all-var select{font-size:13px;padding:1px 4px;margin-left:4px}
+#modal-all-canvas{flex:1 1 0;min-height:120px;display:block;width:100%;cursor:crosshair}
+#modal-all-note{font-size:11px;font-style:italic;color:#6a7280;margin-top:6px;line-height:1.3;flex:0 0 auto;padding-left:60px}
+#modal-all-note b{font-weight:700;font-style:italic}
+#modal-all-close{position:absolute;top:8px;right:12px;background:transparent;border:none;font-size:24px;color:#666;cursor:pointer;line-height:1;padding:4px 10px}
+#modal-all-close:hover{color:#000}
 #modal-info{position:fixed;inset:0;background:rgba(10,10,20,.78);z-index:101;
             display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
 #modal-info.open{display:flex}
@@ -427,7 +456,10 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="titlebox">
     <h1 id="titre">Saint-Maurice</h1>
     <div id="ts">&#8212;</div>
-    <div id="mwTotal"></div>
+    <div id="totRow">
+      <div id="mwTotal"></div>
+      <div id="debitAll" title="D&eacute;bit total de chaque centrale &mdash; cliquer pour comparer d&eacute;bits et variations de toutes les centrales"><span class="tri" id="debitTri">&#9662;</span><div id="debitCard"><div class="hd"><span class="nm">Saint-Maurice</span><span class="tri" id="debitTri2">&#9652;</span></div><canvas id="totSpark" title="Ouvrir la comparaison de toutes les centrales"></canvas></div></div>
+    </div>
   </div>
   <div id="riverSummary"></div>
   <div id="disclaimer">
@@ -439,15 +471,45 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.18.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.19.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-28 14:29</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-28 16:07</div>
+</div>
+<div id="modal-all">
+  <div id="modal-all-card">
+    <button id="modal-all-close" type="button" aria-label="Fermer">&times;</button>
+    <div id="modal-all-title">Toutes les centrales &mdash; d&eacute;bit total et variations (nord &rarr; sud)</div>
+    <div id="modal-all-var">
+      <label>Variations des d&eacute;bits par l'action des vannes :
+        <select id="allVariationSel">
+          <option value="manoeuvre">Par heure</option>
+          <option value="jour" selected>Total quotidien</option>
+        </select>
+      </label>
+      <label style="margin-left:18px">Variation affich&eacute;e :
+        <select id="allVariationMin"></select>
+      </label>
+    </div>
+    <canvas id="modal-all-canvas"></canvas>
+    <div id="modal-all-note"></div>
+  </div>
 </div>
 <div id="modal">
   <div id="modal-card">
     <button id="modal-close" type="button" aria-label="Fermer">&times;</button>
     <div id="modal-title"></div>
     <div id="modal-stats"></div>
+    <div id="modal-var">
+      <label>Variations des d&eacute;bits par l'action des vannes :
+        <select id="variationSel">
+          <option value="manoeuvre">Par heure</option>
+          <option value="jour" selected>Total quotidien</option>
+        </select>
+      </label>
+      <label style="margin-left:18px">Variation affich&eacute;e :
+        <select id="variationMin"></select>
+      </label>
+    </div>
     <div id="modal-table"></div>
     <canvas id="modal-canvas"></canvas>
     <div id="modal-note"></div>
@@ -605,6 +667,8 @@ const riverBox   = document.getElementById('riverSummary');
 let D = null;     // vue active (rebatie par setPeriode)
 let N = 0;        // nombre de frames de la vue active
 let frame = 0, playing = false, timer = null;
+let allOpen = false;   // modale « toutes les centrales » ouverte
+let allStart = null, allWin = { n: 0, N: 0, keep: [], start: 0 }, allScrollY = 0;
 let modalIdx = -1;     // index centrale dans la modale (-1 = ferme)
 let modalResIdx = -1;  // index reservoir dans la modale (-1 = ferme)
 let modalTurbIdx = -1; // index centrale dans la modale TURBINES (-1 = ferme)
@@ -890,7 +954,8 @@ function rebuildHoraireFromLoadedMonths() {
     debits: c.debits.slice(), turbs: c.turbs.slice(), devs: c.devs.slice(),
     mws: c.mws.slice(), trends: c.trends.slice(), stables: c.stables.slice(),
     amonts: (c.amonts || []).slice(), avals: (c.avals || []).slice(),
-    apports: (c.apports || []).slice()
+    apports: (c.apports || []).slice(),
+    man: (c.man || []).slice()
   }));
   const reservoirs = (first.reservoirs || []).map(r => Object.assign({}, r, {
     niveaux: r.niveaux.slice(), devs: r.devs.slice(), apports: r.apports.slice()
@@ -925,11 +990,14 @@ function rebuildHoraireFromLoadedMonths() {
     const sub = months[mi]._data;
     const nFrames = sub.timestamps.length;
     const nulls = () => new Array(nFrames).fill(null);
+    const frameOff = timestamps.length;      // decalage des indices de frame du mois ajoute
 
     const srcCentralesById = new Map(sub.centrales.map(c => [c.id, c]));
     for (const dest of centrales) {
       const src = srcCentralesById.get(dest.id);
       if (src) {
+        // Manoeuvres : liste creuse [frame, delta, heureFin, dTurb, dDev], frame relatif au mois -> absolu
+        for (const m of (src.man || [])) dest.man.push([m[0] + frameOff].concat(m.slice(1)));
         dest.debits.push(...src.debits);
         dest.turbs.push(...src.turbs);
         dest.devs.push(...src.devs);
@@ -1018,10 +1086,18 @@ async function maybeLoadPreviousMonth() {
     // Memorise le timestamp courant pour repositionner apres concatenation.
     const wasInHoraire = (D && D.periode === 'horaire');
     const currentTs = wasInHoraire ? D.timestamps[frame] : null;
+    const nBefore = wasInHoraire ? D.timestamps.length : 0;
     await ensureMonthLoaded(prevMonth);
     if (wasInHoraire && periodeSel.value === 'horaire') {
       // Re-applique la vue : N change, frame doit pointer sur le meme ts qu'avant.
       setPeriode('horaire');
+      // Le mois ajoute s'insere AVANT les frames existantes : la fenetre defilante de la sparkline
+      // (indices) doit glisser du meme nombre de frames pour rester sur les memes dates.
+      const shift = D.timestamps.length - nBefore;
+      if (sparkEnd !== null) sparkEnd += shift;
+      if (sparkLastI >= 0) sparkLastI += shift;
+      if (modalStart !== null && modalIdx >= 0 && modalWin.N) modalStart += modalKeep(D.centrales[modalIdx]).length - modalWin.N;
+      if (allStart !== null && allOpen && allWin.N) allStart += allKeep().length - allWin.N;
       if (currentTs) {
         const newIdx = D.timestamps.indexOf(currentTs);
         if (newIdx >= 0) go(newIdx);
@@ -2206,6 +2282,144 @@ function turbineConfig(spec, turb) {
 // meme temps que les autres ratios lh*0.xxxx si label_height change (elle vaut 0.4495
 // pour label_height = 275, soit ~123,6 px : position historique conservee).
 const TURB_ROW_FRAC = 0.4495;
+
+// ----- Bande des variations (ouvertures / fermetures) sous la sparkline des centrales -----
+// ⚠ Manoeuvres INFEREES du debit : HQ ne publie pas la position des vannes. c.man = liste
+// creuse [frame, delta, heureFin, dTurb, dDev] produite par render-animation.ps1 (meme detection
+// que la page vannes : lib/Detect-Manoeuvres.ps1 + config/vannes.json), seulement en Heure et Jour.
+//
+// Mise en page : label_height (config/layout) INCLUT la bande. Les rangees de texte restent
+// calees sur la hauteur de BASE (labelHBase = label_height - STRIP_H), donc elles ne bougent pas
+// que la bande soit affichee ou non ; seule la hauteur effective de l'etiquette change.
+const STRIP_H = 22;               // hauteur de la bande (px image)
+const SPARK_PX_DAY = 7;           // px image par JOUR sur la sparkline defilante (meme principe que le graphe mobile)
+// 'jour' = somme par jour (net) | 'manoeuvre' = ouvertures et fermetures separees
+let variationMode = 'jour';
+function stripOn() {
+  return !!D && (D.periode === 'horaire' || D.periode === 'journalier') &&
+         D.centrales.some(c => c.man && c.man.length);
+}
+function labelHBase() { return D.labelH - STRIP_H; }
+function labelHEff()  { return stripOn() ? D.labelH : labelHBase(); }
+
+// Fenetre defilante PARTAGEE par toutes les sparklines : memes dates visibles partout, donc
+// les colonnes (jours) se lisent d'une centrale a l'autre. Comme sur mobile : axes fixes, donnees
+// qui defilent ; par defaut la fenetre suit le curseur (frame courant). Un defilement manuel
+// (molette ou glisser) la fige jusqu'au prochain changement de frame hors fenetre.
+let sparkEnd = null, sparkManual = false, sparkLastI = -1;
+function sparkFramePx() { return SPARK_PX_DAY / (D.periode === 'horaire' ? 24 : 1); }   // px image par frame
+function sparkWindow(i, N) {
+  const pxF = sparkFramePx();
+  // Largeur de reference = etiquette standard (190) moins marges et axe Y : meme nombre de frames pour tous
+  const Wv = Math.max(1, Math.min(N - 1, (D.labelW - 8 - 26) / pxF));
+  if (i !== sparkLastI) {
+    if (sparkManual && sparkEnd !== null && (i < sparkEnd - Wv || i > sparkEnd)) sparkManual = false;
+    sparkLastI = i;
+  }
+  let end = (sparkManual && sparkEnd !== null) ? sparkEnd : i + 0.15 * Wv;
+  end = Math.max(Wv, Math.min(N - 1, end));
+  sparkEnd = end;
+  return { start: end - Wv, end: end, Wv: Wv, pxF: pxF };
+}
+function sparkReset() { sparkEnd = null; sparkManual = false; sparkLastI = -1; }
+
+// Regroupement des manoeuvres d'une centrale selon variationMode. Resultat mis en cache sur c.
+//   items = [{ f: frame, parts: [[dTurb, dDev], ...] }]   amp = plus grande pile (m3/s)
+//   'jour'      : un bloc par jour = net (somme des dTurb, dDev) ; en Heure, au frame de la plus grande manoeuvre
+//   'manoeuvre' : en Jour, ouvertures et fermetures du jour SEPAREES (deux blocs cote a cote) ;
+//                 en Heure, un bloc par manoeuvre
+function manGroups(c) {
+  const man = c.man || [];
+  const key = variationMode + '|' + D.periode + '|' + man.length + '|' + D.timestamps.length;
+  if (c._mgKey === key) return c._mg;
+  const items = [];
+  const jour = D.periode === 'journalier';
+  const dayOf = f => jour ? f : String(D.timestamps[f] || '').slice(0, 10);
+  if (variationMode === 'manoeuvre') {
+    if (jour) {
+      const by = new Map();
+      for (const m of man) {
+        let g = by.get(m[0]);
+        if (!g) { g = { f: m[0], o: [0, 0, 0, -1, null], c: [0, 0, 0, -1, null] }; by.set(m[0], g); }
+        const t = m[1] > 0 ? g.o : g.c;
+        t[0] += m[3]; t[1] += m[4]; t[2]++;
+        if (Math.abs(m[1]) > t[3]) { t[3] = Math.abs(m[1]); t[4] = m[2]; }   // heure de fin de la plus grande
+      }
+      for (const g of by.values()) {
+        const parts = [], hrs = [];
+        if (g.o[2]) { parts.push([g.o[0], g.o[1]]); hrs.push(g.o[4]); }
+        if (g.c[2]) { parts.push([g.c[0], g.c[1]]); hrs.push(g.c[4]); }
+        items.push({ f: g.f, parts: parts, hrs: hrs });
+      }
+    } else {
+      for (const m of man) items.push({ f: m[0], parts: [[m[3], m[4]]], hrs: [m[2]] });
+    }
+  } else {
+    const by = new Map();
+    for (const m of man) {
+      const d = dayOf(m[0]);
+      let g = by.get(d);
+      if (!g) { g = { t: 0, d: 0, f: m[0], big: -1, hr: null }; by.set(d, g); }
+      g.t += m[3]; g.d += m[4];
+      if (Math.abs(m[1]) > g.big) { g.big = Math.abs(m[1]); g.f = m[0]; g.hr = m[2]; }   // manoeuvre dominante : heure de fin
+    }
+    for (const g of by.values()) items.push({ f: g.f, parts: [[g.t, g.d]], hrs: [g.hr] });
+  }
+  let amp = 0;
+  for (const it of items) for (const p of it.parts) {
+    amp = Math.max(amp, Math.max(p[0], 0) + Math.max(p[1], 0), -(Math.min(p[0], 0) + Math.min(p[1], 0)));
+  }
+  c._mgKey = key; c._mg = { items: items, amp: amp };
+  return c._mg;
+}
+
+// Dessine la bande sous la courbe. Meme abscisse que la sparkline (xOfK) : une barre est
+// exactement sous le point de debit de sa date. Zero au milieu : ouverture vers le haut,
+// fermeture vers le bas ; composantes turbine (vert) et deverse (bleu) signees et empilees,
+// comme la vue Comparer de la page vannes. Echelle propre a la centrale (± amp a droite).
+function drawVariationStrip(ctx, c, win, i, plotX, plotW, y0, h, sx, sy, fsAxis) {
+  const g = manGroups(c);
+  const midY = y0 + h / 2, half = h / 2 - sy;
+  const pxF = plotW / win.Wv;
+  const xOfK = k => plotX + (k - win.start) * pxF;
+  ctx.strokeStyle = 'rgba(120,120,130,.45)'; ctx.lineWidth = 0.6 * sx;
+  ctx.beginPath(); ctx.moveTo(plotX, midY); ctx.lineTo(plotX + plotW, midY); ctx.stroke();
+  if (!g.amp) return;
+  const k = half / g.amp;
+  const jourSep = (variationMode === 'manoeuvre' && D.periode === 'journalier');
+  const bw = Math.max(1.2 * sx, Math.min(pxF * (jourSep ? 0.42 : 0.72), 6 * sx));
+  ctx.save();
+  ctx.beginPath(); ctx.rect(plotX, y0, plotW, h); ctx.clip();
+  for (const it of g.items) {
+    if (it.f < win.start - 1 || it.f > win.end + 1) continue;
+    const n = it.parts.length;
+    for (let pi = 0; pi < n; pi++) {
+      const p = it.parts[pi];
+      const xc = xOfK(it.f) + (n > 1 ? (pi - (n - 1) / 2) * bw : 0);
+      let up = 0, dn = 0;
+      const comps = [[p[0], SERIES.turbine.line], [p[1], SERIES.deverse.line]];
+      for (const cp of comps) {
+        const v = cp[0];
+        if (Math.abs(v) < 0.5) continue;
+        ctx.fillStyle = cp[1];
+        if (v > 0) { ctx.fillRect(xc - bw / 2, midY - (up + v) * k, bw, Math.max(0.6 * sy, v * k)); up += v; }
+        else       { ctx.fillRect(xc - bw / 2, midY - dn * k, bw, Math.max(0.6 * sy, -v * k)); dn += v; }
+      }
+    }
+  }
+  // Repere du frame courant (alignement avec le point de la courbe au-dessus)
+  const xi = xOfK(i);
+  if (xi >= plotX && xi <= plotX + plotW) {
+    ctx.strokeStyle = 'rgba(60,60,70,.40)'; ctx.lineWidth = 0.8 * sx;
+    ctx.beginPath(); ctx.moveTo(xi, y0); ctx.lineTo(xi, y0 + h); ctx.stroke();
+  }
+  ctx.restore();
+  // Echelle ± amp, a droite (hors zone clippee)
+  ctx.fillStyle = 'rgba(60,60,70,.85)';
+  ctx.font = Math.max(7, Math.round(fsAxis * 0.9)) + 'px "Segoe UI",Arial,sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('±' + Math.round(g.amp), plotX + plotW + 3 * sx, midY);
+}
 // Ratio de la ligne "niveau" dans l'etiquette RESERVOIR. Partage entre le dessin et
 // le test de clic (hitTestReservoirNiveauArrow) : les deux se sont desynchronises une
 // fois, la zone cliquable restant a 0.47 apres le passage du dessin a 0.432.
@@ -2260,7 +2474,8 @@ function draw(i) {
   // dependent pas de la case « Zones meteo ».
   drawStationsMeteo(sx, sy);
   const lw = D.labelW * sx;
-  const lh = D.labelH * sy;
+  const lhT = labelHBase() * sy;        // base des rangees de texte (label_height - bande de variations)
+  const lhFullC = labelHEff() * sy;     // hauteur effective de l'etiquette (bande incluse si affichee)
 
   // ---- LEGENDE : tableau opaque autonome ----
   // Remplace l'ancien assemblage de 3 blocs positionnes les uns par rapport aux autres
@@ -2319,6 +2534,8 @@ function draw(i) {
     if (tsEl) tsEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px';
     const mwTotEl = document.getElementById('mwTotal');
     if (mwTotEl) mwTotEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px';
+    const debAllEl = document.getElementById('debitAll');
+    if (debAllEl) { debAllEl.style.fontSize = Math.round(lgFsCss * 1.28) + 'px'; document.querySelectorAll('#debitAll .tri').forEach(t => { t.style.fontSize = Math.max(18, Math.round(28 * sxCss)) + 'px'; }); }
     // Bloc haut-droite ("Mobile · v2.x.x") : restait en clamp(...vw...), donc il
     // grossissait avec la fenetre au lieu de suivre l'image. Meme ratio que le
     // disclaimer, dont il partageait la regle CSS (0.95vw).
@@ -2661,7 +2878,7 @@ function draw(i) {
 
     // Etat : expanded = toujours pleine hauteur. Cache si alpha == 0.
     const expanded = isExpanded(c);
-    const lhEff = lh;
+    const lhEff = lhFullC;
     const alpha  = labelAlpha[c.id] !== undefined ? labelAlpha[c.id] : (expanded ? 1 : 0);
     if (alpha <= 0) continue;  // saute le rendu etiquette si completement cachee
 
@@ -2714,16 +2931,16 @@ function draw(i) {
     const nameEndX = drawLeftSegments(ctx, [
       { icon: 'centrale', size: fsCentrIcon },
       { text: c.nomAffiche || c.nom, color: '#111' }
-    ], leftX, ly + lh*0.0556, fontName);
+    ], leftX, ly + lhT*0.0556, fontName);
 
     // Indicateur fermeture dans le coin haut-droit : toujours ▴ (ferme l'etiquette).
     const arrowXC = lx + lwC - 6*sx;
-    const rowYC = ly + lh*0.0556;
+    const rowYC = ly + lhT*0.0556;
     ctx.font = 'bold ' + fsArrow + 'px "Segoe UI",Arial,sans-serif';
     ctx.fillStyle = '#1a1a2e';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText('▴', arrowXC, rowYC);
-    const sepY = ly + lh*0.1244;
+    const sepY = ly + lhT*0.1244;
     ctx.beginPath();
     ctx.moveTo(leftX, sepY);
     ctx.lineTo(lx + lwC - 6*sx, sepY);
@@ -2740,7 +2957,7 @@ function draw(i) {
       drawLeftSegments(ctx, [
         { icon: 'debit', size: fsIcon },
         { text: debEff + ' m³/s', color: valCol }
-      ], leftX, ly + lh*0.1720, fontTotal);
+      ], leftX, ly + lhT*0.1720, fontTotal);
       ctx.restore();
     }
 
@@ -2762,7 +2979,7 @@ function draw(i) {
           { text: (turbEff !== null ? turbEff : '-') + '   ', color: grayCol },
           { icon: 'deverse', size: fsIconDev },
           { text: (devEff  !== null ? devEff  : '-'), color: grayCol }
-        ], leftX, ly + lh*0.2618, fontDetail);
+        ], leftX, ly + lhT*0.2618, fontDetail);
         ctx.restore();
       }
 
@@ -2782,7 +2999,7 @@ function draw(i) {
         }
         ctx.save();
         if (c.mwsStale[i]) ctx.globalAlpha = 0.45;
-        drawLeftSegments(ctx, segs, leftX, ly + lh*0.3604, fontMw);
+        drawLeftSegments(ctx, segs, leftX, ly + lhT*0.3604, fontMw);
         ctx.restore();
       }
 
@@ -2795,7 +3012,7 @@ function draw(i) {
         const fam = c.famille_turbine;
         const name = (fam === 'Francis') ? 'turbine-francis' : 'turbine-kaplan';
         const sz = Math.round(fsIcon * 0.95);   // taille proche des autres icones de l'etiquette
-        const yMid = ly + lh*TURB_ROW_FRAC;
+        const yMid = ly + lhT*TURB_ROW_FRAC;
         // Dans l'etiquette : icone PLEINE et NETTE (pas de jauge ni teinte verte).
         // La charge par turbine (jauge) est reservee au modal detaille.
         const turbIm = iconImgs[name];
@@ -2822,17 +3039,17 @@ function draw(i) {
       const fontTrend = fsTrend+'px "Segoe UI",Arial,sans-serif';
       const trUnit = D.trendUnit || '6h';
       if (tr === null) {
-        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lh*0.7440, fontTrend);
+        drawLeftSegments(ctx, [{ text: '—', color: '#3a3a3a' }], leftX, ly + lhT*0.7440, fontTrend);
       } else {
         const sign = tr >= 0 ? '+' : '';
         if (tr > 50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#a01818' }
-          ], leftX, ly + lh*0.7440, fontTrend);
+          ], leftX, ly + lhT*0.7440, fontTrend);
         } else if (tr < -50) {
           drawLeftSegments(ctx, [
             { text: sign + tr + ' m³/s en ' + trUnit, color: '#1a6e1a' }
-          ], leftX, ly + lh*0.7440, fontTrend);
+          ], leftX, ly + lhT*0.7440, fontTrend);
         } else {
           const sh = c.stables ? c.stables[i] : null;
           const stTxt = (sh === null || sh === undefined) ? 'stable'
@@ -2840,7 +3057,7 @@ function draw(i) {
                                                 : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
           drawLeftSegments(ctx, [
             { text: stTxt, color: '#3a3a3a' }
-          ], leftX, ly + lh*0.7440, fontTrend);
+          ], leftX, ly + lhT*0.7440, fontTrend);
         }
       }
 
@@ -2869,7 +3086,7 @@ function draw(i) {
                         font: fsAge + 'px "Segoe UI",Arial,sans-serif' });
           }
         }
-        drawLeftSegments(ctx, segs, leftX, ly + lh*0.5476, fontDetail);
+        drawLeftSegments(ctx, segs, leftX, ly + lhT*0.5476, fontDetail);
       }
       let cPluie24 = null;
       if (c.zoneMeteo && D.meteo && D.meteo.zones) {
@@ -2883,7 +3100,7 @@ function draw(i) {
         drawLeftSegments(ctx, [
           { icon: 'pluie', size: fsIconDev },
           { text: cPluie24 + ' mm/24h', color: 'rgba(110,110,110,.95)' }
-        ], leftX, ly + lh*0.6458, fontDetail);
+        ], leftX, ly + lhT*0.6458, fontDetail);
       }
 
       // Sparkline minimaliste avec axes X (temps) et Y (debit min/max).
@@ -2896,9 +3113,15 @@ function draw(i) {
       const xLabelH = fsAxis * 1.4;     // hauteur reservee en bas pour la date
       // Zone reelle de tracage de la courbe (apres soustraction des marges axes).
       const plotX = lx + barW + 4 * sx;
-      const plotY = ly + lh - sparkH - sparkBottomMargin;
+      // Bande des variations (sous la courbe, avant la ligne des dates) : STRIP_H en plus de sparkH.
+      const stripPx = stripOn() ? STRIP_H * sy : 0;
+      const plotY = ly + lhEff - sparkH - stripPx - sparkBottomMargin;
       const plotW = lwC - barW - 8 * sx - yLabelW;
       const plotH = sparkH - xLabelH;
+      // Heure et Jour : fenetre defilante partagee (cf. sparkWindow). Semaine et Mois : tout tient, pas de defilement.
+      const scrolled = (D.periode === 'horaire' || D.periode === 'journalier') && N > 2;
+      const win = scrolled ? sparkWindow(i, N) : { start: 0, end: N - 1, Wv: Math.max(1, N - 1), pxF: 0 };
+      const xOfK = k => plotX + ((k - win.start) / win.Wv) * plotW;
       // Min/max combine sur les 3 series (debit total, turbine, deverse) pour
       // que les 3 courbes partagent la meme echelle Y. On part du min/max
       // historique du debit total (qui est souvent dominant) puis on etend
@@ -2914,7 +3137,7 @@ function draw(i) {
         const range = yMaxC - yMinC;
         const yOf = v => plotY + plotH - ((v - yMinC) / Math.max(range, 1)) * plotH;
         // Bande "futur" en gris pale.
-        const xFuture = plotX + ((i + 1) / (N - 1)) * plotW;
+        const xFuture = Math.max(plotX, xOfK(i + 1));
         if (xFuture < plotX + plotW) {
           ctx.fillStyle = 'rgba(150,150,160,.12)';
           ctx.fillRect(xFuture, plotY, plotX + plotW - xFuture, plotH);
@@ -2937,9 +3160,10 @@ function draw(i) {
         // Labels axe X : date debut a gauche, date fin a droite (sous l'axe).
         ctx.fillStyle = 'rgba(60,60,70,.75)';
         ctx.textBaseline = 'top';
-        const xAxisY = plotY + plotH + 2 * sy;
-        const tsFirst = D.timestamps[0] || '';
-        const tsLast  = D.timestamps[D.timestamps.length - 1] || '';
+        const xAxisY = plotY + plotH + stripPx + 2 * sy;
+        // Dates des deux bords de la FENETRE visible (toutes les donnees en Semaine/Mois).
+        const tsFirst = D.timestamps[Math.max(0, Math.round(win.start))] || '';
+        const tsLast  = D.timestamps[Math.min(N - 1, Math.round(win.end))] || '';
         // Format compact : pour Heure '04-04 06:00' -> '04-04' ; pour Jour '2026-04-04' -> '04-04' ;
         // pour Semaine '2026-04-04 -> ...' -> '04-04' ; pour Mois '2026-04' -> '04'.
         const compactX = (s) => {
@@ -2979,6 +3203,10 @@ function draw(i) {
         // On lit c.apports (brut) et non c.apportsEff (dernier connu reporte) : l'apport
         // est publie 1x/jour, donc apportsEff donnerait 24 barres identiques cote a cote
         // pour une seule mesure reelle. Le stem doit marquer la mesure, pas sa persistance.
+        // Tout ce qui suit (apport, series, courbe, curseur) est clippe a la zone de trace : la
+        // fenetre defile, les points hors fenetre ne doivent pas deborder sur l'etiquette.
+        ctx.save();
+        ctx.beginPath(); ctx.rect(plotX, plotY - 2 * sy, plotW + 4 * sx, plotH + 4 * sy); ctx.clip();
         if (c.apports && c.maxApport) {
           const apBandH = plotH * 0.40;
           const apBaseY = plotY + plotH;          // pose sur l'axe X
@@ -2988,7 +3216,7 @@ function draw(i) {
           for (let k = 0; k < N; k++) {
             const v = c.apports[k];
             if (v === null || v === undefined || v <= 0) continue;
-            const xx = plotX + (k / (N - 1)) * plotW;
+            const xx = xOfK(k);
             const hh = Math.min(1, v / c.maxApport) * apBandH;
             ctx.moveTo(xx, apBaseY);
             ctx.lineTo(xx, apBaseY - hh);
@@ -3006,7 +3234,7 @@ function draw(i) {
           for (let k = 0; k < N; k++) {
             const v = series[k];
             if (v === null) { st = false; continue; }
-            const xx = plotX + (k / (N - 1)) * plotW;
+            const xx = xOfK(k);
             const yy = yOf(v);
             if (!st) { ctx.moveTo(xx, yy); st = true; } else { ctx.lineTo(xx, yy); }
           }
@@ -3020,7 +3248,7 @@ function draw(i) {
         for (let k = 0; k < N; k++) {
           const v = c.debits[k];
           if (v === null) { pts.push(null); }
-          else { pts.push({ x: plotX + (k / (N - 1)) * plotW, y: yOf(v) }); }
+          else { pts.push({ x: xOfK(k), y: yOf(v) }); }
         }
         // Courbe debit total (couleur du statut, trait epais — dominante).
         ctx.beginPath();
@@ -3039,6 +3267,22 @@ function draw(i) {
           ctx.beginPath(); ctx.arc(cur.x, cur.y, 3.5 * sx, 0, 2 * Math.PI); ctx.fill();
           ctx.fillStyle = col.s;
           ctx.beginPath(); ctx.arc(cur.x, cur.y, 2.5 * sx, 0, 2 * Math.PI); ctx.fill();
+        }
+        ctx.restore();   // fin du clip de la zone de trace
+        // Bande des variations, juste sous la courbe, meme abscisse (xOfK) que le point de debit.
+        if (stripPx > 0) {
+          drawVariationStrip(ctx, c, win, i, plotX, plotW, plotY + plotH + sy, stripPx - 2 * sy, sx, sy, fsAxis);
+        }
+        // Indicateur de position (comme la barre de defilement du graphe mobile) : visible seulement
+        // si la fenetre ne couvre pas toutes les donnees.
+        if (scrolled && win.Wv < N - 1) {
+          const sbY = ly + lhEff - 3 * sy, sbH = 2 * sy;
+          const thumbW = Math.max(8 * sx, plotW * win.Wv / (N - 1));
+          const thumbX = plotX + (plotW - thumbW) * (win.start / Math.max(1, N - 1 - win.Wv));
+          ctx.fillStyle = 'rgba(150,150,160,.28)';
+          ctx.fillRect(plotX, sbY, plotW, sbH);
+          ctx.fillStyle = 'rgba(80,80,100,.65)';
+          ctx.fillRect(thumbX, sbY, thumbW, sbH);
         }
       }
     }
@@ -3577,6 +3821,8 @@ function go(i) {
   if (sliderTs) sliderTs.textContent = ts;
   fi.textContent = (frame+1)+' / '+N;
   renderMwTotal(frame);
+  drawTotalSpark();
+  if (allOpen) drawAll();
   draw(frame);
   // Bandeau resume general de la riviere (4 vues, change avec la frame).
   // Pas d'en-tete : la date est deja visible dans la barre de controle et le
@@ -3612,7 +3858,16 @@ function go(i) {
 // Bascule de periode (setPeriode reconstruit la vue et repositionne le slider)
 periodeSel.addEventListener('change', () => {
   stop();
+  sparkReset();            // nouvelle echelle de temps : la fenetre de la sparkline suit de nouveau le curseur
   setPeriode(periodeSel.value);
+});
+// Variations (ouvertures / fermetures) sous la sparkline des centrales : choix memorise.
+const variationSel = document.getElementById('variationSel');
+variationSel.value = variationMode;
+variationSel.addEventListener('change', () => {
+  variationMode = variationSel.value;
+  draw(frame);                                  // bande sous la sparkline
+  if (modalIdx >= 0) drawBigChart();            // panneau de la modale
 });
 
 function startPlay() {
@@ -3728,9 +3983,9 @@ function imgCoordsFromEv(ev) {
 // Renvoie l'index centrale dont le rectangle sparkline contient (xImg, yImg), sinon -1.
 // Sparkline = 45 px de haut, 4 px de marge en bas (cf. draw()).
 function hitTestSparkline(xImg, yImg) {
-  const lh = D.labelH;
+  const lh = labelHEff();                          // hauteur effective (bande de variations incluse si affichee)
   const barW = 12;
-  const sparkH = 45;
+  const sparkH = 45 + (stripOn() ? STRIP_H : 0);   // sparkline + bande de variations
   const sparkBottomMargin = 4;
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
@@ -3746,7 +4001,7 @@ function hitTestSparkline(xImg, yImg) {
 // Zone cliquable de l'indicateur turbine (centrale etendue) -> ouvre le modal turbines.
 // Doit rester synchronisee avec le rendu (TURB_ROW_FRAC, leftX, taille).
 function hitTestTurbineIcon(xImg, yImg) {
-  const lh = D.labelH;
+  const lh = labelHBase();                         // les rangees de texte sont calees sur la hauteur de base
   const barW = 12;
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
@@ -3762,7 +4017,7 @@ function hitTestTurbineIcon(xImg, yImg) {
 }
 // Zone cliquable pour fermer l'etiquette : toute la zone du header (nom).
 function hitTestLabelHeader(xImg, yImg) {
-  const lh = D.labelH;
+  const lh = labelHBase();
   for (let k = 0; k < D.centrales.length; k++) {
     const c = D.centrales[k];
     if (!isVisible(c)) continue;
@@ -3990,7 +4245,7 @@ hoverLayer.addEventListener('mousemove', (ev)=>{
 // C'est le cas du detail de Grand-Mere qui recouvre le disclaimer.
 function labelCoversImgPoint(x, y) {
   if (!D) return false;
-  const lh = D.labelH;
+  const lh = labelHEff();
   for (const c of D.centrales) {
     if (!isVisible(c)) continue;
     const lwC = c.labelW || D.labelW;
@@ -4014,7 +4269,55 @@ function linkAtClientPoint(ev) {
   }
   return null;
 }
+// ----- Defilement de la sparkline (molette ou glisser), commun a toutes les centrales -----
+// Meme principe que le graphe defilable de la version mobile : on parcourt TOUTES les donnees de la
+// vue (Jour : tout est charge ; Heure : le mois precedent est charge a l'approche du bord gauche).
+// Un defilement fige la fenetre (sparkManual) jusqu'a ce que le frame courant en sorte.
+let sparkDrag = null, sparkSuppressClick = false;
+function sparkImgScale() {
+  const r = img.getBoundingClientRect();   // px image par px ecran
+  return r.width ? (img.naturalWidth / r.width) : 1;
+}
+function sparkScrollTo(end) {
+  const N = D.timestamps.length;
+  const Wv = Math.max(1, Math.min(N - 1, (D.labelW - 8 - 26) / sparkFramePx()));
+  sparkManual = true;
+  sparkLastI = frame;      // sans ca, le 1er dessin verrait un « changement de frame » et rendrait la main au curseur
+  sparkEnd = Math.max(Wv, Math.min(N - 1, end));
+  if (D.periode === 'horaire' && sparkEnd - Wv < Wv * 1.5) maybeLoadPreviousMonth();
+  draw(frame);
+}
+function sparkTarget(ev) {
+  if (!D || !(D.periode === 'horaire' || D.periode === 'journalier')) return -1;
+  const p = imgCoordsFromEv(ev);
+  const k = hitTestSparkline(p.x, p.y);
+  return (k !== -1 && isExpanded(D.centrales[k])) ? k : -1;
+}
+hoverLayer.addEventListener('wheel', (ev) => {
+  if (sparkTarget(ev) === -1) return;
+  ev.preventDefault();
+  const d = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+  sparkScrollTo((sparkEnd === null ? D.timestamps.length - 1 : sparkEnd) + (d * 0.4 * sparkImgScale()) / sparkFramePx());
+}, { passive: false });
+hoverLayer.addEventListener('mousedown', (ev) => {
+  if (ev.button !== 0 || sparkTarget(ev) === -1) return;
+  sparkDrag = { x0: ev.clientX, end0: sparkEnd === null ? D.timestamps.length - 1 : sparkEnd, moved: false };
+});
+window.addEventListener('mousemove', (ev) => {
+  if (!sparkDrag) return;
+  const dx = ev.clientX - sparkDrag.x0;
+  if (!sparkDrag.moved && Math.abs(dx) < 4) return;
+  sparkDrag.moved = true;
+  sparkScrollTo(sparkDrag.end0 - (dx * sparkImgScale()) / sparkFramePx());
+});
+window.addEventListener('mouseup', () => {
+  if (!sparkDrag) return;
+  if (sparkDrag.moved) { sparkSuppressClick = true; setTimeout(() => { sparkSuppressClick = false; }, 0); }
+  sparkDrag = null;
+});
 hoverLayer.addEventListener('click', (ev)=>{
+  // Un glisser de la sparkline ne doit pas ouvrir la modale au relachement.
+  if (sparkSuppressClick) { sparkSuppressClick = false; return; }
   // Priorite absolue : un lien d'habillage sous le pointeur. Avant le garde
   // "if (!D)" pour que les liens marchent meme si les donnees n'ont pas charge.
   const a = linkAtClientPoint(ev);
@@ -4202,7 +4505,7 @@ function drawRainPanel(cx, pl, geo, ap) {
   }
   cx.textBaseline = 'middle';
   // Titre du panneau, au-dessus du cadre (hors zone de trace).
-  cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
+  cx.fillStyle = '#1a1a2e'; cx.font = 'bold ' + (geo.barW ? 15.6 : 12) + 'px "Segoe UI",Arial';   // vue defilante : titre +30 %
   cx.textAlign = 'left'; cx.textBaseline = 'bottom';
   // Titre : « mm » seul et non « mm/24h » depuis que les barres portent la pluie du
   // pas de temps et non le cumul. La distinction barres/courbe est portee par la
@@ -4215,13 +4518,16 @@ function drawRainPanel(cx, pl, geo, ap) {
   // Avant, les barres portaient le cumul : une averse de 4 h donnait 24 barres
   // identiques, qui se lisaient comme une pluie continue de 24 h.
   const plBars = pl.hVals || pl.vals;   // repli sur le cumul si p1 absent (vieux dataset)
+  const bwR = geo.barW || 0;      // > 0 : bandes pleines, meme largeur que les barres du panneau Variations
   cx.strokeStyle = SERIES.pluie.line;
+  cx.fillStyle = SERIES.pluie.line;
   cx.lineWidth = stemWidth(innerW, N, 3);
   cx.beginPath();
   for (let i = 0; i < N; i++) {
     const v = plBars[i];
     if (v == null || v <= 0) continue;
-    const xx = pad.l + (i / geo.xSpan) * innerW;
+    const xx = pad.l + ((i + (geo.xOff || 0)) / geo.xSpan) * innerW;
+    if (bwR) { cx.fillRect(xx - bwR - 0.5, base - Math.min(1, v / yTopP) * rainInnerH, bwR, Math.min(1, v / yTopP) * rainInnerH); continue; }
     cx.moveTo(xx, base);
     // Echelle sur yTopP (sommet rond de la grille) et non sur pl.max : sinon les
     // barres ne correspondraient plus aux paliers affiches.
@@ -4232,7 +4538,7 @@ function drawRainPanel(cx, pl, geo, ap) {
   // Courbe du cumul 24 h, par-dessus les barres. Trait fin et plus soutenu que les
   // barres : c'est une enveloppe de lecture, pas la mesure elle-meme. Tracee
   // seulement si on a bien les deux series (sinon elle doublerait les barres).
-  if (pl.hVals && pl.vals) {
+  if (pl.hVals && pl.vals && !bwR) {
     cx.save();
     cx.strokeStyle = SERIES.pluie.solid;
     cx.lineWidth = 1.4;
@@ -4242,7 +4548,7 @@ function drawRainPanel(cx, pl, geo, ap) {
     for (let i = 0; i < N; i++) {
       const v = pl.vals[i];
       if (v == null) { started = false; continue; }
-      const xx = pad.l + (i / geo.xSpan) * innerW;
+      const xx = pad.l + ((i + (geo.xOff || 0)) / geo.xSpan) * innerW;
       const yy = base - Math.min(1, v / yTopP) * rainInnerH;
       if (started) cx.lineTo(xx, yy); else { cx.moveTo(xx, yy); started = true; }
     }
@@ -4271,7 +4577,8 @@ function drawRainPanel(cx, pl, geo, ap) {
     for (let i = 0; i < N; i++) {
       const v = ap.vals[i];
       if (v == null || v <= 0) continue;
-      const xx = pad.l + (i / geo.xSpan) * innerW + dx;
+      const xx = pad.l + ((i + (geo.xOff || 0)) / geo.xSpan) * innerW + dx;
+      if (bwR) { const hh = Math.min(1, v / apTop) * rainInnerH; cx.fillStyle = SERIES.apport.line; cx.fillRect(xx - dx + 0.5, base - hh, bwR, hh); continue; }
       cx.moveTo(xx, base);
       cx.lineTo(xx, base - Math.min(1, v / apTop) * rainInnerH);
     }
@@ -4325,7 +4632,7 @@ function drawRainPanel(cx, pl, geo, ap) {
   const lgItemsR = [];
   if (pl.hVals) {
     lgItemsR.push({ col: SERIES.pluie.line,  txt: 'Pluie tombée' + sfxL });
-    lgItemsR.push({ col: SERIES.pluie.solid, txt: 'Cumul 24 h' + sfxL, line: true });
+    if (!bwR) lgItemsR.push({ col: SERIES.pluie.solid, txt: 'Cumul 24 h' + sfxL, line: true });
   } else {
     lgItemsR.push({ col: SERIES.pluie.line, txt: 'Pluie 24 h' + sfxL });
   }
@@ -4339,7 +4646,7 @@ function drawRainPanel(cx, pl, geo, ap) {
   // il doit donc raisonner sur les hauteurs REELLEMENT dessinees. On lui passe les
   // deux series, sinon le cadre pourrait se poser sur les stems d'apport.
   const rainYOf = v => base - Math.min(1, v / yTopP) * rainInnerH;
-  const rainXOf = i => pad.l + (i / geo.xSpan) * innerW;
+  const rainXOf = i => pad.l + ((i + (geo.xOff || 0)) / geo.xSpan) * innerW;
   const seriesR = [pl.vals];
   if (ap && apTop > 0) {
     // Ramene l'apport sur l'echelle de la pluie pour que pickCorner compare des
@@ -4386,7 +4693,11 @@ function drawRainPanel(cx, pl, geo, ap) {
   cx.textBaseline = 'top';
   cx.fillStyle = '#6a7280';
   let nLine = 0;
-  for (const n of MODAL_NOTES) {
+  // Modale d'une centrale en vue defilante : on precise aussi quels jours sont affiches
+  const notes = (modalIdx >= 0 && modalWin.scrollable)
+    ? MODAL_NOTES.concat([{ lbl: 'Jours affichés :', txt: "seuls les jours avec au moins une variation affichée (" + (+modalMinSel.value > 0 ? "variation minimale ≥ " + modalMinSel.value + " m³/s" : "toutes les variations") + "), une pluie ou un apport naturel supérieur à 15 % de son maximum observé sont affichés ; les autres sont masqués (les dates ne sont donc pas toujours consécutives)." }])
+    : MODAL_NOTES;
+  for (const n of notes) {
     // L'attribut en gras occupe le debut de la 1re ligne : le retour a la ligne du
     // corps doit donc partir de la largeur restante, pas de innerW entier — sinon la
     // premiere ligne deborderait de la largeur du gras.
@@ -4410,9 +4721,269 @@ function drawRainPanel(cx, pl, geo, ap) {
   }
 }
 
+// ----- Grand graphique d'une centrale : fenetre DEFILANTE et DATES ALIGNEES sur les 3 panneaux -----
+// Les panneaux (debits, variations, pluie) lisent des tableaux tranches sur la meme fenetre de frames,
+// donc une meme date est a la meme abscisse partout. Molette ou glisser = defilement ; les donnees
+// couvrent toute la vue (Jour : tout ; Heure : mois charges). Semaine/Mois : tout tient, pas de defilement.
+function modalPxDay(c) {   // px par jour : la fenetre montre 15 jours (donnees peu compressees) ; defilement pour le reste
+  return Math.max(40, (modalCv.clientWidth - 60 - 78) / (variationMode === 'jour' ? 30 : 15));   // somme par jour : 30 jours ; par manoeuvre : 15 jours (colonnes plus larges)
+}
+let modalStart = null;                   // frame de gauche de la fenetre (null = suit le curseur a l'ouverture)
+let modalWin = { scrollable: false, start: 0, n: 0 };
+let modalWinC = null;                    // centrale « tranchee » passee a drawBigChartCore
+// Filtre : variation minimale (m3/s), par tranche de 50 jusqu'a 2000 ; applique a la variation AFFICHEE (valeur absolue)
+const modalMinSel = document.getElementById('variationMin');
+modalMinSel.add(new Option('Toutes', 0));
+for (let v = 50; v <= 2000; v += 50) modalMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
+modalMinSel.value = '50';          // toujours 50 m3/s au depart : le choix n'est PAS conserve (ni entre deux ouvertures, ni entre deux visites)
+// Chaine des variations AFFICHEES : la variation affichee est l'ecart entre deux niveaux affiches consecutifs ; une
+// variation sous le seuil est omise et s'ajoute a la suivante, donc la courbe monte ou descend exactement du nombre de
+// m3/s ecrit. Somme par jour : un element par jour ; par manoeuvre : un par manoeuvre.
+function modalChain(c0, mnX, modeX) {   // mnX / modeX : surcharge pour la modale « toutes les centrales » (filtre et mode propres)
+  const mn = mnX != null ? mnX : +modalMinSel.value, mode = modeX || variationMode, man = c0.man || [];
+  const ck = mode + '|' + mn + '|' + man.length + '|' + D.timestamps.length + '|' + D.periode;
+  if (c0._chainKey === ck) return c0._chain;
+  let raw = [];
+  if (mode === 'jour') {
+    const by = new Map();
+    for (const m of man) {
+      const d = modalDayKey(m[0]);
+      let q = by.get(d);
+      if (!q) { q = { f: m[0], big: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
+      q.net += m[1];
+      if (Math.abs(m[1]) > q.big) { q.big = Math.abs(m[1]); q.f = m[0]; q.hr = m[2]; }
+      q.lT = m[5] || 0; q.lD = m[6] || 0;          // niveau apres la derniere manoeuvre du jour
+    }
+    raw = [...by.values()].map(q => ({ f: q.f, det: q.net, hr: q.hr, lT: q.lT, lD: q.lD }));
+  } else raw = man.map(m => ({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }));
+  const out = []; let last = null;
+  for (const it of raw) {
+    const lv = it.lT + it.lD, d = last === null ? it.det : lv - last;
+    if (mn > 0 && Math.abs(d) < mn) continue;
+    out.push({ f: it.f, delta: d, hr: it.hr, lT: it.lT, lD: it.lD }); last = lv;
+  }
+  c0._chainKey = ck; c0._chain = out;
+  return out;
+}
+modalMinSel.addEventListener('change', () => {
+  if (modalIdx < 0) return;
+  const raw = (modalWin.keep && modalStart !== null) ? modalWin.keep[Math.min(modalStart, modalWin.keep.length - 1)] : null;
+  modalKeepCache.key = '';
+  if (raw != null) { const nk = modalKeep(D.centrales[modalIdx]); const i = nk.findIndex(v => v >= raw); modalStart = i < 0 ? null : i; } else modalStart = null;
+  drawBigChart();
+});
+let modalDrag = null, modalSuppressClick = false;
+let modalHits = { top: 0, bot: 0, list: [] };           // zones de survol des barres du panneau Variations
+const modalTip = document.createElement('div');
+modalTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(27,38,48,.94);color:#fff;padding:6px 9px;border-radius:6px;font:12.5px "Segoe UI",sans-serif;white-space:nowrap;display:none;z-index:300';
+document.body.appendChild(modalTip);
+function modalDayKey(i) { return String(D.timestamps[i] || '').slice(0, 10); }
+
+// Jours a afficher : on CACHE les jours sans aucune variation, sans pluie et sans apport naturel (axe compresse :
+// les jours gardes sont cote a cote, toujours de meme largeur). Retourne les indices de frame gardes.
+let modalKeepCache = { key: '', keep: [] };
+function modalKeep(c0) {
+  const chain = modalChain(c0), key = modalIdx + '|' + D.periode + '|' + N + '|' + chain.length + '|' + modalMinSel.value + '|' + variationMode;
+  if (modalKeepCache.key === key) return modalKeepCache.keep;
+  const pl = pluieSerie(c0.zoneMeteo), days = new Set();
+  for (const it of chain) days.add(modalDayKey(it.f));
+  for (let i = 0; i < N; i++) {
+    if (c0.apports && c0.maxApport && c0.apports[i] > 0.15 * c0.maxApport) days.add(modalDayKey(i));   // apport : seuil 15 % du max observe
+    if (pl) { const v = pl.hVals ? pl.hVals[i] : pl.vals[i]; if (v > 0.15 * (pl.hVals ? pl.hMax : pl.max)) days.add(modalDayKey(i)); }   // pluie : seuil 15 % du max observe
+  }
+  let keep = [];
+  for (let i = 0; i < N; i++) if (days.has(modalDayKey(i))) keep.push(i);
+  if (!keep.length) keep = Array.from({ length: N }, (_, i) => i);
+  modalKeepCache = { key: key, keep: keep };
+  return keep;
+}
+
 function drawBigChart() {
   if (modalIdx < 0) return;
-  const c = D.centrales[modalIdx];
+  const c0 = D.centrales[modalIdx];
+  const scrollable = (D.periode === 'horaire' || D.periode === 'journalier') && N > 2;
+  if (!scrollable) { modalWin = { scrollable: false, start: 0, n: N }; modalWinC = null; drawBigChartCore(); return; }
+  const keep = modalKeep(c0), Nk = keep.length;
+  const innerWv = Math.max(200, modalCv.clientWidth - 60 - 78);
+  const pxF = D.periode === 'horaire' ? modalPxDay(c0) / 24 : modalPxDay(c0);
+  const Wn = Math.max(1, Math.min(Nk, Math.round(innerWv / pxF)));
+  if (modalStart === null) modalStart = Nk - Wn;      // ouverture : les derniers jours (15 par defaut)
+  modalStart = Math.max(0, Math.min(Nk - Wn, Math.round(modalStart)));
+  const s = modalStart, e = s + Wn, win = keep.slice(s, e);
+  const sl = a => (a ? win.map(i => a[i]) : a);
+  const mxOfWin = a => { let m = 0; if (a) for (const v of a) if (v != null && v > m) m = v; return m; };
+  const pos = new Map(); win.forEach((i, k) => pos.set(i, k));
+  const cw = Object.assign({}, c0, {
+    debits: sl(c0.debits), turbs: sl(c0.turbs), devs: sl(c0.devs), apports: sl(c0.apports),
+    maxApport: Math.max(mxOfWin(sl(c0.apports)), 1),
+    prevLvl: (() => { let p = null; for (const it of modalChain(c0)) { if (it.f < win[0]) p = it.lT + it.lD; else break; } return p; })(),
+    items: modalChain(c0).filter(it => pos.has(it.f)).map(it => Object.assign({}, it, { f: pos.get(it.f) })),
+    man: (c0.man || []).filter(m => pos.has(m[0]))
+  });
+  const N0 = N, f0 = frame, ts0 = D.timestamps, ps0 = pluieSerie;
+  // curseur : position dans la fenetre compressee (hors fenetre -> rejete hors du cadre)
+  let fw = pos.has(f0) ? pos.get(f0) : (f0 < win[0] ? -10 * Wn : 10 * Wn);
+  try {
+    N = Wn; D.timestamps = win.map(i => ts0[i]);
+    frame = fw;
+    // Echelles pluie et apport recalculees sur la FENETRE affichee (et non sur tout l'historique) : sinon, a 10 jours,
+    // des valeurs ordinaires paraissent plates sous l'echelle d'une crue d'avril.
+    const mxOf = a => { let m = 0; if (a) for (const v of a) if (v != null && v > m) m = v; return m; };
+    pluieSerie = z => { const r = ps0(z); if (!r) return r; const v = sl(r.vals), hv = sl(r.hVals); return Object.assign({}, r, { vals: v, hVals: hv, max: mxOf(v), hMax: mxOf(hv) }); };
+    modalWin = { scrollable: true, start: s, n: Wn, N: Nk, keep: keep };
+    modalWinC = cw;
+    drawBigChartCore();
+  } finally { N = N0; frame = f0; D.timestamps = ts0; pluieSerie = ps0; modalWinC = null; }
+  // Indicateur de position (comme la barre de defilement du graphe mobile)
+  const w = modalCv.width, h = modalCv.height, padL = 60, innerW = w - padL - (c0.apports && c0.maxApport ? 78 : 20);
+  const thumbW = Math.max(24, innerW * Wn / Nk), thumbX = padL + (innerW - thumbW) * (Nk - Wn > 0 ? s / (Nk - Wn) : 0);
+  modalCtx.fillStyle = 'rgba(150,150,160,.28)'; modalCtx.fillRect(padL, h - 9, innerW, 8);
+  modalCtx.fillStyle = 'rgba(80,80,100,.75)';   modalCtx.fillRect(thumbX, h - 9, thumbW, 8);
+}
+function modalScrollBy(frames) {
+  if (modalIdx < 0 || !modalWin.scrollable) return;
+  modalStart = (modalStart === null ? modalWin.start : modalStart) + frames;
+  drawBigChart();
+  if (D.periode === 'horaire' && modalStart < modalWin.n) maybeLoadPreviousMonth().then(() => { if (modalIdx >= 0) drawBigChart(); });
+}
+// Info-bulle sur une barre de variation : valeurs de turbine et de deverse (niveau apres la manoeuvre)
+modalCv.addEventListener('mousemove', (ev) => {
+  if (modalIdx < 0 || modalDrag) { modalTip.style.display = 'none'; return; }
+  const r = modalCv.getBoundingClientRect(), k = modalCv.width / r.width;
+  const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
+  const hit = (y >= modalHits.top && y <= modalHits.bot) ? modalHits.list.find(h => Math.abs(x - h.x) <= h.w) : null;
+  if (!hit) { modalTip.style.display = 'none'; return; }
+  const nf = v => Math.round(v).toLocaleString('fr-CA');
+  const d = hit.day ? new Date(hit.day + 'T12:00:00Z').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+  modalTip.innerHTML = '<b>' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b><br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s';
+  modalTip.style.display = 'block';
+  modalTip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 220) + 'px';
+  modalTip.style.top = (ev.clientY + 14) + 'px';
+});
+modalCv.addEventListener('mouseleave', () => { modalTip.style.display = 'none'; });
+modalCv.addEventListener('wheel', (ev) => {
+  if (modalIdx < 0 || !modalWin.scrollable) return;
+  ev.preventDefault();
+  const d = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+  const pxF = D.periode === 'horaire' ? modalPxDay(D.centrales[modalIdx]) / 24 : modalPxDay(D.centrales[modalIdx]);
+  modalScrollBy(d / pxF * (modalCv.width / modalCv.getBoundingClientRect().width));
+}, { passive: false });
+modalCv.addEventListener('mousedown', (ev) => {
+  if (ev.button !== 0 || modalIdx < 0 || !modalWin.scrollable) return;
+  const rr = modalCv.getBoundingClientRect(), yy = (ev.clientY - rr.top) * (modalCv.height / rr.height);
+  if (yy >= modalCv.height - 16) {                      // barre de position : clic = saut, glisser = defilement
+    const hasAp = !!(D.centrales[modalIdx].apports && D.centrales[modalIdx].maxApport);
+    const iw = modalCv.width - 60 - (hasAp ? 78 : 20), Nn = modalWin.N;
+    const toStart = cx => ((cx - rr.left) * (modalCv.width / rr.width) - 60) / iw * Nn - modalWin.n / 2;
+    modalStart = toStart(ev.clientX); drawBigChart();
+    modalDrag = { bar: true, toStart: toStart, moved: true };
+    return;
+  }
+  modalDrag = { x0: ev.clientX, s0: modalWin.start, moved: false };
+});
+window.addEventListener('mousemove', (ev) => {
+  if (!modalDrag) return;
+  if (modalDrag.bar) { modalStart = modalDrag.toStart(ev.clientX); drawBigChart(); return; }
+  const dx = ev.clientX - modalDrag.x0;
+  if (!modalDrag.moved && Math.abs(dx) < 4) return;
+  modalDrag.moved = true;
+  const pxF = D.periode === 'horaire' ? modalPxDay(D.centrales[modalIdx]) / 24 : modalPxDay(D.centrales[modalIdx]);
+  modalStart = modalDrag.s0 - dx * (modalCv.width / modalCv.getBoundingClientRect().width) / pxF;
+  drawBigChart();
+});
+window.addEventListener('mouseup', () => {
+  if (!modalDrag) return;
+  if (modalDrag.moved) { modalSuppressClick = true; setTimeout(() => { modalSuppressClick = false; }, 0); }
+  modalDrag = null;
+});
+
+// Panneau « Variations » : meme look que la vue Comparer de la page vannes. Barres = NIVEAU atteint
+// (turbine vert + deverse bleu = debit total), courbe du total, variation (▲ / ▼ + m3/s) au-dessus,
+// heure de fin de la manoeuvre dessous. « Somme par jour » : une colonne par jour (net du jour, heure de
+// la plus grande manoeuvre, niveau apres la derniere). « Par manoeuvre » : une colonne par manoeuvre
+// (cote a cote dans le jour). ⚠ Manoeuvres inferees du debit, pas une position de vanne mesuree.
+function drawModalVariations(cx, c, g) {
+  const { pad, innerW, varTop, varH, xOf, xCur, xFut, pxF, yOfDebit, colDebit, debitTop, debitBot, chain, prevLvl } = g;
+  const jourView = D.periode === 'journalier';
+  const pxDay = jourView ? pxF : pxF * 24;
+  const COLO = '#d9640a', COLF = '#1d5e8c';
+  const items = [];                                    // { x, d, bw, delta, hr, lT, lD }
+  if ((g.mode || variationMode) === 'jour') {
+    for (const it of chain) items.push({ x: xOf(it.f), d: it.f, bw: Math.min(18, pxDay * 0.5) * 0.6, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });
+  } else {
+    const by = new Map();
+    for (const it of chain) { const d = modalDayKey(it.f); if (!by.has(d)) by.set(d, []); by.get(d).push(it); }
+    for (const list of by.values()) {
+      const n = list.length, sub = Math.min(60, pxDay / n);
+      const x0 = xOf(list[0].f);
+      list.forEach((it, j) => {
+        const xx = jourView ? x0 + (j - (n - 1) / 2) * sub : xOf(it.f);
+        items.push({ x: xx, d: it.f, bw: (jourView ? Math.max(1.5, Math.min(18, sub * 0.6)) : Math.max(1.5, pxF * 0.8)) * 0.6, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });
+      });
+    }
+  }  items.sort((a, b) => a.x - b.x);
+  modalHits = { top: varTop - 4, bot: varTop + varH + 4, list: items.map(it => ({ x: it.x, w: Math.max(it.bw / 2, 7), day: String(D.timestamps[it.d] || '').slice(0, 10), hr: it.hr, lT: it.lT, lD: it.lD, delta: it.delta })) };
+  let mxL = 1; for (const it of items) mxL = Math.max(mxL, it.lT + it.lD);
+  const tick = [50, 100, 200, 250, 500, 1000, 2000].find(t => mxL * 1.4 / t <= 3) || 2000;
+  const yMaxL = Math.ceil(mxL * 1.4 / tick) * tick;
+  const Y = v => varTop + varH * (1 - v / yMaxL);
+  if (xFut < pad.l + innerW) { cx.fillStyle = 'rgba(150,150,160,.18)'; cx.fillRect(xFut, varTop, pad.l + innerW - xFut, varH); }
+  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
+  // Pas d'echelle a gauche : le debit total apres chaque variation est ecrit sur la courbe du panneau des debits
+  cx.beginPath(); cx.moveTo(pad.l, Y(0)); cx.lineTo(pad.l + innerW, Y(0)); cx.stroke();
+  cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 24, innerW, varH + 24 + 34); cx.clip();
+  for (const it of items) {
+    cx.fillStyle = SERIES.turbine.line; cx.fillRect(it.x - it.bw / 2, Y(it.lT), it.bw, Math.max(0, varH * it.lT / yMaxL));
+    if (it.lD > 0.5) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, Y(it.lT + it.lD), it.bw, Math.max(1, varH * it.lD / yMaxL)); }
+  }
+  // Debit total apres chaque variation, sur le panneau des debits (meme x que la barre)
+  cx.restore(); cx.save(); cx.beginPath(); cx.rect(pad.l, debitTop - 14, innerW, debitBot - debitTop + 14); cx.clip();   // sort du clip du panneau variations
+  {
+    // Courbe par les niveaux affiches. Le niveau PERSISTE entre deux variations : on la prolonge a plat jusqu'aux bords de la
+    // fenetre (depuis le niveau avant la fenetre, jusqu'a la fin), donc elle reste visible meme avec un filtre tres eleve
+    // (0 ou 1 variation dans la fenetre).
+    const pts = items.map(it => [it.x, yOfDebit(it.lT + it.lD)]);
+    if (prevLvl != null) pts.unshift([pad.l, yOfDebit(prevLvl)]);
+    if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
+    if (pts.length > 1) {
+      cx.beginPath(); cx.strokeStyle = colDebit; cx.lineWidth = 3.1; cx.lineJoin = 'round';
+      pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
+      cx.stroke();
+    }
+  }
+  cx.font = 'bold 11px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
+  for (const it of items) {
+    const lv = it.lT + it.lD, yy = yOfDebit(lv);
+    cx.fillStyle = colDebit; cx.beginPath(); cx.arc(it.x, yy, 3, 0, 6.3); cx.fill();
+    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(Math.round(lv), it.x, yy - 6);
+    cx.fillStyle = '#222'; cx.fillText(Math.round(lv), it.x, yy - 6);
+  }
+  cx.restore(); cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 24, innerW, varH + 24 + 34); cx.clip();   // retour au clip du panneau variations
+  let lastX = -1e9;
+  for (const it of items) {
+    const up = it.delta >= 0, col = up ? COLO : COLF, y = Math.max(varTop + 22, Y(it.lT + it.lD) - 7);
+    const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
+    cx.font = 'bold 10px "Segoe UI",Arial';
+    const tw = cx.measureText(txt).width;
+    if (jourView || it.x - lastX >= tw + 3) {
+      cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = col;
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3;
+      cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
+      cx.font = '11px "Segoe UI",Arial';                          // triangle AU-DESSUS de la valeur
+      const tri = up ? '▲' : '▼';
+      cx.strokeText(tri, it.x, y - 11); cx.fillText(tri, it.x, y - 11);
+      if (it.hr != null) { cx.font = '10px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
+      lastX = it.x;
+    }
+  }
+  cx.restore();
+  cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(xCur, varTop); cx.lineTo(xCur, varTop + varH); cx.stroke();
+}
+
+function drawBigChartCore() {
+  if (modalIdx < 0) return;
+  const c = modalWinC || D.centrales[modalIdx];
   const arr = c.debits;
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
@@ -4438,10 +5009,10 @@ function drawBigChart() {
   // b = 42 px pour l'axe X, + 62 px pour les notes sous le panneau de pluie quand
   // ce panneau existe (cf. MODAL_NOTES, rendues par drawRainPanel). Sans cette
   // reserve, les notes tomberaient hors du canvas.
-  const pad = { l: 60, r: hasApport ? 78 : 20, t: 10, b: plMod ? 104 : 42 };
+  const pad = { l: 60, r: hasApport ? 78 : 20, t: modalWin.scrollable ? 32 : 10, b: plMod ? 104 : 42 };
   cx.clearRect(0, 0, w, h);
-  const rainH = plMod ? 0.33 : 0;         // part de la hauteur utile pour la pluie
-  const rainGap = plMod ? 34 : 0;         // espace entre panneaux (titre du panneau bas)
+  const rainH = plMod ? (modalWin.scrollable ? 0.33 * 0.75 : 0.33) : 0;   // vue defilante : zone pluie/apport 25 % moins haute         // part de la hauteur utile pour la pluie
+  const rainGap = plMod ? (modalWin.scrollable ? 46 : 34) : 0;         // espace entre panneaux (titre du panneau bas)
 
   // Echelle Y : max combine des 3 series (debit total, turbine, deverse) +
   // tampon ~5 % pour laisser de la place aux labels en haut.
@@ -4450,19 +5021,27 @@ function drawBigChart() {
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
   // Echelle X : N frames + 3h "tampon" a droite pour laisser de la place aux labels
-  const xPad = 3; // heures vides a droite
+  const xPad = modalWin.scrollable ? 1 : 3; // frames vides a droite (fenetre defilante : 1 => N colonnes pile, bord a bord)
   const xSpan = (N - 1) + xPad;
   const innerW = w - pad.l - pad.r;
   // Hauteur utile totale, puis repartition 2/3 - 1/3 (moins l'espace inter-panneaux).
   const totalH = h - pad.t - pad.b;
-  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
-  const rainTop = pad.t + innerH + rainGap;
-  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
-  const xOf = i => pad.l + (i / xSpan) * innerW;
-  const yOf = v => pad.t + (1 - v / yMax) * innerH;
+  // Panneau des VARIATIONS (ouvertures / fermetures) entre les debits et la pluie : meme axe X.
+  // Vues Heure et Jour seulement, et si le sélecteur n'est pas sur « masquees ».
+  const varOn = (D.periode === 'horaire' || D.periode === 'journalier') && !!(c.man || c.items);
+  const varH = varOn ? 110 : 0, varGap = varOn ? 12 : 0;    // plus d'entete sur le panneau : espace reduit, hauteur rendue aux graphiques
+  const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
+  const varTop = pad.t + innerH + varGap;
+  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl });
+  const rainTop = (varOn ? varTop + varH : pad.t + innerH) + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
+  const xOff = (modalWin.scrollable && D.periode === 'journalier') ? 0.5 : 0;   // Jour : le point est au CENTRE de la colonne du jour
+  const xOf = i => pad.l + ((i + xOff) / xSpan) * innerW;
+  const yMin = modalWin.scrollable ? 100 : 0;          // vue defilante : le debit total ne descend jamais a 0, l'axe debute a 100 m3/s
+  const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
   // Bande "futur" (i+1 .. N-1) en gris pale
-  const xFut = xOf(frame + 1);
+  const xFut = Math.max(pad.l, xOf(frame + 1));
   if (xFut < pad.l + innerW) {
     cx.fillStyle = 'rgba(150,150,160,.18)';
     cx.fillRect(xFut, pad.t, pad.l + innerW - xFut, innerH);
@@ -4475,13 +5054,13 @@ function drawBigChart() {
   for (let g = 0; g <= 5; g++) {
     const y = pad.t + (g / 5) * innerH;
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    cx.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+    cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
   // Titre du panneau (symetrique de celui du panneau pluie en bas). Affiche seulement
   // quand le 2e panneau existe : sans lui il n'y a rien a distinguer, et le titre de
   // la modale dit deja "<centrale> — debit total".
   if (plMod) {
-    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
+    cx.fillStyle = '#1a1a2e'; cx.font = 'bold ' + (modalWin.scrollable ? 15.6 : 12) + 'px "Segoe UI",Arial';   // vue defilante : titre +30 %
     cx.textAlign = 'left'; cx.textBaseline = 'top';
     cx.fillText('Débits (m³/s)', pad.l, pad.t + 2);
   }
@@ -4491,12 +5070,31 @@ function drawBigChart() {
   // '— jusqu'a HH:mm' en journee partielle et debordait hors du canvas.
   cx.fillStyle = '#666';
   cx.textBaseline = 'top';
+  if (modalWin.scrollable) {
+    // Fenetre defilante : un repere par JOUR, trait pointille sur les 3 panneaux (dates alignees)
+    cx.textAlign = 'left';
+    for (let i = 0; i < N; i++) {
+      const dk = modalDayKey(i);
+      if (i > 0 && dk === modalDayKey(i - 1)) continue;
+      const xd = pad.l + (i / xSpan) * innerW;
+      cx.strokeStyle = '#d5dce6'; cx.lineWidth = 1; cx.setLineDash([3, 3]);
+      cx.beginPath(); cx.moveTo(xd, pad.t - 24); cx.lineTo(xd, h - pad.b); cx.stroke(); cx.setLineDash([]);
+      cx.fillStyle = '#1b2630'; cx.font = 'bold 12px "Segoe UI",Arial';
+      const dd = new Date(dk + 'T12:00:00Z'), pxd = (D.periode === 'horaire' ? 24 : 1) * innerW / Math.max(1, (N - 1) + 3);
+      // Etroit (< 60 px/jour) : le numero du jour seul, avec le mois au 1er du mois et au 1er repere ; sinon « 3 août »
+      const lbl = pxd >= 100 ? dd.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : (pxd >= 60 || dd.getUTCDate() === 1 || i === 0 || modalDayKey(0) === dk) ? dd.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : String(dd.getUTCDate());
+      cx.fillText(lbl, xd + 4, h - pad.b + 6);
+      cx.fillText(lbl, xd + 4, pad.t - 20);       // meme date au-dessus du debit (comme la vue Comparer)
+    }
+  } else {
   for (let g = 0; g <= 4; g++) {
     const i = Math.round((g / 4) * (N - 1));
     cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
     const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
     drawTickLabel(cx, D.timestamps[i], xt, h - pad.b + 6, '11px "Segoe UI",Arial');
   }
+  }
+
 
   // Couleur de la courbe = couleur statut courant (basee sur ratio min/max)
   let ratio = null;
@@ -4538,26 +5136,30 @@ function drawBigChart() {
   // Le regroupement rend lisible le lien averse -> montee des apports.
 
   // Trace turbine puis deverse en arriere-plan, puis le debit total dominant par-dessus.
-  drawSeriesBig(c.turbs, turbCol, 2.2);
-  drawSeriesBig(c.devs,  devCol,  2.2);
+  // Vue defilante (Jour/Heure) : turbine et deverse sont portes par le panneau Variations (barres empilees) ; la legende reste
+  if (!modalWin.scrollable) drawSeriesBig(c.turbs, turbCol, 2.2);
+  if (!modalWin.scrollable) drawSeriesBig(c.devs,  devCol,  2.2);
 
+  // Vue defilante : la courbe du total est tracee par le panneau Variations (elle passe par les points affiches)
+  if (!modalWin.scrollable) {
   // Courbe debit total (couleur statut, dominante)
-  cx.beginPath();
-  cx.strokeStyle = stroke; cx.lineWidth = 2.6;
-  let started = false;
-  for (let i = 0; i < N; i++) {
-    const v = arr[i]; if (v == null) { started = false; continue; }
-    const xx = xOf(i), yy = yOf(v);
-    if (!started) { cx.moveTo(xx, yy); started = true; } else { cx.lineTo(xx, yy); }
+    cx.beginPath();
+    cx.strokeStyle = stroke; cx.lineWidth = 2.6;
+    let started = false;
+    for (let i = 0; i < N; i++) {
+      const v = arr[i]; if (v == null) { started = false; continue; }
+      const xx = xOf(i), yy = yOf(v);
+      if (!started) { cx.moveTo(xx, yy); started = true; } else { cx.lineTo(xx, yy); }
+    }
+    cx.stroke();
   }
-  cx.stroke();
 
   // Curseur vertical = frame courant
   const xCur = xOf(frame);
   cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
   cx.beginPath(); cx.moveTo(xCur, pad.t); cx.lineTo(xCur, pad.t + innerH); cx.stroke();
   // Point sur la courbe
-  if (dCur != null) {
+  if (dCur != null && !modalWin.scrollable) {
     cx.fillStyle = stroke;
     cx.beginPath(); cx.arc(xCur, yOf(dCur), 4, 0, 2 * Math.PI); cx.fill();
     cx.fillStyle = '#222'; cx.font = 'bold 12px "Segoe UI",Arial';
@@ -4570,32 +5172,40 @@ function drawBigChart() {
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
   }
 
+  // ===== PANNEAU DES VARIATIONS (entre debits et pluie) =====
+  if (varOn) modalVarPanel();
+
   // ===== PANNEAU DU BAS : PLUIE 24 h (1/3 de la hauteur) =====
   // Hyetogramme classique : barres verticales depuis le HAUT du panneau, l'usage en
   // hydrologie (la pluie tombe du ciel). Axe X partage avec le panneau des debits,
   // donc une averse se lit directement au-dessus de la reaction du debit qu'elle
   // provoque 24-48 h plus tard (cf. point 29 de BESOIN.md).
-  drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan },
+  drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan, xOff, barW: modalWin.scrollable ? 0.6 * (D.periode === 'journalier' ? Math.min(18, (innerW / xSpan) * 0.5) : Math.max(1.5, (innerW / xSpan) * 0.8)) : 0 },
                 hasApport ? { vals: c.apports, max: c.maxApport } : null);
 
   // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
   // la courbe debit total. Mesure les dimensions du bloc, puis compte combien
   // de points de la courbe tombent dans chaque coin candidat.
   const lgGapY = 18, lgSwW = 22, lgSwH = 7, lgPadX = 8, lgPadY = 6;
-  const noteTxt = 'Débit total = turbiné + déversé.';
+  const noteTxt = modalWin.scrollable ? '' : (!modalWin.scrollable || (c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5)) ? 'Débit total = turbiné + déversé.' : 'Débit total = turbiné.';
   cx.font = '12px "Segoe UI",Arial';
   const wTotal = cx.measureText('Débit total').width;
   const wTurb  = cx.measureText('Turbiné').width;
-  const wDev   = cx.measureText('Déversé').width;
+  // Legende dynamique (vue defilante) : « Déversé » seulement s'il y en a dans la fenetre ; + ligne ▲ ouverture / ▼ fermeture
+  const hasDevLg = !modalWin.scrollable || (c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5);
+  const showTri = modalWin.scrollable && !!varOn;
+  const triTxt1 = '▲ ouverture', triSep = '  ·  ', triTxt2 = '▼ fermeture';
+  const wDev   = hasDevLg ? cx.measureText('Déversé').width : 0;
+  const wTri   = showTri ? cx.measureText(triTxt1 + triSep + triTxt2).width - lgSwW - 8 : 0;
   // Ni apport ni pluie ici : les deux vivent dans le panneau du bas, qui a sa
   // propre legende. Cette legende-ci ne decrit que les series du panneau des debits.
   const wAp = 0, wPl = 0;
   cx.font = 'italic 11px "Segoe UI",Arial';
   const wNote  = cx.measureText(noteTxt).width;
-  const lgNbLignes = 3;
-  const lgInnerW = Math.max(wTotal, wTurb, wDev, wAp, wPl) + lgSwW + 8;
+  const lgNbLignes = 2 + (hasDevLg ? 1 : 0) + (showTri ? 1 : 0);
+  const lgInnerW = Math.max(wTotal, wTurb, wDev, wAp, wPl, wTri) + lgSwW + 8;
   const boxW = Math.max(lgInnerW, wNote) + 2 * lgPadX;
-  const boxH = lgNbLignes * lgGapY + 14 + 2 * lgPadY; // lignes legende + 1 ligne note
+  const boxH = lgNbLignes * lgGapY + (noteTxt ? 14 : 0) + 2 * lgPadY; // lignes legende + 1 ligne note (absente en vue defilante)
   // Coin choisi dynamiquement pour masquer le moins de donnees possible.
   // On teste les 3 series du panneau (total, turbine, deverse) et non le seul debit
   // total comme avant : depuis que le deverse est passe en bleu vif, une legende
@@ -4620,20 +5230,30 @@ function drawBigChart() {
   cx.textAlign = 'left'; cx.textBaseline = 'top';
   const lgItems = [
     { col: stroke,  txt: 'Débit total' },
-    { col: turbCol, txt: 'Turbiné' },
-    { col: devCol,  txt: 'Déversé' }
+    { col: turbCol, txt: 'Turbiné' }
   ];
+  if (hasDevLg) lgItems.push({ col: devCol, txt: 'Déversé' });
+  if (showTri) lgItems.push({ tri: true });
   lgItems.forEach((it, li) => {
+    if (it.tri) {
+      let xx = lgX, yy = lgY0 + li*lgGapY;
+      cx.fillStyle = '#d9640a'; cx.fillText('▲', xx, yy); xx += cx.measureText('▲ ').width;
+      cx.fillStyle = '#333'; cx.fillText('ouverture', xx, yy); xx += cx.measureText('ouverture' + triSep).width;
+      cx.fillStyle = '#1d5e8c'; cx.fillText('▼', xx, yy); xx += cx.measureText('▼ ').width;
+      cx.fillStyle = '#333'; cx.fillText('fermeture', xx, yy);
+      return;
+    }
     cx.fillStyle = it.col; cx.fillRect(lgX, lgY0 + li*lgGapY + 3, lgSwW, lgSwH);
     cx.fillStyle = '#333'; cx.fillText(it.txt, lgTxtX, lgY0 + li*lgGapY);
   });
   cx.font = 'italic 11px "Segoe UI",Arial';
   cx.fillStyle = '#666';
-  cx.fillText(noteTxt, lgX, lgY0 + lgNbLignes*lgGapY + 2);
+  if (noteTxt) cx.fillText(noteTxt, lgX, lgY0 + lgNbLignes*lgGapY + 2);
 }
 
 function openModal(k) {
-  modalIdx = k;
+  modalIdx = k; modalStart = null; modal.classList.add('varOn');
+  modalMinSel.value = '50'; modalKeepCache.key = '';      // le filtre revient a 50 m3/s a chaque ouverture
   modalTurbIdx = -1; modalResIdx = -1; modalNivResIdx = -1;
   modalNote.innerHTML = ''; modalTable.innerHTML = '';
   const c = D.centrales[k];
@@ -4807,7 +5427,7 @@ function closeInfoModal() {
 
 function closeModal() {
   modal.classList.remove('open');
-  modalIdx = -1;
+  modalIdx = -1; modal.classList.remove('varOn');
   modalResIdx = -1;
   modalTurbIdx = -1;
   modalNivResIdx = -1;
@@ -4817,7 +5437,7 @@ function closeModal() {
 // ----- Modale grand graphique pour un RESERVOIR : courbes deversement + apport -----
 function openModalRes(k) {
   modalResIdx = k;
-  modalIdx = -1;
+  modalIdx = -1; modal.classList.remove('varOn');
   modalTurbIdx = -1; modalNivResIdx = -1;
   modalNote.innerHTML = ''; modalTable.innerHTML = '';
   const r = D.reservoirs[k];
@@ -4837,7 +5457,7 @@ function openModalRes(k) {
 // ----- Modale TURBINES : N icones en grand, charge par groupe (empilement estime) -----
 function openTurbineModal(k) {
   modalTurbIdx = k;
-  modalIdx = -1;
+  modalIdx = -1; modal.classList.remove('varOn');
   modalResIdx = -1;
   const c = D.centrales[k];
   const turb = c.turbsEff[frame];
@@ -5221,7 +5841,7 @@ function noteHauteurUtile(r) {
 
 function openModalNivRes(k) {
   modalNivResIdx = k;
-  modalIdx = -1;
+  modalIdx = -1; modal.classList.remove('varOn');
   modalResIdx = -1;
   modalTurbIdx = -1;
   modalNote.innerHTML = '';
@@ -5272,7 +5892,7 @@ function refreshModalStationStats() {
 
 function openModalStation(k) {
   modalStaChartIdx = k;
-  modalIdx = -1; modalResIdx = -1; modalTurbIdx = -1; modalNivResIdx = -1;
+  modalIdx = -1; modal.classList.remove('varOn'); modalResIdx = -1; modalTurbIdx = -1; modalNivResIdx = -1;
   modalTable.innerHTML = '';
   const st = D.meteo.stations[k];
   modalTitle.textContent = (st.nom || st.code) + ' (' + st.code + ') — station météo';
@@ -5633,11 +6253,278 @@ function drawBigChartNivRes() {
   })();
 
 }
+// ===== SPARKLINE « DEBITS » (etiquette a cote de la puissance totale) + MODALE « TOUTES LES CENTRALES » =====
+// ⚠ REGLE DE PARITE (voir REGLES.md) : tout changement apporte au graphique de debit total d'UNE centrale (modale
+// centrale : panneaux Debits / Variations, filtre, regles d'affichage des jours) doit etre CONFIRME par l'utilisateur
+// avant d'etre repercute ici (et inversement). Cette modale reprend les memes regles, sans le panneau Pluie / apport,
+// avec des centrales empilees (nord -> sud) sur un axe de dates commun : un jour est cache seulement si AUCUNE
+// centrale n'y a de variation affichee. ⚠ Variations INFEREES du debit : HQ ne publie pas la position des vannes.
+const totSpark = document.getElementById('totSpark');
+const SPARK_COLS = ['#1f77b4', '#d62728', '#2ca02c', '#9467bd', '#ff7f0e', '#17becf', '#8c564b', '#e377c2', '#7f7f7f'];
+function drawTotalSpark() {
+  if (!totSpark || !D) return;
+  const w = totSpark.width = totSpark.clientWidth, h = totSpark.height = totSpark.clientHeight;
+  if (w < 10 || h < 6 || N < 2) return;
+  const cx = totSpark.getContext('2d');
+  let mx = 1;
+  D.centrales.forEach(c => { for (const v of (c.debits || [])) if (v != null && v > mx) mx = v; });
+  const X = i => 1 + i / (N - 1) * (w - 2), Y = v => h - 2 - (v / mx) * (h - 4);
+  D.centrales.forEach((c, ci) => {
+    cx.beginPath(); cx.strokeStyle = SPARK_COLS[ci % SPARK_COLS.length]; cx.lineWidth = 1; let st = false;
+    for (let i = 0; i < N; i++) { const v = c.debits ? c.debits[i] : null; if (v == null) { st = false; continue; } if (!st) { cx.moveTo(X(i), Y(v)); st = true; } else cx.lineTo(X(i), Y(v)); }
+    cx.stroke();
+  });
+  cx.strokeStyle = 'rgba(200,40,40,.9)'; cx.lineWidth = 1.2;
+  cx.beginPath(); cx.moveTo(X(frame), 0); cx.lineTo(X(frame), h); cx.stroke();
+}
+
+const allModalEl = document.getElementById('modal-all'), allCv = document.getElementById('modal-all-canvas'), allCtx = allCv.getContext('2d');
+const allSel = document.getElementById('allVariationSel'), allMinSel = document.getElementById('allVariationMin'), allNote = document.getElementById('modal-all-note');
+allMinSel.add(new Option('Toutes', 0));
+for (let v = 50; v <= 2000; v += 50) allMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
+allMinSel.value = '50';            // comme la modale d'une centrale : toujours 50 m3/s a l'ouverture, jamais conserve
+const ALL_HEAD = 30, ALL_DEBH = 92, ALL_VARH = 92, ALL_PH = 24 + ALL_DEBH + 12 + ALL_VARH + 36, ALL_BAR = 14, ALL_PADL = 60, ALL_PADR = 20;
+let allDrag = null, allSuppressClick = false, allHits = [], allNoteTxt = '';
+function allChains() { return D.centrales.map(c => modalChain(c, +allMinSel.value, allSel.value)); }
+// Jours gardes : ceux ou au moins UNE centrale a une variation affichee (meme regle que modalKeep, sans pluie ni apport)
+function allKeep() {
+  const days = new Set();
+  for (const ch of allChains()) for (const it of ch) days.add(modalDayKey(it.f));
+  const keep = [];
+  for (let i = 0; i < N; i++) if (days.has(modalDayKey(i))) keep.push(i);
+  return keep.length ? keep : Array.from({ length: N }, (_, i) => i);
+}
+function allPxF() {
+  const pxDay = Math.max(40, (allCv.clientWidth - ALL_PADL - ALL_PADR) / (allSel.value === 'jour' ? 30 : 15));
+  return D.periode === 'horaire' ? pxDay / 24 : pxDay;
+}
+function allScrollBy(frames) {
+  if (!allOpen || !allWin.N) return;
+  allStart = (allStart === null ? allWin.start : allStart) + frames;
+  drawAll();
+  if (D.periode === 'horaire' && allStart < allWin.n) maybeLoadPreviousMonth().then(() => { if (allOpen) drawAll(); });
+}
+function allRecalc() {                 // changement de mode ou de filtre : on reste sur la meme date de gauche
+  const raw = allWin.keep.length && allStart !== null ? allWin.keep[Math.min(allWin.start, allWin.keep.length - 1)] : null;
+  if (raw != null) { const i = allKeep().findIndex(v => v >= raw); allStart = i < 0 ? null : i; } else allStart = null;
+  drawAll();
+}
+function openAll() {
+  allOpen = true; allStart = null; allScrollY = 0; allMinSel.value = '50';
+  allModalEl.classList.add('open');
+  requestAnimationFrame(drawAll);
+}
+function closeAll() { allOpen = false; allModalEl.classList.remove('open'); modalTip.style.display = 'none'; }
+
+function drawAll() {
+  if (!allOpen) return;
+  const w = allCv.width = allCv.clientWidth, h = allCv.height = allCv.clientHeight, cx = allCtx;
+  cx.clearRect(0, 0, w, h);
+  const mode = allSel.value, mn = +allMinSel.value;
+  if (!(D.periode === 'horaire' || D.periode === 'journalier') || N < 2) {
+    cx.fillStyle = '#666'; cx.font = '15px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillText('Les variations sont disponibles dans les vues Heure et Jour.', w / 2, h / 2);
+    allWin = { n: 0, N: 0, keep: [], start: 0 }; allHits = []; return;
+  }
+  const cs = D.centrales.slice().reverse(), chains = allChains().reverse(), keep = allKeep(), Nk = keep.length;   // D.centrales est ordonne sud -> nord : on affiche nord -> sud
+  const innerW = w - ALL_PADL - ALL_PADR, jourView = D.periode === 'journalier';
+  const pxF = allPxF(), Wn = Math.max(1, Math.min(Nk, Math.round(innerW / pxF)));
+  if (allStart === null) allStart = Nk - Wn;         // ouverture : les derniers jours
+  allStart = Math.max(0, Math.min(Nk - Wn, Math.round(allStart)));
+  const s = allStart, win = keep.slice(s, s + Wn), pos = new Map(); win.forEach((i, k) => pos.set(i, k));
+  allWin = { n: Wn, N: Nk, keep: keep, start: s };
+  const xOff = jourView ? 0.5 : 0, xOf = k => ALL_PADL + ((k + xOff) / Wn) * innerW;
+  const pxDayW = (jourView ? 1 : 24) * innerW / Wn;
+  const fw = pos.has(frame) ? pos.get(frame) : (frame < win[0] ? -10 * Wn : 10 * Wn);
+  const xCur = xOf(fw), xFut = Math.max(ALL_PADL, xOf(fw + 1));
+  const bodyTop = ALL_HEAD, bodyBot = h - ALL_BAR - 4, bodyH = bodyBot - bodyTop, contentH = cs.length * ALL_PH;
+  allScrollY = Math.max(0, Math.min(Math.max(0, contentH - bodyH), allScrollY));
+  const COLO = '#d9640a', COLF = '#1d5e8c';
+  const hits = [];
+
+  cx.save(); cx.beginPath(); cx.rect(0, bodyTop, w, bodyH); cx.clip();
+  // reperes de jours (pointilles, sur toute la hauteur)
+  cx.strokeStyle = '#d5dce6'; cx.lineWidth = 1; cx.setLineDash([3, 3]);
+  for (let k = 0; k < Wn; k++) {
+    if (k > 0 && modalDayKey(win[k]) === modalDayKey(win[k - 1])) continue;
+    const xd = ALL_PADL + (k / Wn) * innerW;
+    cx.beginPath(); cx.moveTo(xd, bodyTop); cx.lineTo(xd, bodyBot); cx.stroke();
+  }
+  cx.setLineDash([]);
+  // Meme look que la modale d'une centrale (panneaux Debits puis Variations), sans le panneau Pluie / apport.
+  // Le panneau Variations est dessine par drawModalVariations (partage avec la modale d'une centrale) : on lui
+  // presente les indices de la FENETRE (timestamps, N et frame substitues le temps de l'appel).
+  cs.forEach((c, ci) => {
+    const top = bodyTop + ci * ALL_PH - allScrollY;
+    if (top + ALL_PH < bodyTop || top > bodyBot) return;
+    const full = chains[ci];
+    let prevLvl = null; for (const it of full) { if (it.f < win[0]) prevLvl = it.lT + it.lD; else break; }
+    const chW = full.filter(it => pos.has(it.f)).map(it => Object.assign({}, it, { f: pos.get(it.f) }));
+    const debTop = top + 24, debBot = debTop + ALL_DEBH, varTop = debBot + 12;
+    // Echelle Y du panneau Debits : comme la modale d'une centrale (max historique + 5 %, axe a partir de 100 m3/s)
+    const yk = N + '|' + c.maxTotal;
+    if (c._allYk !== yk) {
+      let yr = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
+      for (const v of c.turbs) { if (v != null && v > yr) yr = v; }
+      for (const v of c.devs) { if (v != null && v > yr) yr = v; }
+      c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05);
+    }
+    const yMin = 100, yMax = c._allYmax, yOf = v => debTop + (1 - (v - yMin) / (yMax - yMin)) * ALL_DEBH;
+    const dCur = c.debits ? c.debits[frame] : null;
+    let ratio = null; if (dCur != null && c.minTotal != null && c.maxTotal != null && c.maxTotal > c.minTotal) ratio = (dCur - c.minTotal) / (c.maxTotal - c.minTotal) * 100;
+    const stroke = ratio == null ? '#555' : ratio < 25 ? '#1a6e2a' : ratio < 50 ? '#7a6200' : ratio < 75 ? '#7a3a00' : '#6a0000';
+    // titre du panneau : nom de la centrale + debit a la date courante
+    cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.font = 'bold 15.6px "Segoe UI",Arial'; cx.fillStyle = '#1a1a2e';
+    cx.fillText(c.nom + ' — Débits (m³/s)', ALL_PADL, top + 3);
+    if (dCur != null) { const tw = cx.measureText(c.nom + ' — Débits (m³/s)').width; cx.font = '12px "Segoe UI",Arial'; cx.fillStyle = '#666'; cx.fillText('   ' + fmtInt(dCur) + ' m³/s à la date courante', ALL_PADL + tw, top + 6); }
+    if (xFut < ALL_PADL + innerW) {
+      cx.fillStyle = 'rgba(150,150,160,.18)';
+      cx.fillRect(xFut, debTop, ALL_PADL + innerW - xFut, ALL_DEBH);
+    }
+    cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial'; cx.textAlign = 'right'; cx.textBaseline = 'middle';
+    for (let g = 0; g <= 5; g++) {
+      const y = debTop + (g / 5) * ALL_DEBH;
+      cx.beginPath(); cx.moveTo(ALL_PADL, y); cx.lineTo(ALL_PADL + innerW, y); cx.stroke();
+      cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', ALL_PADL - 6, y);
+    }
+    if (pos.has(frame)) { cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5; cx.beginPath(); cx.moveTo(xCur, debTop); cx.lineTo(xCur, debBot); cx.stroke(); }
+    const ts0 = D.timestamps, N0 = N, f0 = frame, mh0 = modalHits;
+    try {
+      D.timestamps = win.map(i => ts0[i]); N = Wn; frame = fw;
+      drawModalVariations(cx, c, { pad: { l: ALL_PADL }, innerW, varTop, varH: ALL_VARH, xOf, xCur, xFut, pxF: innerW / Wn, yOfDebit: yOf, colDebit: stroke,
+        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode });
+      for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, y0: modalHits.top, y1: modalHits.bot }));
+      // Legende du panneau Debits (comme la modale d'une centrale, mais sur une seule ligne : le panneau est peu haut)
+      {
+        const sl = a => (a ? win.map(i => a[i]) : a), wd = sl(c.devs);
+        const hasDev = (wd || []).some(v => v > 0.5) || chW.some(it => it.lD > 0.5);
+        cx.font = '12px "Segoe UI",Arial';
+        const SW = 22, GAP = 14, PADX = 8, PADY = 6, items = [{ col: stroke, txt: 'Débit total' }, { col: SERIES.turbine.line, txt: 'Turbiné' }];
+        if (hasDev) items.push({ col: SERIES.deverse.line, txt: 'Déversé' });
+        items.push({ tri: true });
+        const wOf = it => it.tri ? cx.measureText('▲ ouverture  ·  ▼ fermeture').width : SW + 8 + cx.measureText(it.txt).width;
+        const boxW = items.reduce((s, it) => s + wOf(it), 0) + GAP * (items.length - 1) + 2 * PADX, boxH = 18 + 2 * PADY - 4;
+        const best = pickCorner({ x0: ALL_PADL, y0: debTop, w: innerW, h: ALL_DEBH }, boxW, boxH, [sl(c.debits), sl(c.turbs), wd], yOf, xOf, xCur);
+        cx.fillStyle = 'rgba(255,255,255,.88)'; cx.fillRect(best.x, best.y, boxW, boxH);
+        cx.strokeStyle = '#dde'; cx.lineWidth = 1; cx.strokeRect(best.x, best.y, boxW, boxH);
+        cx.textAlign = 'left'; cx.textBaseline = 'top';
+        let xx = best.x + PADX; const yy = best.y + PADY - 1;
+        for (const it of items) {
+          if (it.tri) {
+            cx.fillStyle = '#d9640a'; cx.fillText('▲', xx, yy); xx += cx.measureText('▲ ').width;
+            cx.fillStyle = '#333'; cx.fillText('ouverture', xx, yy); xx += cx.measureText('ouverture  ·  ').width;
+            cx.fillStyle = '#1d5e8c'; cx.fillText('▼', xx, yy); xx += cx.measureText('▼ ').width;
+            cx.fillStyle = '#333'; cx.fillText('fermeture', xx, yy);
+          } else {
+            cx.fillStyle = it.col; cx.fillRect(xx, yy + 3, SW, 7);
+            cx.fillStyle = '#333'; cx.fillText(it.txt, xx + SW + 8, yy); xx += wOf(it) + GAP;
+          }
+        }
+      }
+    } finally { D.timestamps = ts0; N = N0; frame = f0; modalHits = mh0; }
+    cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(0, top + ALL_PH - 1); cx.lineTo(w, top + ALL_PH - 1); cx.stroke();
+  });
+  cx.restore();
+  allHits = hits;
+
+  // en-tete fixe : dates (alignees pour toutes les centrales)
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, bodyTop);
+  cx.strokeStyle = '#c9ced9'; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(0, bodyTop - 0.5); cx.lineTo(w, bodyTop - 0.5); cx.stroke();
+  cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.font = 'bold 12px "Segoe UI",Arial'; cx.fillStyle = '#1b2630';
+  for (let k = 0; k < Wn; k++) {
+    const dk = modalDayKey(win[k]);
+    if (k > 0 && dk === modalDayKey(win[k - 1])) continue;
+    const dd = new Date(dk + 'T12:00:00Z');
+    const lbl = pxDayW >= 100 ? dd.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+      : (pxDayW >= 60 || dd.getUTCDate() === 1 || k === 0) ? dd.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : String(dd.getUTCDate());
+    cx.fillText(lbl, ALL_PADL + (k / Wn) * innerW + 4, 8);
+  }
+  // barre de position horizontale (comme la modale d'une centrale) et indicateur vertical
+  const thumbW = Math.max(24, innerW * Wn / Nk), thumbX = ALL_PADL + (innerW - thumbW) * (Nk - Wn > 0 ? s / (Nk - Wn) : 0);
+  cx.fillStyle = 'rgba(150,150,160,.28)'; cx.fillRect(ALL_PADL, h - 9, innerW, 8);
+  cx.fillStyle = 'rgba(80,80,100,.75)'; cx.fillRect(thumbX, h - 9, thumbW, 8);
+  if (contentH > bodyH) {
+    const tH = Math.max(24, bodyH * bodyH / contentH), tY = bodyTop + (bodyH - tH) * (allScrollY / (contentH - bodyH));
+    cx.fillStyle = 'rgba(80,80,100,.55)'; cx.fillRect(w - 6, tY, 4, tH);
+  }
+const noteTxt = '<b>Jours affichés :</b> seuls les jours avec au moins une variation affichée (' + (mn > 0 ? 'variation minimale ≥ ' + mn.toLocaleString('fr-CA') + ' m³/s' : 'toutes les variations') + ') pour au moins une centrale sont affichés ; les autres sont masqués (les dates ne sont donc pas toujours consécutives).';
+  if (noteTxt !== allNoteTxt) { allNoteTxt = noteTxt; allNote.innerHTML = noteTxt; }
+}
+const debitToggle = () => { const el = document.getElementById('debitAll'); el.classList.toggle('open'); document.getElementById('debitTri').innerHTML = el.classList.contains('open') ? '▴' : '▾'; drawTotalSpark(); };
+document.getElementById('debitTri').addEventListener('click', debitToggle);
+document.getElementById('debitTri2').addEventListener('click', debitToggle);
+totSpark.addEventListener('click', openAll);
+document.getElementById('modal-all-close').addEventListener('click', closeAll);
+allModalEl.addEventListener('click', (ev) => { if (ev.target === allModalEl) closeAll(); });
+allSel.addEventListener('change', allRecalc);
+allMinSel.addEventListener('change', allRecalc);
+allCv.addEventListener('wheel', (ev) => {
+  if (!allOpen) return;
+  ev.preventDefault();
+  const k = allCv.width / allCv.getBoundingClientRect().width;
+  if (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) allScrollBy((Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) / allPxF() * k);
+  else { allScrollY += ev.deltaY * k; drawAll(); }     // molette seule : defilement vertical des centrales
+}, { passive: false });
+allCv.addEventListener('mousedown', (ev) => {
+  if (ev.button !== 0 || !allOpen || !allWin.N) return;
+  const rr = allCv.getBoundingClientRect(), kk = allCv.width / rr.width, yy = (ev.clientY - rr.top) * kk;
+  if (yy >= allCv.height - 16) {                        // barre de position : clic = saut, glisser = defilement
+    const iw = allCv.width - ALL_PADL - ALL_PADR;
+    const toStart = cx => ((cx - rr.left) * kk - ALL_PADL) / iw * allWin.N - allWin.n / 2;
+    allStart = toStart(ev.clientX); drawAll();
+    allDrag = { bar: true, toStart: toStart, moved: true };
+    return;
+  }
+  allDrag = { x0: ev.clientX, y0: ev.clientY, s0: allWin.start, sy0: allScrollY, moved: false };
+});
+window.addEventListener('mousemove', (ev) => {
+  if (!allDrag) return;
+  if (allDrag.bar) { allStart = allDrag.toStart(ev.clientX); drawAll(); return; }
+  const dx = ev.clientX - allDrag.x0, dy = ev.clientY - allDrag.y0;
+  if (!allDrag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+  allDrag.moved = true;
+  const kk = allCv.width / allCv.getBoundingClientRect().width;
+  allStart = allDrag.s0 - dx * kk / allPxF(); allScrollY = allDrag.sy0 - dy * kk;
+  drawAll();
+});
+window.addEventListener('mouseup', () => {
+  if (!allDrag) return;
+  if (allDrag.moved) { allSuppressClick = true; setTimeout(() => { allSuppressClick = false; }, 0); }
+  allDrag = null;
+});
+allCv.addEventListener('click', (ev) => {                // clic = place la date courante sur ce jour
+  if (allSuppressClick) { allSuppressClick = false; return; }
+  if (!allOpen || !allWin.N) return;
+  const r = allCv.getBoundingClientRect(), x = (ev.clientX - r.left) * (allCv.width / r.width);
+  const kk = Math.max(0, Math.min(allWin.n - 1, Math.floor((x - ALL_PADL) / (allCv.width - ALL_PADL - ALL_PADR) * allWin.n)));
+  stop(); go(allWin.keep[allWin.start + kk]);
+});
+allCv.addEventListener('mousemove', (ev) => {
+  if (!allOpen || allDrag) { modalTip.style.display = 'none'; return; }
+  const r = allCv.getBoundingClientRect(), k = allCv.width / r.width;
+  const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
+  const hit = (y >= ALL_HEAD && y <= allCv.height - ALL_BAR) ? allHits.find(h => Math.abs(x - h.x) <= h.w && y >= h.y0 && y <= h.y1) : null;
+  if (!hit) { modalTip.style.display = 'none'; return; }
+  const nf = v => Math.round(v).toLocaleString('fr-CA');
+  const d = hit.day ? new Date(hit.day + 'T12:00:00Z').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+  modalTip.innerHTML = '<b>' + hit.nom + ' · ' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b><br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s';
+  modalTip.style.display = 'block';
+  modalTip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 240) + 'px';
+  modalTip.style.top = (ev.clientY + 14) + 'px';
+});
+allCv.addEventListener('mouseleave', () => { modalTip.style.display = 'none'; });
+
 modalClose.addEventListener('click', closeModal);
 modalInfoClose.addEventListener('click', closeInfoModal);
 modalInfoEl.addEventListener('click', (ev) => { if (ev.target === modalInfoEl) closeInfoModal(); });
 modal.addEventListener('click', (ev)=>{ if (ev.target === modal) closeModal(); });
 document.addEventListener('keydown', (ev)=>{
+  if (allOpen) {
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); allScrollBy((ev.key === 'ArrowLeft' ? -1 : 1) * (D.periode === 'horaire' ? 24 : 1) * 7); }
+    else if (ev.key === 'Escape') closeAll();
+    return;
+  }
+  if (modalIdx >= 0 && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); modalScrollBy((ev.key === 'ArrowLeft' ? -1 : 1) * (D.periode === 'horaire' ? 24 : 1) * 7); return; }
   if (ev.key === 'Escape') {
     if (modalInfoCIdx !== -1 || modalInfoRIdx !== -1) { closeInfoModal(); return; }
     if (modalIdx !== -1 || modalResIdx !== -1 || modalTurbIdx !== -1 || modalNivResIdx !== -1) closeModal();
@@ -5652,7 +6539,14 @@ modalCv.addEventListener('click', (ev)=>{
   const pad = (modalStaChartIdx >= 0) ? { l: 56, r: 56 } : { l: 60, r: 20 };
   const innerW = modalCv.width - pad.l - pad.r;
   const t = (xPix - pad.l) / innerW;
-  const f = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
+  let f = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
+  if (modalIdx >= 0 && modalWin.scrollable) {
+    const hasAp = !!(D.centrales[modalIdx].apports && D.centrales[modalIdx].maxApport);
+    const iw = modalCv.width - 60 - (hasAp ? 78 : 20);
+    const kk = Math.max(0, Math.min(modalWin.N - 1, modalWin.start + Math.floor(((xPix - 60) / iw) * modalWin.n)));
+    f = modalWin.keep[kk];
+  }
+  if (modalSuppressClick) { modalSuppressClick = false; return; }
   stop(); go(f);
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
@@ -5661,6 +6555,8 @@ modalCv.addEventListener('click', (ev)=>{
 });
 
 window.addEventListener('resize', ()=>{
+  drawTotalSpark();
+  if (allOpen) drawAll();
   if (modalIdx >= 0) drawBigChart();
   else if (modalResIdx >= 0) drawBigChartRes();
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
