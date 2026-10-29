@@ -168,10 +168,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 14:38</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 16:03</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.1</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.2</span>
 </footer>
 
 <script>
@@ -870,8 +870,15 @@ function drawBigChart() {
     const dayListM = []; for (let i = 0; i < N; i++) { const d = dkM(i); if (dayListM[dayListM.length - 1] !== d) dayListM.push(d); }
     const nd = dayListM.length, dIdx = new Map(dayListM.map((d, k) => [d, k]));
     const jourW = D.periode === 'journalier';
-    colW = Math.max(jourW ? pxPerPt : pxPerPt * ptsPerTick, innerWView / nd);
-    const need = curItems.length * SUB_W, curW = Math.max(colW, need);
+    const need = curItems.length * SUB_W;
+    if (jourW && nd > 1) {
+      // Vue Jour : tous les jours tiennent dans l'ecran, sans defilement (les libelles de dates sautent au besoin).
+      // La colonne courante prend sa place (need) et les autres se partagent le reste, jusqu'a un plancher de 14 px.
+      colW = Math.max(14, Math.min(innerWView / nd, (innerWView - need) / (nd - 1)));
+    } else {
+      colW = Math.max(jourW ? pxPerPt : pxPerPt * ptsPerTick, innerWView / nd);
+    }
+    const curW = Math.max(colW, need);
     xTab = new Array(N);
     for (let i = 0; i < N; i++) {
       const k = dIdx.get(dkM(i)), w = (k === nd - 1) ? curW : colW;
@@ -1177,7 +1184,7 @@ function drawBigChart() {
     for (const it of items) {
       const up = it.delta >= 0, y = Math.max(varTop + 22, YL(it.lT + it.lD) - 7);
       const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
-      cx.font = 'bold 10px "Segoe UI",Arial';
+      cx.font = 'bold 8px "Segoe UI",Arial';
       const tw = cx.measureText(txt).width;
       if (jourV || it.x - lastXv >= tw + 3) {
         cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = up ? COLO : COLF;
@@ -1185,7 +1192,7 @@ function drawBigChart() {
         cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
         cx.font = '11px "Segoe UI",Arial';
         const tri = up ? '▲' : '▼';
-        cx.strokeText(tri, it.x, y - 11); cx.fillText(tri, it.x, y - 11);
+        cx.strokeText(tri, it.x, y - 9); cx.fillText(tri, it.x, y - 9);
         if (it.hr != null) { cx.font = '10px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
         lastXv = it.x;
       }
