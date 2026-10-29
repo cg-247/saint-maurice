@@ -129,6 +129,9 @@ footer a{color:#bcd;text-decoration:underline}
 
 /* ETAT chargement / erreur */
 #status{padding:24px;text-align:center;color:#9ab;font-style:italic}
+#chartBox.varOn{height:66vh;min-height:440px;max-height:700px}
+#varCtl{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px 2px;font-size:12.5px;color:#333}
+#varCtl select{font-size:13px;padding:2px 4px;margin-left:4px}
 .hidden{display:none !important}
 </style>
 </head>
@@ -151,6 +154,11 @@ footer a{color:#bcd;text-decoration:underline}
 <section id="label" class="hidden" aria-live="polite"></section>
 
 <section id="chartWrap" class="hidden">
+  <div id="varCtl" class="hidden">
+    <label>Variation affich&eacute;e :
+      <select id="varMin"></select>
+    </label>
+  </div>
   <div id="chartBox">
     <div id="chartScroll"><canvas id="bigCv"></canvas></div>
     <canvas id="axisCv" aria-hidden="true"></canvas>
@@ -160,10 +168,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-28 17:18</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 10:39</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.1</span>
 </footer>
 
 <script>
@@ -388,6 +396,11 @@ function trimView(view, n) {
     ['debits','turbs','devs','mws','trends','stables','apports'].forEach(k => {
       if (Array.isArray(c[k])) c[k] = c[k].slice(start);
     });
+    // Manoeuvres (variations de debit) : leur 1er champ est un indice de frame ; on retire
+    // celles d'avant la fenetre et on decale les autres.
+    if (Array.isArray(c.man)) {
+      c.man = c.man.filter(m => m[0] >= start).map(m => [m[0] - start].concat(m.slice(1)));
+    }
   });
   // Meme raison pour la meteo, indexee [frame][zone] et donc alignee sur timestamps.
   if (view.meteo && Array.isArray(view.meteo.frames)) {
@@ -406,7 +419,11 @@ function mergeHoraire(prev, curr) {
       const pc = prev.centrales.find(p => p.id === cc.id);
       const pad = pc ? null : new Array(prev.timestamps.length).fill(null);
       const j = k => (pc ? pc[k] : pad).concat(cc[k] || []);
+      // man : indices de frame du mois courant decales du nombre de frames du mois precedent
+      const off = prev.timestamps.length;
+      const manM = (pc && pc.man ? pc.man : []).concat((cc.man || []).map(m => [m[0] + off].concat(m.slice(1))));
       return Object.assign({}, cc, {
+        man:     (pc && pc.man) || cc.man ? manM : undefined,
         debits:  j('debits'),
         turbs:   j('turbs'),
         devs:    j('devs'),
@@ -470,8 +487,9 @@ async function loadData(opts) {
     hebdomadaire: sommaire.hebdomadaire || null
   };
   Object.entries(v).forEach(([k, view]) => { if (view && typeof view === 'object') view.periode = k; });
-  trimView(v.horaire,     360);
-  trimView(v.journalier,   15);
+  // 10 jours (240 h) : fenetre plus courte pour que les bandes du panneau Variations soient plus larges et de meme largeur.
+  trimView(v.horaire,     240);
+  trimView(v.journalier,   10);
   trimView(v.hebdomadaire,  6);
   // Empreinte de generation : sert a detecter un vrai changement de donnees.
   v._stamp = manifest.generatedAt || null;
@@ -695,10 +713,55 @@ const axisCtx = axisCv.getContext('2d');
 // l'execution n'atteigne cette ligne.
 var bigScrollReset = true;
 
+// ----- Variations de debit (ouvertures / fermetures de vannes), vues Heure et Jour -----
+// ⚠ INFEREES du debit total : Hydro-Quebec ne publie pas la position des vannes. c.man = liste creuse
+// [frame, delta, heureFin, dTurb, dDev, turbApres, devApres, pkHeure] calculee par render-animation.ps1.
+// Meme calcul que modalChain() du template bureau : la variation affichee est l'ecart entre deux niveaux
+// affiches consecutifs, et une variation sous le seuil s'ajoute a la suivante.
+// Choix (non conserves entre deux visites) : mode « Total quotidien » et filtre 50 m3/s au depart.
+// Un seul mode (largeur d'ecran limitee) : journee courante (derniere de la vue) = toutes les variations affichees ; jours precedents = total quotidien.
+const varMode = 'mixte';
+const varMinSel = document.getElementById('varMin');
+varMinSel.add(new Option('Toutes', 0));
+for (let v = 50; v <= 2000; v += 50) varMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
+varMinSel.value = '50';
+varMinSel.addEventListener('change', () => { if (D) drawBigChart(); });
+function varChain(c, mn, mode) {
+  const man = c.man || [], dk = f => String(D.timestamps[f] || '').slice(0, 10);
+  let raw = [];
+  // Mode « mixte » : les 2 derniers jours de la vue gardent toutes leurs manoeuvres, les precedents sont totalises par jour.
+  const dayList = []; for (let i = 0; i < D.timestamps.length; i++) { const d = dk(i); if (dayList[dayList.length - 1] !== d) dayList.push(d); }
+  const recent = new Set(mode === 'mixte' ? dayList.slice(-1) : []);   // journee courante seulement
+  if (mode === 'jour' || mode === 'mixte') {
+    const by = new Map();
+    for (const m of man) {
+      const d = dk(m[0]);
+      if (recent.has(d)) { raw.push({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }); continue; }
+      let q = by.get(d);
+      if (!q) { q = { f: m[0], big: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
+      q.net += m[1];
+      if (Math.abs(m[1]) > q.big) { q.big = Math.abs(m[1]); q.f = m[0]; q.hr = m[2]; }
+      q.lT = m[5] || 0; q.lD = m[6] || 0;
+    }
+    raw = raw.concat([...by.values()].map(q => ({ f: q.f, det: q.net, hr: q.hr, lT: q.lT, lD: q.lD }))).sort((a, b) => a.f - b.f);
+  } else raw = man.map(m => ({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }));
+  const out = []; let last = null;
+  for (const it of raw) {
+    const lv = it.lT + it.lD, d = last === null ? it.det : lv - last;
+    if (mn > 0 && Math.abs(d) < mn) continue;
+    out.push({ f: it.f, delta: d, hr: it.hr, lT: it.lT, lD: it.lD }); last = lv;
+  }
+  return out;
+}
+
 function drawBigChart() {
   if (selectedIdx < 0 || !D) return;
   const c = D.centrales[selectedIdx];
   const arr = c.debits;
+  // Panneau Variations : vues Heure et Jour seulement. Le conteneur est agrandi AVANT toute mesure de hauteur.
+  const varOnM = (D.periode === 'horaire' || D.periode === 'journalier') && Array.isArray(c.man);
+  document.getElementById('varCtl').classList.toggle('hidden', !varOnM);
+  document.getElementById('chartBox').classList.toggle('varOn', varOnM);
 
   // pad.l = 64 : assez large pour un label "NNNN m³/s" (4 chiffres + unite) en
   // textAlign='right' a pad.l - 6. Avec pad.l=50, les centrales a fort debit
@@ -793,7 +856,31 @@ function drawBigChart() {
   // 1,5 x libelle + 12 : le 1er tick est aligne a gauche (texte entier a droite de
   // son ancre) et le 2e centre ; c'est la paire la plus exigeante (cf. gapFor).
   const pxPerPt = (1.5 * lblW + 12) / ptsPerTick;
-  const innerW = Math.max(innerWView, Math.ceil(xSpan * pxPerPt));
+  const innerW0 = Math.max(innerWView, Math.ceil(xSpan * pxPerPt));
+  // Panneau Variations : colonnes de JOURS de largeur egale (colW). Seule la JOURNEE COURANTE (derniere colonne) est
+  // elargie pour loger toutes ses variations, chacune dans une colonne fixe (SUB_W) : toutes les barres ont la meme
+  // largeur. Tous les panneaux lisent la meme table de positions (xTab).
+  const SUB_W = 34;
+  const dkM = i => String(D.timestamps[i] || '').slice(0, 10);
+  const chainM = varOnM ? varChain(c, +varMinSel.value, varMode) : [];
+  const lastDayM = dkM(N - 1);
+  const curItems = chainM.filter(it => dkM(it.f) === lastDayM);
+  let curLeft = 0, innerW = innerW0, colW = 0, xTab = null;
+  if (varOnM) {
+    const dayListM = []; for (let i = 0; i < N; i++) { const d = dkM(i); if (dayListM[dayListM.length - 1] !== d) dayListM.push(d); }
+    const nd = dayListM.length, dIdx = new Map(dayListM.map((d, k) => [d, k]));
+    const jourW = D.periode === 'journalier';
+    colW = Math.max(jourW ? pxPerPt : pxPerPt * ptsPerTick, innerWView / nd);
+    const need = curItems.length * SUB_W, curW = Math.max(colW, need);
+    xTab = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const k = dIdx.get(dkM(i)), w = (k === nd - 1) ? curW : colW;
+      const hh = jourW ? 12 : (parseInt(String(D.timestamps[i]).slice(11, 13), 10) || 0);
+      xTab[i] = pad.l + k * colW + (jourW ? w / 2 : (hh / 24) * w);
+    }
+    curLeft = pad.l + (nd - 1) * colW + (curW - need) / 2;
+    innerW = (nd - 1) * colW + curW;
+  }
   const cssW = pad.l + innerW + pad.r;
   bigCv.style.width = cssW + 'px';
   // Hauteur lue APRES la largeur : une barre de defilement (bureau) peut la reduire.
@@ -827,7 +914,8 @@ function drawBigChart() {
   // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
   const plM = pluieSerie(c.zoneMeteo);
   const rainH = plM ? 0.33 : 0;
-  const rainGap = plM ? 26 : 0;   // plus serre qu'au bureau : hauteur ecran limitee
+  const rainGap = plM ? (varOnM ? 32 : 26) : 0;   // plus serre qu'au bureau : hauteur ecran limitee (32 : l'heure des variations passe dans cet espace)
+  const varH = varOnM ? 96 : 0, varGap = varOnM ? 22 : 0;
 
   // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
   let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
@@ -835,11 +923,13 @@ function drawBigChart() {
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
   const totalH = h - pad.t - pad.b;
-  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
-  const rainTop = pad.t + innerH + rainGap;
-  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
-  const xOf = i => pad.l + (i / xSpan) * innerW;
-  const yOf = v => pad.t + (1 - v / yMax) * innerH;
+  const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
+  const varTop = pad.t + innerH + varGap;
+  const rainTop = (varOnM ? varTop + varH : pad.t + innerH) + rainGap;
+  const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
+  const xOf = i => xTab ? xTab[i] : pad.l + (i / xSpan) * innerW0;   // avec les variations : colonnes de jours (xTab)
+  const yMin = varOnM ? 100 : 0;   // avec les variations, le debit total ne descend jamais a 0 : l'axe debute a 100 m3/s (comme au bureau)
+  const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
   // Grille horizontale + ticks Y (5 lignes)
   // (grille sur le canvas defilant, libelles sur #axisCv, fixe)
@@ -849,7 +939,7 @@ function drawBigChart() {
   for (let g = 0; g <= 5; g++) {
     const y = pad.t + (g / 5) * innerH;
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    ax.fillText(Math.round(yMax * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+    ax.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
   }
 
   // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
@@ -1002,6 +1092,7 @@ function drawBigChart() {
   // (turbine, deverse). Meme regroupement que dans le template bureau.
   // (hasApportM est declare plus haut, avec pad : la marge droite en depend.)
 
+  if (!varOnM) {   // avec les variations, turbine et deverse sont portes par le panneau Variations (comme au bureau)
   drawSeriesBig(c.turbs, turbCol, 2);
   drawSeriesBig(c.devs,  devCol,  2);
 
@@ -1028,6 +1119,83 @@ function drawBigChart() {
     cx.textAlign = fitsRight ? 'left' : 'right';
     cx.textBaseline = 'bottom';
     cx.fillText(valTxt, xCur + (fitsRight ? 6 : -6), yCur - 4);
+  }
+  }
+
+  // ===== PANNEAU DES VARIATIONS (entre debits et pluie), axe X partage =====
+  // Barres = NIVEAU atteint apres la variation (turbine vert + deverse bleu), ▲ ouverture / ▼ fermeture
+  // et variation (m3/s) au-dessus, heure de fin dessous. Total quotidien : une barre par jour ; Par heure :
+  // une par manoeuvre (cote a cote dans le jour en vue Jour).
+  if (varOnM) {
+    const jourV = D.periode === 'journalier';
+    const pxDayM = colW, pxPtM = jourV ? colW : colW / 24;
+    const COLO = '#d9640a', COLF = '#1d5e8c';
+    const BWM = Math.min(18, pxDayM * 0.5) * 0.6;   // meme largeur pour TOUTES les barres
+    const items = [];
+    for (const it of chainM) {
+      if (dkM(it.f) === lastDayM) continue;   // journee courante : colonnes fixes ci-dessous
+      items.push({ x: xOf(it.f), bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });   // total quotidien : une barre par jour
+    }
+    curItems.forEach((it, j) => items.push({ x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
+    items.sort((a, b) => a.x - b.x);
+    // Courbe du debit total par les niveaux affiches (le niveau persiste : prolongee a plat jusqu'au bord), avec le
+    // debit total ecrit a chaque point, comme au bureau.
+    cx.save(); cx.beginPath(); cx.rect(pad.l, pad.t - 14, innerW, innerH + 14); cx.clip();
+    {
+      const pts = items.map(it => [it.x, yOf(it.lT + it.lD)]);
+      if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
+      if (pts.length > 1) {
+        cx.beginPath(); cx.strokeStyle = stroke; cx.lineWidth = 3.1; cx.lineJoin = 'round';
+        pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
+        cx.stroke();
+      }
+      cx.font = 'bold 11px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
+      let lastXl = -1e9;
+      for (const it of items) {
+        const lv = it.lT + it.lD, yy = yOf(lv), txtL = String(Math.round(lv));
+        cx.fillStyle = stroke; cx.beginPath(); cx.arc(it.x, yy, 3, 0, 6.3); cx.fill();
+        if (jourV || it.x - lastXl >= cx.measureText(txtL).width + 3) {
+          cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtL, it.x, yy - 6);
+          cx.fillStyle = '#222'; cx.fillText(txtL, it.x, yy - 6);
+          lastXl = it.x;
+        }
+      }
+    }
+    cx.restore();
+    let mxL = 1; for (const it of items) mxL = Math.max(mxL, it.lT + it.lD);
+    const tickL = [50, 100, 200, 250, 500, 1000, 2000].find(t => mxL * 1.4 / t <= 3) || 2000;
+    const yMaxL = Math.ceil(mxL * 1.4 / tickL) * tickL;
+    const YL = v => varTop + varH * (1 - v / yMaxL);
+    cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(pad.l, YL(0)); cx.lineTo(pad.l + innerW, YL(0)); cx.stroke();
+    cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 18, innerW, varH + 18 + 16); cx.clip();
+    for (const it of items) {
+      cx.fillStyle = SERIES.turbine.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT), it.bw, Math.max(0, varH * it.lT / yMaxL));
+      if (it.lD > 0.5) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT + it.lD), it.bw, Math.max(1, varH * it.lD / yMaxL)); }
+    }
+    let lastXv = -1e9;
+    for (const it of items) {
+      const up = it.delta >= 0, y = Math.max(varTop + 22, YL(it.lT + it.lD) - 7);
+      const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
+      cx.font = 'bold 10px "Segoe UI",Arial';
+      const tw = cx.measureText(txt).width;
+      if (jourV || it.x - lastXv >= tw + 3) {
+        cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = up ? COLO : COLF;
+        cx.strokeStyle = '#fff'; cx.lineWidth = 3;
+        cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
+        cx.font = '11px "Segoe UI",Arial';
+        const tri = up ? '▲' : '▼';
+        cx.strokeText(tri, it.x, y - 11); cx.fillText(tri, it.x, y - 11);
+        if (it.hr != null) { cx.font = '10px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
+        lastXv = it.x;
+      }
+    }
+    cx.restore();
+    // Titre fixe (sur #axisCv) + legende des triangles
+    ax.fillStyle = '#1a1a2e'; ax.font = 'bold 11px "Segoe UI",Arial';
+    ax.textAlign = 'left'; ax.textBaseline = 'bottom';
+    const tVar = 'Variations (m³/s)';
+    ax.fillText(tVar, pad.l, varTop - 3);   // la legende ▲ / ▼ est dans le cadre du panneau des debits, comme au bureau
   }
 
   // ===== PANNEAU DU BAS : PLUIE 24 h (1/3), axe X partage =====
@@ -1071,19 +1239,24 @@ function drawBigChart() {
     //   BARRES = pluie tombee pendant le pas de temps (p1) -> quand il a plu
     //   COURBE = cumul 24 h glissant (p24)                 -> combien au total
     const plBarsM = plM.hVals || plM.vals;   // repli si p1 absent (vieux dataset)
+    // Avec les variations (comme la modale d'une centrale au bureau) : bandes pleines de meme largeur que les
+    // barres du panneau Variations, sans courbe de cumul 24 h.
+    const bwRM = varOnM ? Math.min(18, colW * 0.5) * 0.6 : 0;   // meme largeur que les barres du panneau Variations
     cx.strokeStyle = SERIES.pluie.line;
+    cx.fillStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
     cx.beginPath();
     for (let i = 0; i < N; i++) {
       const v = plBarsM[i];
       if (v == null || v <= 0) continue;
       const xx = xOf(i);
+      if (bwRM) { const hh = Math.min(1, v / yTopM) * rainInnerH; cx.fillRect(xx - bwRM - 0.5, base - hh, bwRM, hh); continue; }
       cx.moveTo(xx, base);
       cx.lineTo(xx, base - Math.min(1, v / yTopM) * rainInnerH);
     }
     cx.stroke();
     // Courbe du cumul 24 h par-dessus les barres, seulement si on a les deux series.
-    if (plM.hVals && plM.vals) {
+    if (plM.hVals && plM.vals && !bwRM) {
       cx.save();
       cx.strokeStyle = SERIES.pluie.solid;
       cx.lineWidth = 1.3;
@@ -1121,7 +1294,9 @@ function drawBigChart() {
         const v = c.apports[i];
         if (v != null && v > apWinM) apWinM = v;
       }
-      const apRefM = Math.max(apWinM, c.maxApport / 8);
+      // Avec les variations : meme regle que la modale d'une centrale au bureau (max de la fenetre, minimum 1 m3/s),
+      // sans le plancher 1/8 du max historique.
+      const apRefM = varOnM ? Math.max(apWinM, 1) : Math.max(apWinM, c.maxApport / 8);
       const apStepRawM = apRefM / RAIN_ROWS_M;
       const ap10M = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, apStepRawM))));
       let apStepM = ap10M;
@@ -1136,6 +1311,7 @@ function drawBigChart() {
         const v = c.apports[i];
         if (v == null || v <= 0) continue;
         const xx = xOf(i) + dxM;
+        if (bwRM) { const hh = Math.min(1, v / apTopM) * rainInnerH; cx.fillStyle = SERIES.apport.line; cx.fillRect(xx - dxM + 0.5, base - hh, bwRM, hh); continue; }
         cx.moveTo(xx, base);
         cx.lineTo(xx, base - Math.min(1, v / apTopM) * rainInnerH);
       }
@@ -1160,7 +1336,7 @@ function drawBigChart() {
     const lgM = [];
     if (plM.hVals) {
       lgM.push({ c: SERIES.pluie.line,  t: 'Pluie tombée' + sfxLm });
-      lgM.push({ c: SERIES.pluie.solid, t: 'Cumul 24 h' + sfxLm, line: true });
+      if (!varOnM) lgM.push({ c: SERIES.pluie.solid, t: 'Cumul 24 h' + sfxLm, line: true });   // pas de cumul avec les variations (comme au bureau)
     } else {
       lgM.push({ c: SERIES.pluie.line, t: 'Pluie 24 h' + sfxLm });
     }
@@ -1223,20 +1399,33 @@ function drawBigChart() {
     { c: turbCol, t: 'Turbiné' },
     { c: devCol,  t: 'Déversé' }
   ];
+  // Avec les variations : « Déversé » seulement s'il y en a, + ligne ▲ ouverture / ▼ fermeture (comme au bureau)
+  if (varOnM) {
+    if (!(c.devs || []).some(v => v > 0.5)) labels.splice(2, 1);
+    labels.push({ tri: true, t: '▲ ouverture · ▼ fermeture' });
+  }
   // Pas d'entree apport ici : il est descendu dans le panneau du bas, qui a sa
   // propre legende. L'y laisser serait un doublon pointant vers un autre cadre.
-  const wMax = Math.max.apply(null, labels.map(lb => ax.measureText(lb.t).width));
+  const wMax = Math.max.apply(null, labels.map(lb => ax.measureText(lb.t).width - (lb.tri ? lgSwW + 6 : 0)));
   const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
   const boxH = labels.length * lgGap + 2 * lgPadY;
   const lgTop = plM ? pad.t + 16 : pad.t;   // sous le titre du panneau, s'il y en a un
   const coL = pickCorner({ x0: pad.l, y0: lgTop, w: innerWView, h: pad.t + innerH - lgTop },
-                         boxW, boxH, [arr, c.turbs, c.devs], yOf, xOfView, null);
+                         boxW, boxH, varOnM ? [arr] : [arr, c.turbs, c.devs], yOf, xOfView, null);
   ax.fillStyle = 'rgba(255,255,255,.85)';
   ax.fillRect(coL.x, coL.y, boxW, boxH);
   ax.strokeStyle = '#dde'; ax.lineWidth = 1;
   ax.strokeRect(coL.x, coL.y, boxW, boxH);
   ax.textAlign = 'left'; ax.textBaseline = 'top';
   labels.forEach((lb, k) => {
+    if (lb.tri) {
+      let xx = coL.x + lgPadX; const yy = coL.y + lgPadY + k * lgGap;
+      ax.fillStyle = '#d9640a'; ax.fillText('▲', xx, yy); xx += ax.measureText('▲ ').width;
+      ax.fillStyle = '#333'; ax.fillText('ouverture', xx, yy); xx += ax.measureText('ouverture · ').width;
+      ax.fillStyle = '#1d5e8c'; ax.fillText('▼', xx, yy); xx += ax.measureText('▼ ').width;
+      ax.fillStyle = '#333'; ax.fillText('fermeture', xx, yy);
+      return;
+    }
     ax.fillStyle = lb.c;
     ax.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 3, lgSwW, lgSwH);
     ax.fillStyle = '#333';
