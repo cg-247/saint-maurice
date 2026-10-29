@@ -151,10 +151,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 18:20</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 18:34</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.7</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.8</span>
 </footer>
 
 <script>
@@ -470,8 +470,8 @@ async function loadData(opts) {
     hebdomadaire: sommaire.hebdomadaire || null
   };
   Object.entries(v).forEach(([k, view]) => { if (view && typeof view === 'object') view.periode = k; });
-  // 10 jours (240 h) : fenetre plus courte pour que les bandes du panneau Variations soient plus larges et de meme largeur.
-  trimView(v.horaire,     240);
+  // 30 jours (720 h) charges, defilables ; la fenetre visible en montre 10 (VIS_DAYS, cf. drawBigChart).
+  trimView(v.horaire,     720);
   trimView(v.journalier,   10);
   trimView(v.hebdomadaire,  6);
   // Empreinte de generation : sert a detecter un vrai changement de donnees.
@@ -840,6 +840,7 @@ function drawBigChart() {
   // elargie pour loger toutes ses variations, chacune dans une colonne fixe (SUB_W) : toutes les barres ont la meme
   // largeur. Tous les panneaux lisent la meme table de positions (xTab).
   const SUB_W = 34;
+  const VIS_DAYS = 10;   // jours visibles a l'ecran (le reste se defile)
   const dkM = i => String(D.timestamps[i] || '').slice(0, 10);
   const chainM = varOnM ? varChain(c, +varMinSel.value, varMode) : [];
   const lastDayM = dkM(N - 1);
@@ -851,9 +852,10 @@ function drawBigChart() {
     const jourW = D.periode === 'journalier';
     const need = curItems.length * SUB_W;
     if (nd > 1 && (jourW || D.periode === 'horaire')) {
-      // Vues Heure et Jour : tous les jours tiennent dans l'ecran, sans defilement (les libelles de dates sautent au besoin).
-      // La colonne courante prend sa place (need) et les autres se partagent le reste, jusqu'a un plancher de 14 px.
-      colW = Math.max(14, Math.min(innerWView / nd, (innerWView - need) / (nd - 1)));
+      // Vue Heure : l'ecran montre toujours VIS_DAYS jours (10) ; le graphe en couvre davantage (30) et defile. La colonne
+      // courante prend sa place (need) et les autres se partagent le reste, jusqu'a un plancher de 14 px.
+      const visN = Math.min(VIS_DAYS, nd);
+      colW = Math.max(14, Math.min(innerWView / visN, visN > 1 ? (innerWView - need) / (visN - 1) : innerWView));
     } else {
       colW = Math.max(jourW ? pxPerPt : pxPerPt * ptsPerTick, innerWView / nd);
     }
@@ -1261,7 +1263,7 @@ function drawBigChart() {
     // barres du panneau Variations, sans courbe de cumul 24 h.
     // Jour : meme largeur que les barres du panneau Variations. Heure : une barre par heure, donc tres fines (pluie a gauche
     // du point, apport a droite : 2 barres par pas de colW / 24).
-    const bwRM = varOnM ? (D.periode === 'journalier' ? Math.min(18, colW * 0.5) * 0.6 : Math.max(0.5, colW / 24 * 0.45)) : 0;
+    const bwRM = varOnM ? (D.periode === 'journalier' ? Math.min(18, colW * 0.5) * 0.6 : Math.max(1, colW / 24 * 0.9)) : 0;
     cx.strokeStyle = SERIES.pluie.line;
     cx.fillStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
