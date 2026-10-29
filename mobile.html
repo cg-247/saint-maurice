@@ -73,17 +73,6 @@ nav#chips::-webkit-scrollbar{display:none}
 .chip.sel.status-orange  {background:#a05500;border-color:#c07000}
 .chip.sel.status-rouge   {background:#8a1010;border-color:#aa2020}
 
-/* BARRE PERIODE (Heure/Jour/Semaine/Mois) */
-nav#periodes{display:flex;gap:6px;padding:8px 12px;background:#1a1a2e;
-             border-bottom:1px solid #2a2a4e}
-.period-btn{flex:1;min-height:36px;padding:6px 4px;
-            border:1px solid #3a3a5e;background:#22223e;color:#cdd;
-            border-radius:8px;font:inherit;font-size:13px;font-weight:600;
-            cursor:pointer;transition:transform .12s, background .12s}
-.period-btn:active{transform:scale(.96)}
-.period-btn.sel{background:#4a6fa5;color:#fff;border-color:#5a82bf;
-                box-shadow:0 2px 6px rgba(0,0,0,.3)}
-
 /* ETIQUETTE */
 section#label{background:#fff;color:#1a1a2e;margin:12px;
               border-radius:10px;padding:14px 16px;
@@ -145,12 +134,6 @@ footer a{color:#bcd;text-decoration:underline}
 
 <nav id="chips" aria-label="Centrales"></nav>
 
-<nav id="periodes" aria-label="P&eacute;riode" role="tablist" class="hidden">
-  <button type="button" class="period-btn sel" data-key="horaire"      role="tab">Heure</button>
-  <button type="button" class="period-btn"     data-key="journalier"   role="tab">Jour</button>
-  <button type="button" class="period-btn"     data-key="hebdomadaire" role="tab">Semaine</button>
-</nav>
-
 <section id="label" class="hidden" aria-live="polite"></section>
 
 <section id="chartWrap" class="hidden">
@@ -168,10 +151,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:41</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 18:20</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.5</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.7</span>
 </footer>
 
 <script>
@@ -511,15 +494,11 @@ async function init() {
     if (selectedIdx < 0) selectedIdx = views.horaire.centrales.findIndex(c => c.id === FALLBACK_ID);
     if (selectedIdx < 0) selectedIdx = 0;
 
-    // Active la vue Heure et branche les boutons periode.
+    // Vue Heure seule : plus de selecteur de periode (les vues Jour et Semaine ne sont plus offertes sur mobile).
     setPeriode('horaire');
-    document.querySelectorAll('.period-btn').forEach(btn => {
-      btn.addEventListener('click', () => setPeriode(btn.dataset.key));
-    });
 
     buildChips();
     document.getElementById('status').classList.add('hidden');
-    document.getElementById('periodes').classList.remove('hidden');
     document.getElementById('label').classList.remove('hidden');
     document.getElementById('chartWrap').classList.remove('hidden');
     render();
@@ -578,10 +557,6 @@ function setPeriode(key) {
     const newIdx = D.centrales.findIndex(c => c.id === id);
     if (newIdx >= 0) selectedIdx = newIdx;
   }
-  // MAJ visuelle des boutons.
-  document.querySelectorAll('.period-btn').forEach(btn => {
-    btn.classList.toggle('sel', btn.dataset.key === key);
-  });
   // Re-render seulement si l'init est termine (render() lit le DOM #label).
   if (!document.getElementById('label').classList.contains('hidden')) render();
 }
@@ -869,14 +844,14 @@ function drawBigChart() {
   const chainM = varOnM ? varChain(c, +varMinSel.value, varMode) : [];
   const lastDayM = dkM(N - 1);
   const curItems = chainM.filter(it => dkM(it.f) === lastDayM);
-  let curLeft = 0, innerW = innerW0, colW = 0, xTab = null;
+  let curLeft = 0, innerW = innerW0, colW = 0, xTab = null, dayCtr = null;
   if (varOnM) {
     const dayListM = []; for (let i = 0; i < N; i++) { const d = dkM(i); if (dayListM[dayListM.length - 1] !== d) dayListM.push(d); }
     const nd = dayListM.length, dIdx = new Map(dayListM.map((d, k) => [d, k]));
     const jourW = D.periode === 'journalier';
     const need = curItems.length * SUB_W;
-    if (jourW && nd > 1) {
-      // Vue Jour : tous les jours tiennent dans l'ecran, sans defilement (les libelles de dates sautent au besoin).
+    if (nd > 1 && (jourW || D.periode === 'horaire')) {
+      // Vues Heure et Jour : tous les jours tiennent dans l'ecran, sans defilement (les libelles de dates sautent au besoin).
       // La colonne courante prend sa place (need) et les autres se partagent le reste, jusqu'a un plancher de 14 px.
       colW = Math.max(14, Math.min(innerWView / nd, (innerWView - need) / (nd - 1)));
     } else {
@@ -891,6 +866,7 @@ function drawBigChart() {
     }
     curLeft = pad.l + (nd - 1) * colW + (curW - need) / 2;
     innerW = (nd - 1) * colW + curW;
+    dayCtr = new Map(dayListM.map((d, k) => [d, pad.l + k * colW + colW / 2]));   // centre de la colonne de chaque jour
   }
   const cssW = pad.l + innerW + pad.r;
   bigCv.style.width = cssW + 'px';
@@ -1159,7 +1135,7 @@ function drawBigChart() {
     const items = [];
     for (const it of chainM) {
       if (dkM(it.f) === lastDayM) continue;   // journee courante : colonnes fixes ci-dessous
-      items.push({ x: xOf(it.f), bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });   // total quotidien : une barre par jour
+      items.push({ x: jourV ? xOf(it.f) : dayCtr.get(dkM(it.f)), bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });   // total quotidien : une barre par jour, au centre de sa colonne
     }
     curItems.forEach((it, j) => items.push({ x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     items.sort((a, b) => a.x - b.x);
@@ -1168,7 +1144,13 @@ function drawBigChart() {
     cx.save(); cx.beginPath(); cx.rect(pad.l, pad.t - 14, innerW, innerH + 14); cx.clip();
     {
       const pts = items.map(it => [it.x, yOf(it.lT + it.lD)]);
-      if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
+      // Fin de courbe au debit REEL (c.dFin : dernier debit horaire connu) : les niveaux affiches sont ceux d'apres chaque
+      // variation retenue par le filtre, donc le dernier peut etre perime de quelques m3/s sous le seuil.
+      const lastLv = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : null;
+      const endOn = c.dFin != null && lastLv != null && Math.round(c.dFin) !== Math.round(lastLv);
+      const endX = pad.l + innerW - 6;
+      if (endOn) pts.push([endX, yOf(c.dFin)]);
+      else if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
       if (pts.length > 1) {
         cx.beginPath(); cx.strokeStyle = stroke; cx.lineWidth = 3.1; cx.lineJoin = 'round';
         pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
@@ -1184,6 +1166,15 @@ function drawBigChart() {
           cx.fillStyle = '#222'; cx.fillText(txtL, it.x, yy - 6);
           lastXl = it.x;
         }
+      }
+      if (endOn) {   // point final = debit reel ; etiquette sous le point si elle toucherait celle du dernier niveau
+        const yy = yOf(c.dFin), txtE = String(Math.round(c.dFin)), tw = cx.measureText(txtE).width;
+        const pv = items[items.length - 1], close = (endX - pv.x) < tw + 4;
+        cx.fillStyle = stroke; cx.beginPath(); cx.arc(endX, yy, 3, 0, 6.3); cx.fill();
+        cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
+        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtE, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
+        cx.fillStyle = '#222'; cx.fillText(txtE, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
+        cx.textAlign = 'center';
       }
     }
     cx.restore();
@@ -1268,7 +1259,9 @@ function drawBigChart() {
     const plBarsM = plM.hVals || plM.vals;   // repli si p1 absent (vieux dataset)
     // Avec les variations (comme la modale d'une centrale au bureau) : bandes pleines de meme largeur que les
     // barres du panneau Variations, sans courbe de cumul 24 h.
-    const bwRM = varOnM ? Math.min(18, colW * 0.5) * 0.6 : 0;   // meme largeur que les barres du panneau Variations
+    // Jour : meme largeur que les barres du panneau Variations. Heure : une barre par heure, donc tres fines (pluie a gauche
+    // du point, apport a droite : 2 barres par pas de colW / 24).
+    const bwRM = varOnM ? (D.periode === 'journalier' ? Math.min(18, colW * 0.5) * 0.6 : Math.max(0.5, colW / 24 * 0.45)) : 0;
     cx.strokeStyle = SERIES.pluie.line;
     cx.fillStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
