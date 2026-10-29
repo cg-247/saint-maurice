@@ -151,10 +151,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 18:34</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 19:00</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.8</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.10</span>
 </footer>
 
 <script>
@@ -713,10 +713,12 @@ function varChain(c, mn, mode) {
       const d = dk(m[0]);
       if (recent.has(d)) { raw.push({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }); continue; }
       let q = by.get(d);
-      if (!q) { q = { f: m[0], big: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
+      if (!q) { q = { f: m[0], mx: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
       q.net += m[1];
-      if (Math.abs(m[1]) > q.big) { q.big = Math.abs(m[1]); q.f = m[0]; q.hr = m[2]; }
-      q.lT = m[5] || 0; q.lD = m[6] || 0;
+      // Niveau du jour = le PLUS HAUT atteint (et non celui de fin de journee : une pointe d'une heure, comme le pic d'une
+      // crue, disparaitrait). Heure et frame : celles de la manoeuvre qui atteint ce niveau.
+      const lvm = (m[5] || 0) + (m[6] || 0);
+      if (lvm > q.mx) { q.mx = lvm; q.f = m[0]; q.hr = m[2]; q.lT = m[5] || 0; q.lD = m[6] || 0; }
     }
     raw = raw.concat([...by.values()].map(q => ({ f: q.f, det: q.net, hr: q.hr, lT: q.lT, lD: q.lD }))).sort((a, b) => a.f - b.f);
   } else raw = man.map(m => ({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }));
@@ -1146,10 +1148,14 @@ function drawBigChart() {
     cx.save(); cx.beginPath(); cx.rect(pad.l, pad.t - 14, innerW, innerH + 14); cx.clip();
     {
       const pts = items.map(it => [it.x, yOf(it.lT + it.lD)]);
+      // Debut de courbe : depuis le bord gauche, au debit reel de la 1re heure de la fenetre. Sans cela la ligne ne
+      // commencait qu'a la 1re variation retenue, et manquait tant qu'il n'y en avait pas (ou sur toute la fenetre).
+      const d0 = (c.debits && c.debits[0] != null) ? c.debits[0] : null;
+      if (d0 != null) pts.unshift([pad.l, yOf(d0)]);
       // Fin de courbe au debit REEL (c.dFin : dernier debit horaire connu) : les niveaux affiches sont ceux d'apres chaque
       // variation retenue par le filtre, donc le dernier peut etre perime de quelques m3/s sous le seuil.
       const lastLv = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : null;
-      const endOn = c.dFin != null && lastLv != null && Math.round(c.dFin) !== Math.round(lastLv);
+      const endOn = c.dFin != null && (lastLv == null || Math.round(c.dFin) !== Math.round(lastLv));   // sans aucune variation : debut -> fin au debit reel
       const endX = pad.l + innerW - 6;
       if (endOn) pts.push([endX, yOf(c.dFin)]);
       else if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
@@ -1171,7 +1177,7 @@ function drawBigChart() {
       }
       if (endOn) {   // point final = debit reel ; etiquette sous le point si elle toucherait celle du dernier niveau
         const yy = yOf(c.dFin), txtE = String(Math.round(c.dFin)), tw = cx.measureText(txtE).width;
-        const pv = items[items.length - 1], close = (endX - pv.x) < tw + 4;
+        const pv = items[items.length - 1], close = !!pv && (endX - pv.x) < tw + 4;
         cx.fillStyle = stroke; cx.beginPath(); cx.arc(endX, yy, 3, 0, 6.3); cx.fill();
         cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
         cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtE, pad.l + innerW - 2, close ? yy + 6 : yy - 6);

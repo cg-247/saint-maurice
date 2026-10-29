@@ -471,9 +471,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.19.8</span>
+    <span title="Version de la PWA install&eacute;e">v2.19.10</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 18:34</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 19:00</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -4749,10 +4749,12 @@ function modalChain(c0, mnX, modeX) {   // mnX / modeX : surcharge pour la modal
     for (const m of man) {
       const d = modalDayKey(m[0]);
       let q = by.get(d);
-      if (!q) { q = { f: m[0], big: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
+      if (!q) { q = { f: m[0], mx: -1, net: 0, hr: null, lT: 0, lD: 0 }; by.set(d, q); }
       q.net += m[1];
-      if (Math.abs(m[1]) > q.big) { q.big = Math.abs(m[1]); q.f = m[0]; q.hr = m[2]; }
-      q.lT = m[5] || 0; q.lD = m[6] || 0;          // niveau apres la derniere manoeuvre du jour
+      // Niveau du jour = le PLUS HAUT atteint (et non celui de fin de journee : une pointe d'une heure, comme le pic d'une
+      // crue, disparaitrait). Heure et frame : celles de la manoeuvre qui atteint ce niveau.
+      const lvm = (m[5] || 0) + (m[6] || 0);
+      if (lvm > q.mx) { q.mx = lvm; q.f = m[0]; q.hr = m[2]; q.lT = m[5] || 0; q.lD = m[6] || 0; }
     }
     raw = [...by.values()].map(q => ({ f: q.f, det: q.net, hr: q.hr, lT: q.lT, lD: q.lD }));
   } else raw = man.map(m => ({ f: m[0], det: m[1], hr: m[2], lT: m[5] || 0, lD: m[6] || 0 }));
@@ -4900,8 +4902,8 @@ window.addEventListener('mouseup', () => {
 
 // Panneau « Variations » : meme look que la vue Comparer de la page vannes. Barres = NIVEAU atteint
 // (turbine vert + deverse bleu = debit total), courbe du total, variation (▲ / ▼ + m3/s) au-dessus,
-// heure de fin de la manoeuvre dessous. « Somme par jour » : une colonne par jour (net du jour, heure de
-// la plus grande manoeuvre, niveau apres la derniere). « Par manoeuvre » : une colonne par manoeuvre
+// heure de fin de la manoeuvre dessous. « Somme par jour » : une colonne par jour (net du jour, heure et
+// niveau du PLUS HAUT niveau atteint dans le jour). « Par manoeuvre » : une colonne par manoeuvre
 // (cote a cote dans le jour). ⚠ Manoeuvres inferees du debit, pas une position de vanne mesuree.
 function drawModalVariations(cx, c, g) {
   const { pad, innerW, varTop, varH, xOf, xCur, xFut, pxF, yOfDebit, colDebit, debitTop, debitBot, chain, prevLvl } = g;
@@ -4929,7 +4931,7 @@ function drawModalVariations(cx, c, g) {
   const yMaxL = Math.ceil(mxL * 1.4 / tick) * tick;
   const Y = v => varTop + varH * (1 - v / yMaxL);
   const lastLvl = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : prevLvl;
-  const endOn = g.endV != null && lastLvl != null && Math.round(g.endV) !== Math.round(lastLvl);
+  const endOn = g.endV != null && (lastLvl == null || Math.round(g.endV) !== Math.round(lastLvl));
   const endX = pad.l + innerW - 6;
   if (xFut < pad.l + innerW) { cx.fillStyle = 'rgba(150,150,160,.18)'; cx.fillRect(xFut, varTop, pad.l + innerW - xFut, varH); }
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
@@ -4948,6 +4950,7 @@ function drawModalVariations(cx, c, g) {
     // (0 ou 1 variation dans la fenetre).
     const pts = items.map(it => [it.x, yOfDebit(it.lT + it.lD)]);
     if (prevLvl != null) pts.unshift([pad.l, yOfDebit(prevLvl)]);
+    else if (g.startV != null) pts.unshift([pad.l, yOfDebit(g.startV)]);   // aucun niveau avant la fenetre : debut au debit reel de la 1re heure
     // Fin de courbe au debit REEL (g.endV : dernier debit horaire connu) : les niveaux affiches sont ceux d'apres chaque
     // variation retenue par le filtre, donc le dernier peut etre perime de quelques m3/s sous le seuil.
     if (endOn) pts.push([endX, yOfDebit(g.endV)]);
@@ -5052,7 +5055,7 @@ function drawBigChartCore() {
   const varH = varOn ? 110 : 0, varGap = varOn ? (modalWin.scrollable ? 24 : 18) : 0;    // espace du titre « Variations (m³/s) » (meme taille que le titre « Débits »)
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
-  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl, endV: c.dFinEnd, titleSize: modalWin.scrollable ? 15.6 : 12 });
+  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl, startV: c.debits ? c.debits[0] : null, endV: c.dFinEnd, titleSize: modalWin.scrollable ? 15.6 : 12 });
   const rainTop = (varOn ? varTop + varH : pad.t + innerH) + rainGap;
   const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
   const xOff = (modalWin.scrollable && D.periode === 'journalier') ? 0.5 : 0;   // Jour : le point est au CENTRE de la colonne du jour
@@ -6412,7 +6415,7 @@ function drawAll() {
     try {
       D.timestamps = win.map(i => ts0[i]); N = Wn; frame = fw;
       drawModalVariations(cx, c, { pad: { l: ALL_PADL }, innerW, varTop, varH: ALL_VARH, xOf, xCur, xFut, pxF: innerW / Wn, yOfDebit: yOf, colDebit: stroke,
-        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, endV: (s + Wn >= Nk) ? c.dFin : null, titleSize: 15.6 });
+        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, startV: c.debits ? c.debits[win[0]] : null, endV: (s + Wn >= Nk) ? c.dFin : null, titleSize: 15.6 });
       for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, y0: modalHits.top, y1: modalHits.bot }));
       // Legende du panneau Debits (comme la modale d'une centrale, mais sur une seule ligne : le panneau est peu haut)
       {
