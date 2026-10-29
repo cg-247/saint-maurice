@@ -471,9 +471,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.19.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.19.3</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 16:03</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:05</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -4977,6 +4977,10 @@ function drawModalVariations(cx, c, g) {
     }
   }
   cx.restore();
+  // Titre du panneau (comme « Débits (m³/s) » et « Pluie (mm) » : gras, a gauche, juste au-dessus du cadre)
+  cx.fillStyle = '#1a1a2e'; cx.font = 'bold ' + (g.titleSize || 12) + 'px "Segoe UI",Arial';
+  cx.textAlign = 'left'; cx.textBaseline = 'bottom';
+  cx.fillText('Variations (m³/s)', pad.l, varTop - 4);
   cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
   cx.beginPath(); cx.moveTo(xCur, varTop); cx.lineTo(xCur, varTop + varH); cx.stroke();
 }
@@ -5029,10 +5033,10 @@ function drawBigChartCore() {
   // Panneau des VARIATIONS (ouvertures / fermetures) entre les debits et la pluie : meme axe X.
   // Vues Heure et Jour seulement, et si le sélecteur n'est pas sur « masquees ».
   const varOn = (D.periode === 'horaire' || D.periode === 'journalier') && !!(c.man || c.items);
-  const varH = varOn ? 110 : 0, varGap = varOn ? 12 : 0;    // plus d'entete sur le panneau : espace reduit, hauteur rendue aux graphiques
+  const varH = varOn ? 110 : 0, varGap = varOn ? (modalWin.scrollable ? 24 : 18) : 0;    // espace du titre « Variations (m³/s) » (meme taille que le titre « Débits »)
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
-  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl });
+  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl, titleSize: modalWin.scrollable ? 15.6 : 12 });
   const rainTop = (varOn ? varTop + varH : pad.t + innerH) + rainGap;
   const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
   const xOff = (modalWin.scrollable && D.periode === 'journalier') ? 0.5 : 0;   // Jour : le point est au CENTRE de la colonne du jour
@@ -6283,7 +6287,7 @@ const allSel = document.getElementById('allVariationSel'), allMinSel = document.
 allMinSel.add(new Option('Toutes', 0));
 for (let v = 50; v <= 2000; v += 50) allMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
 allMinSel.value = '50';            // comme la modale d'une centrale : toujours 50 m3/s a l'ouverture, jamais conserve
-const ALL_HEAD = 30, ALL_DEBH = 92, ALL_VARH = 92, ALL_PH = 24 + ALL_DEBH + 12 + ALL_VARH + 36, ALL_BAR = 14, ALL_PADL = 60, ALL_PADR = 20;
+const ALL_HEAD = 30, ALL_DEBH = 92, ALL_VARH = 92, ALL_PH = 24 + ALL_DEBH + 24 + ALL_VARH + 36, ALL_BAR = 14, ALL_PADL = 60, ALL_PADR = 20;
 let allDrag = null, allSuppressClick = false, allHits = [], allNoteTxt = '';
 function allChains() { return D.centrales.map(c => modalChain(c, +allMinSel.value, allSel.value)); }
 // Jours gardes : ceux ou au moins UNE centrale a une variation affichee (meme regle que modalKeep, sans pluie ni apport)
@@ -6360,7 +6364,7 @@ function drawAll() {
     const full = chains[ci];
     let prevLvl = null; for (const it of full) { if (it.f < win[0]) prevLvl = it.lT + it.lD; else break; }
     const chW = full.filter(it => pos.has(it.f)).map(it => Object.assign({}, it, { f: pos.get(it.f) }));
-    const debTop = top + 24, debBot = debTop + ALL_DEBH, varTop = debBot + 12;
+    const debTop = top + 24, debBot = debTop + ALL_DEBH, varTop = debBot + 24;
     // Echelle Y du panneau Debits : comme la modale d'une centrale (max historique + 5 %, axe a partir de 100 m3/s)
     const yk = N + '|' + c.maxTotal;
     if (c._allYk !== yk) {
@@ -6392,7 +6396,7 @@ function drawAll() {
     try {
       D.timestamps = win.map(i => ts0[i]); N = Wn; frame = fw;
       drawModalVariations(cx, c, { pad: { l: ALL_PADL }, innerW, varTop, varH: ALL_VARH, xOf, xCur, xFut, pxF: innerW / Wn, yOfDebit: yOf, colDebit: stroke,
-        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode });
+        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, titleSize: 15.6 });
       for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, y0: modalHits.top, y1: modalHits.bot }));
       // Legende du panneau Debits (comme la modale d'une centrale, mais sur une seule ligne : le panneau est peu haut)
       {
