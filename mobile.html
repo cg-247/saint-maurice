@@ -168,10 +168,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:05</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:25</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.3</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.4</span>
 </footer>
 
 <script>
@@ -837,7 +837,7 @@ function drawBigChart() {
   const xSpan = Math.max(1, N - 1);
   const cx = bigCtx;
   cx.setTransform(1, 0, 0, 1, 0, 0);
-  cx.font = '8px "Segoe UI",Arial';
+  cx.font = '6px "Segoe UI",Arial';
   let lblW = 0;
   for (let i = 0; i < N; i++) {
     lblW = Math.max(lblW, cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width);
@@ -965,7 +965,7 @@ function drawBigChart() {
 
   // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
   // horaire d'une journee partielle en dessous, plus petite et discrete.
-  // ~0.78x la taille de base (minimum 8px), comme drawTickLabel() du bureau.
+  // ~0.78x la taille de base (minimum 6px), comme drawTickLabel() du bureau.
   // Restaure police et couleur en sortie.
   const drawTick = (ts, x, y, baseFont) => {
     const p = fmtTickParts(ts);
@@ -973,7 +973,7 @@ function drawBigChart() {
     if (!p.sub) return;
     const prevFont = cx.font, prevFill = cx.fillStyle;
     const mSize = /(\d+(?:\.\d+)?)px/.exec(baseFont || cx.font);
-    const size = mSize ? Math.max(8, Math.round(parseFloat(mSize[1]) * 0.78)) : 8;
+    const size = mSize ? Math.max(6, Math.round(parseFloat(mSize[1]) * 0.78)) : 6;
     cx.font = (baseFont || cx.font).replace(/(\d+(?:\.\d+)?)px/, size + 'px');
     cx.fillStyle = '#999';
     cx.fillText(p.sub, x, y + size + 3);
@@ -996,7 +996,7 @@ function drawBigChart() {
     const half = (align, wpx) => align === 'center' ? wpx / 2 : wpx;
     return half(prevAlign, prevW) + half(nextAlign, nextW) + 6; // 6px de marge visuelle
   };
-  cx.font = '8px "Segoe UI",Arial';
+  cx.font = '6px "Segoe UI",Arial';
   let tickIdx;
   if (D.periode === 'horaire') {
     // Un candidat de tick par jour calendaire (1er point de chaque jour), le
@@ -1087,7 +1087,7 @@ function drawBigChart() {
     } else {
       cx.textAlign = 'center';
     }
-    drawTick(String(D.timestamps[i] || ''), x, h - pad.b + 6, '8px "Segoe UI",Arial');
+    drawTick(String(D.timestamps[i] || ''), x, h - pad.b + 6, '6px "Segoe UI",Arial');
   }
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
@@ -1170,7 +1170,7 @@ function drawBigChart() {
         pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
         cx.stroke();
       }
-      cx.font = 'bold 11px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
+      cx.font = 'bold 8px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
       let lastXl = -1e9;
       for (const it of items) {
         const lv = it.lT + it.lD, yy = yOf(lv), txtL = String(Math.round(lv));
@@ -1199,16 +1199,16 @@ function drawBigChart() {
     for (const it of items) {
       const up = it.delta >= 0, y = Math.max(varTop + 22, YL(it.lT + it.lD) - 7);
       const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
-      cx.font = 'bold 8px "Segoe UI",Arial';
+      cx.font = 'bold 6px "Segoe UI",Arial';
       const tw = cx.measureText(txt).width;
       if (jourV || it.x - lastXv >= tw + 3) {
         cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = up ? COLO : COLF;
         cx.strokeStyle = '#fff'; cx.lineWidth = 3;
         cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
-        cx.font = '8px "Segoe UI",Arial';
+        cx.font = '6px "Segoe UI",Arial';
         const tri = up ? '▲' : '▼';
-        cx.strokeText(tri, it.x, y - 9); cx.fillText(tri, it.x, y - 9);
-        if (it.hr != null) { cx.font = '8px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
+        cx.strokeText(tri, it.x, y - 7); cx.fillText(tri, it.x, y - 7);
+        if (it.hr != null) { cx.font = '6px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
         lastXv = it.x;
       }
     }
@@ -1351,7 +1351,7 @@ function drawBigChart() {
       }
     }
     // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les series.
-    ax.font = '8px "Segoe UI",Arial';
+    ax.font = '6px "Segoe UI",Arial';
     // Une entree par FORME (barres / courbe / stem), suffixee du cote de l'axe quand
     // les deux echelles coexistent — sinon rien ne dit laquelle lire pour quelle
     // serie. Suffixes abreges ('g.' / 'd.') : la largeur d'ecran est limitee.
@@ -1368,7 +1368,7 @@ function drawBigChart() {
     let lgWm = 0;
     for (const it of lgM) lgWm = Math.max(lgWm, ax.measureText(it.t).width);
     const bw = lgWm + swW2 + 6 + 2 * pX;
-    const bh = 11 * lgM.length + 2 * pY;
+    const bh = 9 * lgM.length + 2 * pY;
     const rYOf = v => base - Math.min(1, v / yTopM) * rainInnerH;
     // Les deux series sont passees a pickCorner (l'apport ramene sur l'echelle de la
     // pluie) pour que le cadre evite aussi les stems d'apport.
@@ -1384,7 +1384,7 @@ function drawBigChart() {
     ax.strokeRect(coP.x, coP.y, bw, bh);
     ax.textAlign = 'left'; ax.textBaseline = 'top';
     for (let k = 0; k < lgM.length; k++) {
-      const yk = coP.y + pY + k * 11;
+      const yk = coP.y + pY + k * 9;
       const itM = lgM[k];
       if (itM.line) {
         // Echantillon en TRAIT : il doit ressembler a la courbe qu'il designe.
@@ -1413,8 +1413,8 @@ function drawBigChart() {
   // Legende : coin choisi dynamiquement pour ne pas se poser sur les courbes
   // (l'ancien coin fixe haut-gauche tombait en plein dans les donnees des centrales
   // dont le debit est eleve en debut de fenetre).
-  const lgSwW = 18, lgSwH = 6, lgGap = 11, lgPadX = 6, lgPadY = 5;
-  ax.font = '8px "Segoe UI",Arial';
+  const lgSwW = 18, lgSwH = 6, lgGap = 9, lgPadX = 6, lgPadY = 5;
+  ax.font = '6px "Segoe UI",Arial';
   // Ni apport ni pluie ici : les deux vivent dans le panneau du bas, qui a sa
   // propre legende. Cette legende ne decrit que les series du panneau des debits.
   const labels = [
