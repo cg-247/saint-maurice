@@ -168,10 +168,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:28</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-29 17:41</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.4</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.5</span>
 </footer>
 
 <script>
@@ -777,7 +777,11 @@ function drawBigChart() {
   // posee sous la date par drawTick(). Avec 30, elle tombait sous le bord du
   // canvas et etait tronquee.
   const dateOnlyM = (D.periode === 'horaire' || D.periode === 'journalier');
-  const pad = { l: 64, r: hasApportM ? 64 : 14, t: 8, b: dateOnlyM ? 30 : 42 };
+  // Marges mesurees sur le texte reel des echelles (8 px) plutot que fixes : le maximum de place revient au graphe.
+  // Le libelle de reference a 4 chiffres + unite est le plus large possible (debits >= 1000 m3/s).
+  axisCtx.font = '8px "Segoe UI",Arial';
+  const scaleW = Math.ceil(axisCtx.measureText('0000 m³/s').width);
+  const pad = { l: scaleW + 8, r: hasApportM ? scaleW + 8 : 8, t: 8, b: dateOnlyM ? 30 : 42 };
 
   // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
   // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
@@ -941,7 +945,7 @@ function drawBigChart() {
   // Grille horizontale + ticks Y (5 lignes)
   // (grille sur le canvas defilant, libelles sur #axisCv, fixe)
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-  ax.fillStyle = '#666'; ax.font = '11px "Segoe UI",Arial';
+  ax.fillStyle = '#666'; ax.font = '8px "Segoe UI",Arial';
   ax.textAlign = 'right'; ax.textBaseline = 'middle';
   for (let g = 0; g <= 5; g++) {
     const y = pad.t + (g / 5) * innerH;
@@ -1243,7 +1247,7 @@ function drawBigChart() {
     const decM = stepM >= 1 ? 0 : 1;
     // Grille + paliers (au lieu des deux seuls reperes 0 / max).
     cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-    ax.fillStyle = '#666'; ax.font = '10px "Segoe UI",Arial';
+    ax.fillStyle = '#666'; ax.font = '8px "Segoe UI",Arial';
     ax.textAlign = 'right';
     for (let g = 0; g <= RAIN_ROWS_M; g++) {
       const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
@@ -1343,7 +1347,7 @@ function drawBigChart() {
       // debits et comme l'axe pluie en vis-a-vis.
       // Sur #axisCv : x relatif a la largeur VISIBLE, pas a celle du graphe defilant.
       ax.fillStyle = SERIES.apport.solid;
-      ax.font = '10px "Segoe UI",Arial';
+      ax.font = '8px "Segoe UI",Arial';
       ax.textAlign = 'left'; ax.textBaseline = 'middle';
       for (let g = 0; g <= RAIN_ROWS_M; g++) {
         const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
