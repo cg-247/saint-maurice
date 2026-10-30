@@ -471,22 +471,17 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.19.10</span>
+    <span title="Version de la PWA install&eacute;e">v2.19.12</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 11:17</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 15:56</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
     <button id="modal-all-close" type="button" aria-label="Fermer">&times;</button>
     <div id="modal-all-title">Toutes les centrales &mdash; d&eacute;bit total et variations (nord &rarr; sud)</div>
     <div id="modal-all-var">
-      <label>Variations des d&eacute;bits par l'action des vannes :
-        <select id="allVariationSel">
-          <option value="manoeuvre">Par heure</option>
-          <option value="jour" selected>Total quotidien</option>
-        </select>
-      </label>
-      <label style="margin-left:18px">Variation affich&eacute;e :
+      <select id="allVariationSel" hidden><option value="manoeuvre" selected>Par heure</option></select>
+      <label>Variation affich&eacute;e :
         <select id="allVariationMin"></select>
       </label>
     </div>
@@ -500,13 +495,8 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
     <div id="modal-title"></div>
     <div id="modal-stats"></div>
     <div id="modal-var">
-      <label>Variations des d&eacute;bits par l'action des vannes :
-        <select id="variationSel">
-          <option value="manoeuvre">Par heure</option>
-          <option value="jour" selected>Total quotidien</option>
-        </select>
-      </label>
-      <label style="margin-left:18px">Variation affich&eacute;e :
+      <select id="variationSel" hidden><option value="manoeuvre" selected>Par heure</option></select>
+      <label>Variation affich&eacute;e :
         <select id="variationMin"></select>
       </label>
     </div>
@@ -2294,7 +2284,7 @@ const TURB_ROW_FRAC = 0.4495;
 const STRIP_H = 22;               // hauteur de la bande (px image)
 const SPARK_PX_DAY = 7;           // px image par JOUR sur la sparkline defilante (meme principe que le graphe mobile)
 // 'jour' = somme par jour (net) | 'manoeuvre' = ouvertures et fermetures separees
-let variationMode = 'jour';
+let variationMode = 'manoeuvre';   // le mode « Total quotidien » est retire : toujours une barre par manoeuvre
 function stripOn() {
   return !!D && (D.periode === 'horaire' || D.periode === 'journalier') &&
          D.centrales.some(c => c.man && c.man.length);
@@ -5106,8 +5096,14 @@ function drawBigChartCore() {
       const dd = new Date(dk + 'T12:00:00Z'), pxd = (D.periode === 'horaire' ? 24 : 1) * innerW / Math.max(1, (N - 1) + 3);
       // Etroit (< 60 px/jour) : le numero du jour seul, avec le mois au 1er du mois et au 1er repere ; sinon « 3 août »
       const lbl = pxd >= 100 ? dd.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : (pxd >= 60 || dd.getUTCDate() === 1 || i === 0 || modalDayKey(0) === dk) ? dd.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : String(dd.getUTCDate());
-      cx.fillText(lbl, xd + 4, h - pad.b + 6);
-      cx.fillText(lbl, xd + 4, pad.t - 20);       // meme date au-dessus du debit (comme la vue Comparer)
+      // Date CENTREE dans la colonne de son jour (entre deux pointilles) : fin de colonne = debut du jour suivant
+      // (ou 24 h apres le debut pour le dernier jour, dont la colonne n'est peut-etre pas complete).
+      let jEnd = i + 1; while (jEnd < N && modalDayKey(jEnd) === dk) jEnd++;
+      if (jEnd >= N) jEnd = Math.min(xSpan, i + (D.periode === 'horaire' ? 24 : 1));
+      const xc = pad.l + (((i + jEnd) / 2) / xSpan) * innerW;
+      cx.textAlign = 'center';
+      cx.fillText(lbl, xc, h - pad.b + 6);
+      cx.fillText(lbl, xc, pad.t - 20);       // meme date au-dessus du debit (comme la vue Comparer)
     }
   } else {
   for (let g = 0; g <= 4; g++) {
@@ -6453,14 +6449,15 @@ function drawAll() {
   // en-tete fixe : dates (alignees pour toutes les centrales)
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, bodyTop);
   cx.strokeStyle = '#c9ced9'; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(0, bodyTop - 0.5); cx.lineTo(w, bodyTop - 0.5); cx.stroke();
-  cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.font = 'bold 12px "Segoe UI",Arial'; cx.fillStyle = '#1b2630';
+  cx.textAlign = 'center'; cx.textBaseline = 'top'; cx.font = 'bold 12px "Segoe UI",Arial'; cx.fillStyle = '#1b2630';   // dates centrees dans la colonne du jour
   for (let k = 0; k < Wn; k++) {
     const dk = modalDayKey(win[k]);
     if (k > 0 && dk === modalDayKey(win[k - 1])) continue;
+    let kEnd = k + 1; while (kEnd < Wn && modalDayKey(win[kEnd]) === dk) kEnd++;   // fin de la colonne = debut du jour suivant
     const dd = new Date(dk + 'T12:00:00Z');
     const lbl = pxDayW >= 100 ? dd.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
       : (pxDayW >= 60 || dd.getUTCDate() === 1 || k === 0) ? dd.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : String(dd.getUTCDate());
-    cx.fillText(lbl, ALL_PADL + (k / Wn) * innerW + 4, 8);
+    cx.fillText(lbl, ALL_PADL + (((k + kEnd) / 2) / Wn) * innerW, 8);
   }
   // barre de position horizontale (comme la modale d'une centrale) et indicateur vertical
   const thumbW = Math.max(24, innerW * Wn / Nk), thumbX = ALL_PADL + (innerW - thumbW) * (Nk - Wn > 0 ? s / (Nk - Wn) : 0);

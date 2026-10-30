@@ -151,10 +151,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 11:17</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 15:56</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.10</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.12</span>
 </footer>
 
 <script>
@@ -470,10 +470,14 @@ async function loadData(opts) {
     hebdomadaire: sommaire.hebdomadaire || null
   };
   Object.entries(v).forEach(([k, view]) => { if (view && typeof view === 'object') view.periode = k; });
+  // Min / moy / max : sur TOUT l'historique journalier (comme la modale du bureau), calcules AVANT la troncature des vues.
+  const statsAll = {};
+  if (v.journalier && v.journalier.centrales) v.journalier.centrales.forEach(cc => { statsAll[cc.id] = computeStats(cc.debits || []); });
   // 30 jours (720 h) charges, defilables ; la fenetre visible en montre 10 (VIS_DAYS, cf. drawBigChart).
   trimView(v.horaire,     720);
   trimView(v.journalier,   10);
   trimView(v.hebdomadaire,  6);
+  Object.values(v).forEach(view => { if (view && view.centrales) view.centrales.forEach(cc => { cc.statsAll = statsAll[cc.id] || null; }); });
   // Empreinte de generation : sert a detecter un vrai changement de donnees.
   v._stamp = manifest.generatedAt || null;
   lastFetchAt = performance.now();
@@ -620,7 +624,7 @@ function render() {
   const tr    = c.trends ? c.trends[i] : null;
   const stab  = c.stables ? c.stables[i] : null;
   const trUnit = D.trendUnit || '6h';
-  const stats  = computeStats(c.debits);
+  const stats  = c.statsAll || computeStats(c.debits);   // tout l'historique, comme le bureau
   const mwPct  = (eMw.v != null && c.cap_mw) ? Math.round(eMw.v / c.cap_mw * 100) : null;
 
   let trendHtml = '<span class="trend-flat">—</span>';
@@ -695,7 +699,7 @@ var bigScrollReset = true;
 // affiches consecutifs, et une variation sous le seuil s'ajoute a la suivante.
 // Choix (non conserves entre deux visites) : mode « Total quotidien » et filtre 50 m3/s au depart.
 // Un seul mode (largeur d'ecran limitee) : journee courante (derniere de la vue) = toutes les variations affichees ; jours precedents = total quotidien.
-const varMode = 'mixte';
+const varMode = 'manoeuvre';   // plus de total quotidien : toutes les manoeuvres
 const varMinSel = document.getElementById('varMin');
 varMinSel.add(new Option('Toutes', 0));
 for (let v = 50; v <= 2000; v += 50) varMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
@@ -758,7 +762,7 @@ function drawBigChart() {
   // Le libelle de reference a 4 chiffres + unite est le plus large possible (debits >= 1000 m3/s).
   axisCtx.font = '8px "Segoe UI",Arial';
   const scaleW = Math.ceil(axisCtx.measureText('0000 m³/s').width);
-  const pad = { l: scaleW + 8, r: hasApportM ? scaleW + 8 : 8, t: 8, b: dateOnlyM ? 30 : 42 };
+  const pad = { l: scaleW + 8, r: hasApportM ? scaleW + 8 : 8, t: varOnM ? 18 : 8, b: dateOnlyM ? 30 : 42 };
 
   // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
   // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
@@ -871,6 +875,7 @@ function drawBigChart() {
     curLeft = pad.l + (nd - 1) * colW + (curW - need) / 2;
     innerW = (nd - 1) * colW + curW;
     dayCtr = new Map(dayListM.map((d, k) => [d, pad.l + k * colW + colW / 2]));   // centre de la colonne de chaque jour
+    dayCtr.set(dayListM[nd - 1], pad.l + (nd - 1) * colW + curW / 2);   // colonne courante elargie : son centre est celui de curW
   }
   const cssW = pad.l + innerW + pad.r;
   bigCv.style.width = cssW + 'px';
@@ -909,10 +914,13 @@ function drawBigChart() {
   const varH = varOnM ? 96 : 0, varGap = varOnM ? 22 : 0;
 
   // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
-  let yMaxRaw = (c.maxTotal && c.maxTotal > 0 ? c.maxTotal : 1);
+  // Echelle DYNAMIQUE : max de la periode chargee (30 jours en vue Heure), et non le max historique de la centrale
+  // (c.maxTotal) qui aplatissait la courbe du mois quand une crue plus forte existe ailleurs dans l'historique.
+  let yMaxRaw = 1;
+  for (const v of c.debits) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
+  const yMax = Math.max(200, yMaxRaw + Math.max(50, yMaxRaw * 0.05));   // plancher : l'axe (qui part de 100 avec les variations) garde une etendue
   const totalH = h - pad.t - pad.b;
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
@@ -965,6 +973,10 @@ function drawBigChart() {
   };
   cx.fillStyle = '#666';
   cx.textAlign = 'center'; cx.textBaseline = 'top';
+  // Avec les colonnes de jours (variations) : la date est CENTREE dans la colonne de son jour, entre les pointilles, et
+  // non posee sur la 1re heure ; plus de libelle colle aux bords (le centre de colonne laisse la place).
+  const xT = i => (dayCtr ? dayCtr.get(dkM(i)) : xOf(i));
+  const ALIGN_EDGES = !dayCtr;
 
   // En vue Heure : un tick par jour calendaire (a la premiere heure disponible
   // de chaque jour), libelle court 'dd mois' (sans heure, qui varie selon le
@@ -1001,7 +1013,7 @@ function drawBigChart() {
     if (dayIdx.length > 2) {
       const w0 = cx.measureText(fmtTickParts(String(D.timestamps[dayIdx[0]] || '')).main).width;
       const w1 = cx.measureText(fmtTickParts(String(D.timestamps[dayIdx[1]] || '')).main).width;
-      if (xOf(dayIdx[1]) - xOf(dayIdx[0]) < gapFor('left', w0, 'center', w1)) dayIdx.shift();
+      if (xT(dayIdx[1]) - xT(dayIdx[0]) < gapFor(ALIGN_EDGES ? 'left' : 'center', w0, 'center', w1)) dayIdx.shift();
     }
     tickIdx = [];
     let lastX = -Infinity, lastAlign = 'left', lastW = 0;
@@ -1009,9 +1021,9 @@ function drawBigChart() {
       const i = dayIdx[k];
       const isFirst = tickIdx.length === 0;
       const isLast = k === dayIdx.length - 1;
-      const align = isFirst ? 'left' : (isLast ? 'right' : 'center');
+      const align = !ALIGN_EDGES ? 'center' : (isFirst ? 'left' : (isLast ? 'right' : 'center'));
       const w = cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width;
-      const x = xOf(i);
+      const x = xT(i);
       if (!isFirst && !isLast && x - lastX < gapFor(lastAlign, lastW, align, w)) continue;
       tickIdx.push(i);
       lastX = x; lastAlign = align; lastW = w;
@@ -1025,7 +1037,7 @@ function drawBigChart() {
       const prev = tickIdx[tickIdx.length - 1];
       const prevW = cx.measureText(fmtTickParts(String(D.timestamps[prev] || '')).main).width;
       const lastW = cx.measureText(fmtTickParts(String(D.timestamps[lastDayIdx] || '')).main).width;
-      if (tickIdx.length > 1 && xOf(lastDayIdx) - xOf(prev) < gapFor('center', prevW, 'right', lastW)) {
+      if (tickIdx.length > 1 && xT(lastDayIdx) - xT(prev) < gapFor('center', prevW, ALIGN_EDGES ? 'right' : 'center', lastW)) {
         tickIdx.pop();
       }
       tickIdx.push(lastDayIdx);
@@ -1039,9 +1051,9 @@ function drawBigChart() {
     for (let i = 0; i < N; i++) {
       const isFirst = tickIdx.length === 0;
       const isLast = i === N - 1;
-      const align = isFirst ? 'left' : (isLast ? 'right' : 'center');
+      const align = !ALIGN_EDGES ? 'center' : (isFirst ? 'left' : (isLast ? 'right' : 'center'));
       const w = cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width;
-      const x = xOf(i);
+      const x = xT(i);
       if (!isFirst && !isLast && x - lastX < gapFor(lastAlign, lastW, align, w)) continue;
       tickIdx.push(i);
       lastX = x; lastAlign = align; lastW = w;
@@ -1059,12 +1071,12 @@ function drawBigChart() {
   // intermediaires restent centres sur leur position.
   for (let k = 0; k < tickIdx.length; k++) {
     const i = tickIdx[k];
-    const x = xOf(i);
+    const x = xT(i);
     // Premier/dernier tick colles au bord (gauche/droite) pour eviter que le
     // texte deborde du canvas ; intermediaires centres. S'applique a toutes
     // les periodes (le libelle 'MM/JJ -> MM/JJ' en hebdomadaire est assez
     // long pour deborder aux extremites s'il restait centre).
-    if (tickIdx.length > 1) {
+    if (ALIGN_EDGES && tickIdx.length > 1) {
       if (k === 0)                       cx.textAlign = 'left';
       else if (k === tickIdx.length - 1) cx.textAlign = 'right';
       else                               cx.textAlign = 'center';
@@ -1072,6 +1084,7 @@ function drawBigChart() {
       cx.textAlign = 'center';
     }
     drawTick(String(D.timestamps[i] || ''), x, h - pad.b + 6, '6px "Segoe UI",Arial');
+    if (varOnM) { cx.save(); cx.textBaseline = 'top'; cx.fillText(fmtTickParts(String(D.timestamps[i] || '')).main, x, 4); cx.restore(); }   // meme date en haut de la colonne du debit total
   }
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
@@ -1137,9 +1150,16 @@ function drawBigChart() {
     const COLO = '#d9640a', COLF = '#1d5e8c';
     const BWM = Math.min(18, pxDayM * 0.5) * 0.6;   // meme largeur pour TOUTES les barres
     const items = [];
+    const prevByDay = new Map();   // jours precedents : toutes les manoeuvres, cote a cote au centre de la colonne du jour
     for (const it of chainM) {
-      if (dkM(it.f) === lastDayM) continue;   // journee courante : colonnes fixes ci-dessous
-      items.push({ x: jourV ? xOf(it.f) : dayCtr.get(dkM(it.f)), bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });   // total quotidien : une barre par jour, au centre de sa colonne
+      const d = dkM(it.f);
+      if (d === lastDayM) continue;   // journee courante : colonnes fixes ci-dessous
+      if (!prevByDay.has(d)) prevByDay.set(d, []);
+      prevByDay.get(d).push(it);
+    }
+    for (const [d, list] of prevByDay) {
+      const sub = Math.min(SUB_W, colW / list.length);
+      list.forEach((it, j) => items.push({ x: jourV ? xOf(it.f) : dayCtr.get(d) + (j - (list.length - 1) / 2) * sub, bw: Math.min(BWM, sub * 0.8), delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     }
     curItems.forEach((it, j) => items.push({ x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     items.sort((a, b) => a.x - b.x);
