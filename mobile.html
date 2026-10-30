@@ -119,6 +119,7 @@ footer a{color:#bcd;text-decoration:underline}
 /* ETAT chargement / erreur */
 #status{padding:24px;text-align:center;color:#9ab;font-style:italic}
 #chartBox.varOn{height:66vh;min-height:440px;max-height:700px}
+#chartBox.varOn.split{height:80vh;min-height:520px;max-height:820px}   /* pluie et apport en 2 panneaux : boite plus haute */
 #varCtl{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px 2px;font-size:12.5px;color:#333}
 #varCtl select{font-size:13px;padding:2px 4px;margin-left:4px}
 .hidden{display:none !important}
@@ -151,10 +152,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 16:04</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-30 16:46</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.19.12</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.19.13</span>
 </footer>
 
 <script>
@@ -751,6 +752,8 @@ function drawBigChart() {
   // panneau du bas (les paliers portent l'unite : '420 m³/s' fait ~48 px a 10 px).
   // hasApportM est calcule ici, avant pad, parce que la marge en depend.
   const hasApportM = !!(c.apports && c.maxApport);
+  const splitM = varOnM && hasApportM && !!pluieSerie(c.zoneMeteo);   // pluie et apport en 2 graphiques separes
+  document.getElementById('chartBox').classList.toggle('split', splitM);
   // Vues Heure et Jour : l'axe X ne porte que 'MM/JJ' sur UNE ligne (ni heure
   // accolee, ni 2e ligne '(HH:mm)') — voir fmtTickParts(). b:30 suffit alors, et
   // les 12 px liberes reviennent au graphe. Ailleurs (Semaine/Mois) on garde 42
@@ -762,7 +765,7 @@ function drawBigChart() {
   // Le libelle de reference a 4 chiffres + unite est le plus large possible (debits >= 1000 m3/s).
   axisCtx.font = '8px "Segoe UI",Arial';
   const scaleW = Math.ceil(axisCtx.measureText('0000 m³/s').width);
-  const pad = { l: scaleW + 8, r: hasApportM ? scaleW + 8 : 8, t: varOnM ? 18 : 8, b: dateOnlyM ? 30 : 42 };
+  const pad = { l: scaleW + 8, r: 8, t: varOnM ? 18 : 8, b: dateOnlyM ? 30 : 42 };
 
   // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
   // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
@@ -909,7 +912,7 @@ function drawBigChart() {
   // Meme structure que la modale du template bureau (hydrogramme + hyetogramme) :
   // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
   const plM = pluieSerie(c.zoneMeteo);
-  const rainH = plM ? 0.33 : 0;
+  const rainH = plM ? (splitM ? 0.40 : 0.33) : 0;
   const rainGap = plM ? (varOnM ? 32 : 26) : 0;   // plus serre qu'au bureau : hauteur ecran limitee (32 : l'heure des variations passe dans cet espace)
   const varH = varOnM ? 96 : 0, varGap = varOnM ? 22 : 0;
 
@@ -925,7 +928,10 @@ function drawBigChart() {
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
   const rainTop = (varOnM ? varTop + varH : pad.t + innerH) + rainGap;
-  const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
+  const rainInnerHAll = Math.max(0, totalH - innerH - varGap - varH - rainGap);
+  const SPLIT_GAP = 24;   // espace du titre du 2e panneau (apport)
+  const rainInnerH = splitM ? Math.max(0, Math.floor((rainInnerHAll - SPLIT_GAP) / 2)) : rainInnerHAll;
+  const apInnerH = splitM ? Math.max(0, rainInnerHAll - SPLIT_GAP - rainInnerH) : 0;
   const xOf = i => xTab ? xTab[i] : pad.l + (i / xSpan) * innerW0;   // avec les variations : colonnes de jours (xTab)
   const yMin = varOnM ? 100 : 0;   // avec les variations, le debit total ne descend jamais a 0 : l'axe debute a 100 m3/s (comme au bureau)
   const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
@@ -1148,7 +1154,7 @@ function drawBigChart() {
     const jourV = D.periode === 'journalier';
     const pxDayM = colW, pxPtM = jourV ? colW : colW / 24;
     const COLO = '#d9640a', COLF = '#1d5e8c';
-    const BWM = Math.min(18, pxDayM * 0.5) * 0.6;   // meme largeur pour TOUTES les barres
+    const BWM = 4;   // largeur UNIQUE de toutes les bandes (variations, pluie, apport) : 4 px
     const items = [];
     const prevByDay = new Map();   // jours precedents : toutes les manoeuvres, cote a cote au centre de la colonne du jour
     for (const it of chainM) {
@@ -1159,9 +1165,9 @@ function drawBigChart() {
     }
     for (const [d, list] of prevByDay) {
       const sub = Math.min(SUB_W, colW / list.length);
-      list.forEach((it, j) => items.push({ x: jourV ? xOf(it.f) : dayCtr.get(d) + (j - (list.length - 1) / 2) * sub, bw: Math.min(BWM, sub * 0.8), delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
+      list.forEach((it, j) => items.push({ day: d, x: jourV ? xOf(it.f) : dayCtr.get(d) + (j - (list.length - 1) / 2) * sub, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     }
-    curItems.forEach((it, j) => items.push({ x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
+    curItems.forEach((it, j) => items.push({ day: lastDayM, x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     items.sort((a, b) => a.x - b.x);
     // Courbe du debit total par les niveaux affiches (le niveau persiste : prolongee a plat jusqu'au bord), avec le
     // debit total ecrit a chaque point, comme au bureau.
@@ -1185,16 +1191,32 @@ function drawBigChart() {
         cx.stroke();
       }
       cx.font = 'bold 8px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
-      let lastXl = -1e9;
+      // Valeurs ecrites sur la courbe : si elles ne tiennent pas toutes, on PRIORISE le plus haut et le plus bas niveau de
+      // chaque jour (le plus haut au-dessus du point, le plus bas en dessous) ; les autres ne sont ecrits que s'il reste de la place.
+      const lvOf = it => it.lT + it.lD;
+      const dayExt = new Map();
       for (const it of items) {
-        const lv = it.lT + it.lD, yy = yOf(lv), txtL = String(Math.round(lv));
-        cx.fillStyle = stroke; cx.beginPath(); cx.arc(it.x, yy, 3, 0, 6.3); cx.fill();
-        if (jourV || it.x - lastXl >= cx.measureText(txtL).width + 3) {
-          cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtL, it.x, yy - 6);
-          cx.fillStyle = '#222'; cx.fillText(txtL, it.x, yy - 6);
-          lastXl = it.x;
-        }
+        const e = dayExt.get(it.day);
+        if (!e) dayExt.set(it.day, { hi: it, lo: it });
+        else { if (lvOf(it) > lvOf(e.hi)) e.hi = it; if (lvOf(it) < lvOf(e.lo)) e.lo = it; }
       }
+      const shownL = new Set(), upXs = [];   // upXs : x et demi-largeur des etiquettes deja posees au-dessus des points
+      const putL = (it, below) => {
+        const yy = yOf(lvOf(it)), txtL = String(Math.round(lvOf(it)));
+        cx.textBaseline = below ? 'top' : 'bottom';
+        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtL, it.x, below ? yy + 6 : yy - 6);
+        cx.fillStyle = '#222'; cx.fillText(txtL, it.x, below ? yy + 6 : yy - 6);
+        if (!below) upXs.push({ x: it.x, w: cx.measureText(txtL).width });
+        shownL.add(it);
+      };
+      for (const it of items) { cx.fillStyle = stroke; cx.beginPath(); cx.arc(it.x, yOf(lvOf(it)), 3, 0, 6.3); cx.fill(); }
+      for (const e of dayExt.values()) { putL(e.hi, false); if (e.lo !== e.hi) putL(e.lo, true); }
+      for (const it of items) {
+        if (shownL.has(it)) continue;
+        const tw = cx.measureText(String(Math.round(lvOf(it)))).width;
+        if (jourV || upXs.every(u => Math.abs(it.x - u.x) >= (u.w + tw) / 2 + 3)) putL(it, false);
+      }
+      cx.textBaseline = 'bottom';
       if (endOn) {   // point final = debit reel ; etiquette sous le point si elle toucherait celle du dernier niveau
         const yy = yOf(c.dFin), txtE = String(Math.round(c.dFin)), tw = cx.measureText(txtE).width;
         const pv = items[items.length - 1], close = !!pv && (endX - pv.x) < tw + 4;
@@ -1218,21 +1240,27 @@ function drawBigChart() {
       cx.fillStyle = SERIES.turbine.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT), it.bw, Math.max(0, varH * it.lT / yMaxL));
       if (it.lD > 0.5) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT + it.lD), it.bw, Math.max(1, varH * it.lD / yMaxL)); }
     }
-    let lastXv = -1e9;
+    // Chaque variation garde sa valeur et son triangle : quand deux etiquettes se toucheraient (colonne chargee), la
+    // suivante est decalee vers le haut sur une autre rangee (3 rangees), au lieu d'etre omise.
+    const lastXr = [-1e9, -1e9, -1e9]; let lastXh = -1e9;
     for (const it of items) {
-      const up = it.delta >= 0, y = Math.max(varTop + 22, YL(it.lT + it.lD) - 7);
+      const up = it.delta >= 0, yb = Math.max(varTop + 26, YL(it.lT + it.lD) - 5);
       const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
-      cx.font = 'bold 6px "Segoe UI",Arial';
+      cx.font = 'bold 4px "Segoe UI",Arial';
       const tw = cx.measureText(txt).width;
-      if (jourV || it.x - lastXv >= tw + 3) {
-        cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = up ? COLO : COLF;
-        cx.strokeStyle = '#fff'; cx.lineWidth = 3;
-        cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
-        cx.font = '6px "Segoe UI",Arial';
-        const tri = up ? '▲' : '▼';
-        cx.strokeText(tri, it.x, y - 7); cx.fillText(tri, it.x, y - 7);
-        if (it.hr != null) { cx.font = '6px "Segoe UI",Arial'; cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(it.hr + ' h', it.x, varTop + varH + 3); }
-        lastXv = it.x;
+      let r = lastXr.findIndex(lx => it.x - lx >= tw + 3);
+      if (r < 0) r = lastXr.indexOf(Math.min(...lastXr));   // aucune rangee libre : la moins recente
+      const y = yb - r * 9;
+      cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = up ? COLO : COLF;
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3;
+      cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
+      cx.font = '3px "Segoe UI",Arial';
+      const tri = up ? '▲' : '▼';
+      cx.strokeText(tri, it.x, y - 4.5); cx.fillText(tri, it.x, y - 4.5);
+      lastXr[r] = it.x;
+      if (it.hr != null) {
+        cx.font = '6px "Segoe UI",Arial'; const hT = it.hr + ' h';
+        if (it.x - lastXh >= cx.measureText(hT).width + 2) { cx.fillStyle = '#5d6b76'; cx.textBaseline = 'top'; cx.fillText(hT, it.x, varTop + varH + 3); lastXh = it.x; }
       }
     }
     cx.restore();
@@ -1258,7 +1286,23 @@ function drawBigChart() {
     // axe a 2000 sur mobile contre 1000 au bureau, soit des traits d'apport ecrases
     // de moitie et deux graphiques impossibles a comparer.
     const RAIN_ROWS_M = 5;
-    const stepRawM = plM.max / RAIN_ROWS_M;
+    const apInRain = hasApportM && !splitM;   // apport dans le panneau pluie (ancienne presentation) sauf avec 2 panneaux
+    // Avec les colonnes de jours (variations) : UNE barre de pluie (cumul du jour, mm) et UNE barre d'apport (valeur du jour)
+    // par colonne, de meme largeur que les barres du panneau Variations ; echelles recalculees sur ces valeurs du jour.
+    let rainDay = null, apDay = null, rainSrcMax = plM.max;
+    if (varOnM && dayCtr) {
+      rainDay = new Map(); apDay = new Map();
+      for (let i = 0; i < N; i++) {
+        const d = dkM(i), rv = plM.hVals ? plM.hVals[i] : plM.vals[i];
+        if (rv != null && rv > 0) rainDay.set(d, plM.hVals ? (rainDay.get(d) || 0) + rv : Math.max(rainDay.get(d) || 0, rv));
+        const av = hasApportM ? c.apports[i] : null;
+        if (av != null && av > 0) apDay.set(d, Math.max(apDay.get(d) || 0, av));
+      }
+      rainSrcMax = 0; for (const v of rainDay.values()) rainSrcMax = Math.max(rainSrcMax, v);
+      rainSrcMax = Math.max(rainSrcMax, 1);
+    }
+    const BWD = 4;   // = BWM : meme largeur que toutes les bandes du panneau Variations
+    const stepRawM = rainSrcMax / RAIN_ROWS_M;
     const p10M = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, stepRawM))));
     let stepM = p10M;
     for (const mult of [1, 2, 5, 10]) { stepM = mult * p10M; if (stepM >= stepRawM) break; }
@@ -1271,6 +1315,9 @@ function drawBigChart() {
     for (let g = 0; g <= RAIN_ROWS_M; g++) {
       const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
       cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+      // Avec un apport : les deux echelles partagent la colonne de GAUCHE (plus de marge a droite) ; le palier en mm est
+      // ecrit au-dessus du trait et celui de l'apport (m3/s) dessous.
+      if (apInRain) { ax.textBaseline = 'bottom'; ax.fillText((yTopM * (1 - g / RAIN_ROWS_M)).toFixed(decM) + ' mm', pad.l - 6, y - 1); continue; }
       ax.textBaseline = (g === 0) ? 'top' : 'middle';
       ax.fillText((yTopM * (1 - g / RAIN_ROWS_M)).toFixed(decM) + ' mm', pad.l - 6, y + (g === 0 ? 1 : 0));
     }
@@ -1280,7 +1327,7 @@ function drawBigChart() {
     ax.textAlign = 'left'; ax.textBaseline = 'bottom';
     // « mm » seul et non « mm/24h » : les barres portent la pluie du pas de temps,
     // le cumul 24 h est desormais la courbe (cf. legende du panneau).
-    ax.fillText(hasApportM ? 'Pluie (mm) et apport (m³/s)' : 'Pluie (mm)', pad.l, topY - 3);
+    ax.fillText(apInRain ? 'Pluie du jour (mm) et apport (m³/s)' : 'Pluie du jour (mm)', pad.l, topY - 3);
     // Deux formes pour deux lectures, sur la MEME echelle mm :
     //   BARRES = pluie tombee pendant le pas de temps (p1) -> quand il a plu
     //   COURBE = cumul 24 h glissant (p24)                 -> combien au total
@@ -1294,7 +1341,8 @@ function drawBigChart() {
     cx.fillStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
     cx.beginPath();
-    for (let i = 0; i < N; i++) {
+    if (rainDay) for (const [d, v] of rainDay) { const hh = Math.min(1, v / yTopM) * rainInnerH; cx.fillRect(dayCtr.get(d) - (splitM ? BWD / 2 : BWD + 0.5), base - hh, BWD, hh); }
+    else for (let i = 0; i < N; i++) {
       const v = plBarsM[i];
       if (v == null || v <= 0) continue;
       const xx = xOf(i);
@@ -1322,7 +1370,7 @@ function drawBigChart() {
     }
     // ---- APPORT NATUREL : 2e serie, echelle propre en m3/s a DROITE ----
     let apTopM = 0;
-    if (hasApportM) {
+    if (apInRain) {
       // Echelle DYNAMIQUE (mobile seulement) : calibree sur le max de la FENETRE
       // visible, pas sur c.maxApport (max historique de la centrale). Sur un
       // panneau qui ne fait qu'un tiers d'une hauteur deja reduite, une fenetre
@@ -1355,7 +1403,8 @@ function drawBigChart() {
       cx.strokeStyle = SERIES.apport.line;
       cx.lineWidth = stemWidth(innerW, N, 2);
       cx.beginPath();
-      for (let i = 0; i < N; i++) {
+      if (apDay) for (const [d, v] of apDay) { const hh = Math.min(1, v / apTopM) * rainInnerH; cx.fillStyle = SERIES.apport.line; cx.fillRect(dayCtr.get(d) + 0.5, base - hh, BWD, hh); }
+      else for (let i = 0; i < N; i++) {
         const v = c.apports[i];
         if (v == null || v <= 0) continue;
         const xx = xOf(i) + dxM;
@@ -1369,18 +1418,41 @@ function drawBigChart() {
       // Sur #axisCv : x relatif a la largeur VISIBLE, pas a celle du graphe defilant.
       ax.fillStyle = SERIES.apport.solid;
       ax.font = '8px "Segoe UI",Arial';
-      ax.textAlign = 'left'; ax.textBaseline = 'middle';
+      ax.textAlign = 'right'; ax.textBaseline = 'top';   // colonne de gauche, sous le trait (le mm est au-dessus)
       for (let g = 0; g <= RAIN_ROWS_M; g++) {
         const y = topY + (g / RAIN_ROWS_M) * rainInnerH;
-        ax.fillText(Math.round(apTopM * (1 - g / RAIN_ROWS_M)) + ' m³/s', viewW - pad.r + 5, y);
+        ax.fillText(Math.round(apTopM * (1 - g / RAIN_ROWS_M)) + ' m³/s', pad.l - 6, y + 1);
       }
     }
+    // ---- GRAPHIQUE DE L'APPORT (2e panneau, sous la pluie) : une bande par jour, echelle propre en m3/s a gauche ----
+    if (splitM && apInnerH > 8 && apDay) {
+      const aTop = rainTop + rainInnerH + SPLIT_GAP, aBase = aTop + apInnerH;
+      let apMaxD = 1; for (const v of apDay.values()) apMaxD = Math.max(apMaxD, v);
+      const aStRaw = apMaxD / RAIN_ROWS_M, a10 = Math.pow(10, Math.floor(Math.log10(Math.max(0.1, aStRaw))));
+      let aStep = a10; for (const mult of [1, 2, 5, 10]) { aStep = mult * a10; if (aStep >= aStRaw) break; }
+      const yTopA = aStep * RAIN_ROWS_M;
+      cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
+      ax.fillStyle = SERIES.apport.solid; ax.font = '8px "Segoe UI",Arial'; ax.textAlign = 'right';
+      for (let g = 0; g <= RAIN_ROWS_M; g++) {
+        const y = aTop + (g / RAIN_ROWS_M) * apInnerH;
+        cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
+        ax.textBaseline = (g === 0) ? 'top' : 'middle';
+        ax.fillText(Math.round(yTopA * (1 - g / RAIN_ROWS_M)) + ' m³/s', pad.l - 6, y + (g === 0 ? 1 : 0));
+      }
+      drawDaySeps(aTop, aBase);
+      ax.fillStyle = '#1a1a2e'; ax.font = 'bold 11px "Segoe UI",Arial';
+      ax.textAlign = 'left'; ax.textBaseline = 'bottom';
+      ax.fillText('Apport naturel (m³/s)', pad.l, aTop - 3);
+      cx.fillStyle = SERIES.apport.line;
+      for (const [d, v] of apDay) { const hh = Math.min(1, v / yTopA) * apInnerH; cx.fillRect(dayCtr.get(d) - BWD / 2, aBase - hh, BWD, hh); }
+    }
+    if (!varOnM) {   // avec les variations : plus de legende pour la pluie (le titre du graphique suffit)
     // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les series.
     ax.font = '6px "Segoe UI",Arial';
     // Une entree par FORME (barres / courbe / stem), suffixee du cote de l'axe quand
     // les deux echelles coexistent — sinon rien ne dit laquelle lire pour quelle
     // serie. Suffixes abreges ('g.' / 'd.') : la largeur d'ecran est limitee.
-    const sfxLm = hasApportM ? ' (éch. g.)' : '';
+    const sfxLm = apInRain ? ' (mm)' : '';
     const lgM = [];
     if (plM.hVals) {
       lgM.push({ c: SERIES.pluie.line,  t: 'Pluie tombée' + sfxLm });
@@ -1388,7 +1460,7 @@ function drawBigChart() {
     } else {
       lgM.push({ c: SERIES.pluie.line, t: 'Pluie 24 h' + sfxLm });
     }
-    if (hasApportM) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel (éch. d.)' });
+    if (apInRain) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel (m³/s)' });
     const swW2 = 18, swH2 = 6, pX = 6, pY = 5;
     let lgWm = 0;
     for (const it of lgM) lgWm = Math.max(lgWm, ax.measureText(it.t).width);
@@ -1424,6 +1496,7 @@ function drawBigChart() {
       }
       ax.fillStyle = '#333';
       ax.fillText(itM.t, coP.x + pX + swW2 + 6, yk);
+    }
     }
   }
 
