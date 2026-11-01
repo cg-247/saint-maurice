@@ -184,9 +184,12 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
 #modal-all.open{display:flex}
 #modal-all-card{position:relative;background:#fff;border-radius:8px;padding:18px 22px 16px;width:min(99vw, 2600px);height:min(96vh, 1000px);
                 box-shadow:0 10px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
-#modal-all-title{font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;flex:0 0 auto}
+#modal-all-title{position:relative;font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;flex:0 0 auto}
+#modal-all-date{position:absolute;left:50%;top:0;transform:translateX(-50%);white-space:nowrap}   /* centree sur la largeur de la fenetre */
 #modal-all-var{font-size:13px;color:#333;margin:2px 0 6px;flex:0 0 auto}
 #modal-all-var select{font-size:13px;padding:1px 4px;margin-left:4px}
+#modal-all-var label{margin-right:22px}
+#modal-all-var input[type=checkbox]{vertical-align:middle;margin-right:4px}
 #modal-all-canvas{flex:1 1 0;min-height:120px;display:block;width:100%;cursor:crosshair}
 #modal-all-note{font-size:11px;font-style:italic;color:#6a7280;margin-top:6px;line-height:1.3;flex:0 0 auto;padding-left:60px}
 #modal-all-note b{font-weight:700;font-style:italic}
@@ -458,7 +461,7 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
     <div id="ts">&#8212;</div>
     <div id="totRow">
       <div id="mwTotal"></div>
-      <div id="debitAll" title="D&eacute;bit total de chaque centrale &mdash; cliquer pour comparer d&eacute;bits et variations de toutes les centrales"><span class="tri" id="debitTri">&#9662;</span><div id="debitCard"><div class="hd"><span class="nm">Saint-Maurice</span><span class="tri" id="debitTri2">&#9652;</span></div><canvas id="totSpark" title="Ouvrir la comparaison de toutes les centrales"></canvas></div></div>
+      <div id="debitAll" title="D&eacute;bit total de chaque centrale &mdash; cliquer pour comparer d&eacute;bits et variations de toutes les installations"><span class="tri" id="debitTri">&#9662;</span><div id="debitCard"><div class="hd"><span class="nm">Saint-Maurice</span><span class="tri" id="debitTri2">&#9652;</span></div><canvas id="totSpark" title="Ouvrir la comparaison de toutes les installations"></canvas></div></div>
     </div>
   </div>
   <div id="riverSummary"></div>
@@ -471,19 +474,23 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.19.13</span>
+    <span title="Version de la PWA install&eacute;e">v2.20.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-10-31 17:52</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-01 09:21</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
     <button id="modal-all-close" type="button" aria-label="Fermer">&times;</button>
-    <div id="modal-all-title">Toutes les centrales &mdash; d&eacute;bit total et variations (nord &rarr; sud)</div>
+    <div id="modal-all-title">Toutes les installations &mdash; d&eacute;bit total et variations (nord &rarr; sud)<span id="modal-all-date"></span></div>
     <div id="modal-all-var">
       <select id="allVariationSel" hidden><option value="manoeuvre" selected>Par heure</option></select>
-      <label>Variation affich&eacute;e :
+      <label>Variation affich&eacute;e des centrales :
         <select id="allVariationMin"></select>
       </label>
+      <label id="allResMinLbl">Variation affich&eacute;e des r&eacute;servoirs :
+        <select id="allResMin"></select>
+      </label>
+      <label><input type="checkbox" id="allResChk" checked> Afficher les r&eacute;servoirs</label>
     </div>
     <canvas id="modal-all-canvas"></canvas>
     <div id="modal-all-note"></div>
@@ -948,7 +955,8 @@ function rebuildHoraireFromLoadedMonths() {
     man: (c.man || []).slice()
   }));
   const reservoirs = (first.reservoirs || []).map(r => Object.assign({}, r, {
-    niveaux: r.niveaux.slice(), devs: r.devs.slice(), apports: r.apports.slice()
+    niveaux: r.niveaux.slice(), devs: r.devs.slice(), apports: r.apports.slice(),
+    man: (r.man || []).slice()
   }));
   const timestamps = first.timestamps.slice();
   const riverSummaries = (first.riverSummaries || []).slice();
@@ -1011,6 +1019,7 @@ function rebuildHoraireFromLoadedMonths() {
     for (const dest of reservoirs) {
       const src = srcReservoirsByNom.get(dest.nom);
       if (src) {
+        for (const m of (src.man || [])) dest.man.push([m[0] + frameOff].concat(m.slice(1)));   // manoeuvres du deverse : frame relatif au mois -> absolu
         dest.niveaux.push(...src.niveaux);
         dest.devs.push(...src.devs);
         dest.apports.push(...src.apports);
@@ -4987,7 +4996,7 @@ function drawModalVariations(cx, c, g) {
   }
   cx.restore();
   // Titre du panneau (comme « Débits (m³/s) » et « Pluie (mm) » : gras, a gauche, juste au-dessus du cadre)
-  cx.fillStyle = '#1a1a2e'; cx.font = 'bold ' + (g.titleSize || 12) + 'px "Segoe UI",Arial';
+  cx.fillStyle = g.titleMuted ? '#555' : '#1a1a2e'; cx.font = 'bold ' + (g.titleSize || 12) + 'px "Segoe UI",Arial';   // titleMuted : « toutes les centrales » (l'attention reste sur le nom de la centrale)
   cx.textAlign = 'left'; cx.textBaseline = 'bottom';
   cx.fillText('Variations (m³/s)', pad.l, varTop - 4);
   cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
@@ -6298,14 +6307,64 @@ function drawTotalSpark() {
 }
 
 const allModalEl = document.getElementById('modal-all'), allCv = document.getElementById('modal-all-canvas'), allCtx = allCv.getContext('2d');
+const allDateEl = document.getElementById('modal-all-date');
 const allSel = document.getElementById('allVariationSel'), allMinSel = document.getElementById('allVariationMin'), allNote = document.getElementById('modal-all-note');
 allMinSel.add(new Option('Toutes', 0));
 for (let v = 50; v <= 2000; v += 50) allMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
 allMinSel.value = '50';            // comme la modale d'une centrale : toujours 50 m3/s a l'ouverture, jamais conserve
+const allResMinSel = document.getElementById('allResMin'), allResChk = document.getElementById('allResChk'), allResMinLbl = document.getElementById('allResMinLbl');
+allResMinSel.add(new Option('Toutes', 0));
+for (let v = 50; v <= 2000; v += 50) allResMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
+allResMinSel.value = '0';          // filtre propre aux reservoirs : « Toutes » les variations a l'ouverture, non conserve
 const ALL_HEAD = 30, ALL_DEBH = 92, ALL_VARH = 92, ALL_PH = 24 + ALL_DEBH + 24 + ALL_VARH + 36, ALL_BAR = 14, ALL_PADL = 60, ALL_PADR = 20;
-let allDrag = null, allSuppressClick = false, allHits = [], allNoteTxt = '';
-function allChains() { return D.centrales.map(c => modalChain(c, +allMinSel.value, allSel.value)); }
-// Jours gardes : ceux ou au moins UNE centrale a une variation affichee (meme regle que modalKeep, sans pluie ni apport)
+let allDrag = null, allSuppressClick = false, allHits = [], allNoteTxt = '', allCurX = null;
+const ALL_GRAB = 7;                    // tolerance (px canvas) pour saisir la barre rouge
+function allOnCursor(ev) {             // le pointeur est-il sur la barre rouge (zone des panneaux, hors en-tete et barre de position) ?
+  if (allCurX === null) return false;
+  const r = allCv.getBoundingClientRect(), k = allCv.width / r.width;
+  const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
+  return y >= ALL_HEAD && y <= allCv.height - 16 && Math.abs(x - allCurX) <= ALL_GRAB;
+}
+function allFrameAtX(clientX) {        // frame sous l'abscisse (colonne de la fenetre), bornee a la fenetre
+  const r = allCv.getBoundingClientRect(), k = allCv.width / r.width, iw = allCv.width - ALL_PADL - ALL_PADR;
+  const kk = Math.max(0, Math.min(allWin.n - 1, Math.floor(((clientX - r.left) * k - ALL_PADL) / iw * allWin.n)));
+  return allWin.keep[allWin.start + kk];
+}
+// Reservoir presente comme une « centrale » pour le meme rendu : son debit total est le DEVERSE (pas de turbine).
+// Variations = manoeuvres du deverse (calculees au rendu avec la meme detection). Cache sur l'objet reservoir.
+function resInstall(r) {
+  const k = D.periode + '|' + r.devs.length;
+  if (r._ad && r._adK === k) return r._ad;
+  r._adK = k;
+  r._ad = { nom: r.nom, _res: true, iconY: r.iconY, debits: r.devs, turbs: new Array(r.devs.length).fill(null), devs: r.devs,
+            minTotal: r.minDev, maxTotal: r.maxDev, man: r.man || [], dFin: r.dFin != null ? r.dFin : null, apports: null, maxApport: 0 };
+  return r._ad;
+}
+// Installations nord -> sud : les centrales (D.centrales est ordonne sud -> nord) et, si la case est cochee, les reservoirs
+// intercales selon leur position sur la carte (hauteur de l'icone).
+// Exceptions a l'ordre de la carte (provisoire) : « debut » = en tete de liste ; sinon = juste apres la centrale nommee.
+// Plusieurs reservoirs apres la meme centrale : dans l'ordre des cles ci-dessous.
+const ALL_RES_PLACE = { 'Gouin': 'debut', 'Cinconsine': 'La Tuque', 'Mekinac': 'La Tuque', 'Matawin': 'La Tuque' };
+function allInstalls() {
+  const cs = D.centrales.slice().reverse();
+  if (!allResChk.checked || !D.reservoirs) return cs;
+  const all = D.reservoirs.filter(r => r.iconY != null && r.devs && r.devs.length).map(resInstall);
+  const rs = all.filter(r => !ALL_RES_PLACE[r.nom]).sort((a, b) => a.iconY - b.iconY);
+  const out = []; let ri = 0;
+  for (const c of cs) {
+    while (ri < rs.length && rs[ri].iconY <= c.iconY) out.push(rs[ri++]);
+    out.push(c);
+    for (const nm of Object.keys(ALL_RES_PLACE)) {                                  // reservoirs places juste apres cette centrale
+      const r = ALL_RES_PLACE[nm] === c.nom ? all.find(x => x.nom === nm) : null;
+      if (r) out.push(r);
+    }
+  }
+  while (ri < rs.length) out.push(rs[ri++]);
+  return all.filter(r => ALL_RES_PLACE[r.nom] === 'debut').concat(out);
+}
+function allChain(c) { return modalChain(c, c._res ? +allResMinSel.value : +allMinSel.value, allSel.value); }   // filtres distincts : centrales / reservoirs
+function allChains() { return allInstalls().map(allChain); }
+// Jours gardes : ceux ou au moins UNE installation a une variation affichee (meme regle que modalKeep, sans pluie ni apport)
 function allKeep() {
   const days = new Set();
   for (const ch of allChains()) for (const it of ch) days.add(modalDayKey(it.f));
@@ -6324,12 +6383,13 @@ function allScrollBy(frames) {
   if (D.periode === 'horaire' && allStart < allWin.n) maybeLoadPreviousMonth().then(() => { if (allOpen) drawAll(); });
 }
 function allRecalc() {                 // changement de mode ou de filtre : on reste sur la meme date de gauche
+  allResMinLbl.style.display = allResChk.checked ? '' : 'none';   // filtre des reservoirs inutile quand ils sont masques
   const raw = allWin.keep.length && allStart !== null ? allWin.keep[Math.min(allWin.start, allWin.keep.length - 1)] : null;
   if (raw != null) { const i = allKeep().findIndex(v => v >= raw); allStart = i < 0 ? null : i; } else allStart = null;
   drawAll();
 }
 function openAll() {
-  allOpen = true; allStart = null; allScrollY = 0; allMinSel.value = '50';
+  allOpen = true; allStart = null; allScrollY = 0; allMinSel.value = '50'; allResMinSel.value = '0'; allResChk.checked = true; allResMinLbl.style.display = '';
   allModalEl.classList.add('open');
   requestAnimationFrame(drawAll);
 }
@@ -6340,12 +6400,16 @@ function drawAll() {
   const w = allCv.width = allCv.clientWidth, h = allCv.height = allCv.clientHeight, cx = allCtx;
   cx.clearRect(0, 0, w, h);
   const mode = allSel.value, mn = +allMinSel.value;
+  {                                    // date representee par la barre rouge, dans le titre de la modale (a cote de « nord → sud »)
+    const ts = String(D.timestamps[frame] || ''), dd = new Date(ts.slice(0, 10) + 'T12:00:00Z');
+    allDateEl.textContent = isNaN(dd.getTime()) ? '' : dd.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) + (D.periode === 'horaire' && ts.length >= 13 ? ' · ' + ts.slice(11, 13) + ' h' : '');
+  }
   if (!(D.periode === 'horaire' || D.periode === 'journalier') || N < 2) {
     cx.fillStyle = '#666'; cx.font = '15px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
     cx.fillText('Les variations sont disponibles dans les vues Heure et Jour.', w / 2, h / 2);
     allWin = { n: 0, N: 0, keep: [], start: 0 }; allHits = []; return;
   }
-  const cs = D.centrales.slice().reverse(), chains = allChains().reverse(), keep = allKeep(), Nk = keep.length;   // D.centrales est ordonne sud -> nord : on affiche nord -> sud
+  const cs = allInstalls(), chains = cs.map(allChain), keep = allKeep(), Nk = keep.length;   // installations nord -> sud (reservoirs intercales si affiches)
   const innerW = w - ALL_PADL - ALL_PADR, jourView = D.periode === 'journalier';
   const pxF = allPxF(), Wn = Math.max(1, Math.min(Nk, Math.round(innerW / pxF)));
   if (allStart === null) allStart = Nk - Wn;         // ouverture : les derniers jours
@@ -6356,6 +6420,7 @@ function drawAll() {
   const pxDayW = (jourView ? 1 : 24) * innerW / Wn;
   const fw = pos.has(frame) ? pos.get(frame) : (frame < win[0] ? -10 * Wn : 10 * Wn);
   const xCur = xOf(fw), xFut = Math.max(ALL_PADL, xOf(fw + 1));
+  allCurX = pos.has(frame) ? xCur : null;             // position de la barre rouge (pour la saisir a la souris)
   const bodyTop = ALL_HEAD, bodyBot = h - ALL_BAR - 4, bodyH = bodyBot - bodyTop, contentH = cs.length * ALL_PH;
   allScrollY = Math.max(0, Math.min(Math.max(0, contentH - bodyH), allScrollY));
   const COLO = '#d9640a', COLF = '#1d5e8c';
@@ -6388,14 +6453,30 @@ function drawAll() {
       for (const v of c.devs) { if (v != null && v > yr) yr = v; }
       c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05);
     }
-    const yMin = 100, yMax = c._allYmax, yOf = v => debTop + (1 - (v - yMin) / (yMax - yMin)) * ALL_DEBH;
+    const yMin = c._res ? 0 : 100, yMax = c._allYmax,      // reservoirs : deverse souvent faible, axe a partir de 0
+ yOf = v => debTop + (1 - (v - yMin) / (yMax - yMin)) * ALL_DEBH;
     const dCur = c.debits ? c.debits[frame] : null;
     let ratio = null; if (dCur != null && c.minTotal != null && c.maxTotal != null && c.maxTotal > c.minTotal) ratio = (dCur - c.minTotal) / (c.maxTotal - c.minTotal) * 100;
     const stroke = ratio == null ? '#555' : ratio < 25 ? '#1a6e2a' : ratio < 50 ? '#7a6200' : ratio < 75 ? '#7a3a00' : '#6a0000';
     // titre du panneau : nom de la centrale + debit a la date courante
     cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.font = 'bold 15.6px "Segoe UI",Arial'; cx.fillStyle = '#1a1a2e';
-    cx.fillText(c.nom + ' — Débits (m³/s)', ALL_PADL, top + 3);
-    if (dCur != null) { const tw = cx.measureText(c.nom + ' — Débits (m³/s)').width; cx.font = '12px "Segoe UI",Arial'; cx.fillStyle = '#666'; cx.fillText('   ' + fmtInt(dCur) + ' m³/s à la date courante', ALL_PADL + tw, top + 6); }
+    const titX = ALL_PADL + 28;                          // nom decale a droite : la rosace reste hors de l'echelle des m3/s (marge gauche)
+    cx.fillText(c.nom + (c._res ? ' — Déversé (m³/s)' : ' — Débits (m³/s)'), titX, top + 3);
+    // Logo a gauche du nom, avec l'anneau de statut a la date courante (memes logos, seuils et couleurs que la carte) :
+    // centrale = rosace + anneau toujours ; reservoir = icone barrage + anneau seulement a partir de 65 % (orange / rouge).
+    {
+      const rx = ALL_PADL + 13, ry = top + 12;
+      if (c._res) {
+        const im = iconImgs.barrage, isz = 16, rr = ratio == null ? null : Math.round(ratio);
+        if (im && im.complete && im.naturalWidth > 0) cx.drawImage(im, rx - isz / 2, ry - isz / 2, isz, isz);
+        if (rr != null && rr >= 65) { cx.beginPath(); cx.arc(rx, ry, 11.5, 0, Math.PI * 2); cx.strokeStyle = ratioColor(rr).f; cx.lineWidth = 2.5; cx.stroke(); }
+      } else {
+        const im = iconImgs.centrale, isz = 20;
+        if (im && im.complete && im.naturalWidth > 0) cx.drawImage(im, rx - isz / 2, ry - isz / 2, isz, isz);
+        cx.beginPath(); cx.arc(rx, ry, 11.5, 0, Math.PI * 2);
+        cx.strokeStyle = ratioColor(ratio).f; cx.lineWidth = 2.5; cx.stroke();
+      }
+    }
     if (xFut < ALL_PADL + innerW) {
       cx.fillStyle = 'rgba(150,150,160,.18)';
       cx.fillRect(xFut, debTop, ALL_PADL + innerW - xFut, ALL_DEBH);
@@ -6411,15 +6492,15 @@ function drawAll() {
     try {
       D.timestamps = win.map(i => ts0[i]); N = Wn; frame = fw;
       drawModalVariations(cx, c, { pad: { l: ALL_PADL }, innerW, varTop, varH: ALL_VARH, xOf, xCur, xFut, pxF: innerW / Wn, yOfDebit: yOf, colDebit: stroke,
-        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, startV: c.debits ? c.debits[win[0]] : null, endV: (s + Wn >= Nk) ? c.dFin : null, titleSize: 15.6 });
-      for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, y0: modalHits.top, y1: modalHits.bot }));
+        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, startV: c.debits ? c.debits[win[0]] : null, endV: (s + Wn >= Nk) ? c.dFin : null, titleSize: 12, titleMuted: true });
+      for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, res: !!c._res, y0: modalHits.top, y1: modalHits.bot }));
       // Legende du panneau Debits (comme la modale d'une centrale, mais sur une seule ligne : le panneau est peu haut)
       {
         const sl = a => (a ? win.map(i => a[i]) : a), wd = sl(c.devs);
         const hasDev = (wd || []).some(v => v > 0.5) || chW.some(it => it.lD > 0.5);
         cx.font = '12px "Segoe UI",Arial';
-        const SW = 22, GAP = 14, PADX = 8, PADY = 6, items = [{ col: stroke, txt: 'Débit total' }, { col: SERIES.turbine.line, txt: 'Turbiné' }];
-        if (hasDev) items.push({ col: SERIES.deverse.line, txt: 'Déversé' });
+        const SW = 22, GAP = 14, PADX = 8, PADY = 6, items = c._res ? [{ col: stroke, txt: 'Débit déversé' }] : [{ col: stroke, txt: 'Débit total' }, { col: SERIES.turbine.line, txt: 'Turbiné' }];
+        if (hasDev && !c._res) items.push({ col: SERIES.deverse.line, txt: 'Déversé' });
         items.push({ tri: true });
         const wOf = it => it.tri ? cx.measureText('▲ ouverture  ·  ▼ fermeture').width : SW + 8 + cx.measureText(it.txt).width;
         const boxW = items.reduce((s, it) => s + wOf(it), 0) + GAP * (items.length - 1) + 2 * PADX, boxH = 18 + 2 * PADY - 4;
@@ -6467,7 +6548,9 @@ function drawAll() {
     const tH = Math.max(24, bodyH * bodyH / contentH), tY = bodyTop + (bodyH - tH) * (allScrollY / (contentH - bodyH));
     cx.fillStyle = 'rgba(80,80,100,.55)'; cx.fillRect(w - 6, tY, 4, tH);
   }
-const noteTxt = '<b>Jours affichés :</b> seuls les jours avec au moins une variation affichée (' + (mn > 0 ? 'variation minimale ≥ ' + mn.toLocaleString('fr-CA') + ' m³/s' : 'toutes les variations') + ') pour au moins une centrale sont affichés ; les autres sont masqués (les dates ne sont donc pas toujours consécutives).';
+const flt = v => v > 0 ? 'variation minimale ≥ ' + v.toLocaleString('fr-CA') + ' m³/s' : 'toutes les variations';
+  const noteTxt = '<b>Jours affichés :</b> seuls les jours avec au moins une variation affichée (centrales : ' + flt(mn) + (allResChk.checked ? ' ; réservoirs : ' + flt(+allResMinSel.value) : '') + ') pour au moins une installation sont affichés ; les autres sont masqués (les dates ne sont donc pas toujours consécutives).' +
+    (allResChk.checked ? ' <b>Réservoirs :</b> le débit est le débit déversé (pas de turbine) ; le logo porte un anneau orange ou rouge à partir de 65 % du maximum déversé observé.' : '');
   if (noteTxt !== allNoteTxt) { allNoteTxt = noteTxt; allNote.innerHTML = noteTxt; }
 }
 const debitToggle = () => { const el = document.getElementById('debitAll'); el.classList.toggle('open'); document.getElementById('debitTri').innerHTML = el.classList.contains('open') ? '▴' : '▾'; drawTotalSpark(); };
@@ -6478,6 +6561,8 @@ document.getElementById('modal-all-close').addEventListener('click', closeAll);
 allModalEl.addEventListener('click', (ev) => { if (ev.target === allModalEl) closeAll(); });
 allSel.addEventListener('change', allRecalc);
 allMinSel.addEventListener('change', allRecalc);
+allResMinSel.addEventListener('change', allRecalc);
+allResChk.addEventListener('change', allRecalc);
 allCv.addEventListener('wheel', (ev) => {
   if (!allOpen) return;
   ev.preventDefault();
@@ -6495,10 +6580,12 @@ allCv.addEventListener('mousedown', (ev) => {
     allDrag = { bar: true, toStart: toStart, moved: true };
     return;
   }
+  if (allOnCursor(ev)) { allDrag = { cursor: true, moved: true }; stop(); go(allFrameAtX(ev.clientX)); return; }   // barre rouge : glisser = changer la date
   allDrag = { x0: ev.clientX, y0: ev.clientY, s0: allWin.start, sy0: allScrollY, moved: false };
 });
 window.addEventListener('mousemove', (ev) => {
   if (!allDrag) return;
+  if (allDrag.cursor) { const f = allFrameAtX(ev.clientX); if (f !== frame) go(f); return; }
   if (allDrag.bar) { allStart = allDrag.toStart(ev.clientX); drawAll(); return; }
   const dx = ev.clientX - allDrag.x0, dy = ev.clientY - allDrag.y0;
   if (!allDrag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
@@ -6521,13 +6608,14 @@ allCv.addEventListener('click', (ev) => {                // clic = place la date
 });
 allCv.addEventListener('mousemove', (ev) => {
   if (!allOpen || allDrag) { modalTip.style.display = 'none'; return; }
+  allCv.style.cursor = allOnCursor(ev) ? 'ew-resize' : '';
   const r = allCv.getBoundingClientRect(), k = allCv.width / r.width;
   const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
   const hit = (y >= ALL_HEAD && y <= allCv.height - ALL_BAR) ? allHits.find(h => Math.abs(x - h.x) <= h.w && y >= h.y0 && y <= h.y1) : null;
   if (!hit) { modalTip.style.display = 'none'; return; }
   const nf = v => Math.round(v).toLocaleString('fr-CA');
   const d = hit.day ? new Date(hit.day + 'T12:00:00Z').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
-  modalTip.innerHTML = '<b>' + hit.nom + ' · ' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b><br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s';
+  modalTip.innerHTML = '<b>' + hit.nom + ' · ' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b>' + (hit.res ? '' : '<br>Turbiné : ' + nf(hit.lT) + ' m³/s') + '<br>Déversé : ' + nf(hit.lD) + ' m³/s';
   modalTip.style.display = 'block';
   modalTip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 240) + 'px';
   modalTip.style.top = (ev.clientY + 14) + 'px';
