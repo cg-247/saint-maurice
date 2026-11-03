@@ -152,10 +152,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-03 11:30</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-03 13:59</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.20.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.21.0</span>
 </footer>
 
 <script>
@@ -327,6 +327,66 @@ function pluieSerie(zoneKey) {
   }
   if (mx <= 0 && mxH <= 0) return null;
   return { vals: out, max: mx, hVals: mxH > 0 ? outH : null, hMax: mxH };
+}
+
+// Plage de debit total que HQ semble maintenir, par centrale et par saison (config/metadata/plages-debit-*.json, ajustable) :
+// { saisons: { nom: 'MM-JJ' (debut) }, centrales: { nom: { saison: [min, max] } } }. Meme logique que le template bureau.
+const PLAGES_DEBIT = {"saisons":{"printemps":"03-20","ete":"06-21","automne":"09-23","hiver":"12-21"},"centrales":{"La Gabelle":{"printemps":[670.0,2440.0],"ete":[320.0,1450.0],"automne":[295.0,425.0],"hiver":[295.0,425.0]},"Shawinigan":{"printemps":[635.0,2405.0],"ete":[325.0,1490.0],"automne":[280.0,425.0],"hiver":[280.0,425.0]},"Grand-Mere":{"printemps":[625.0,2230.0],"ete":[305.0,1415.0],"automne":[270.0,410.0],"hiver":[270.0,410.0]},"La Tuque":{"printemps":[450.0,1610.0],"ete":[270.0,1095.0],"automne":[220.0,385.0],"hiver":[220.0,385.0]},"Beaumont":{"printemps":[345.0,1450.0],"ete":[220.0,895.0],"automne":[210.0,350.0],"hiver":[210.0,350.0]},"Trenche":{"printemps":[275.0,1195.0],"ete":[185.0,720.0],"automne":[195.0,325.0],"hiver":[195.0,325.0]},"Rapide-Blanc":{"printemps":[220.0,925.0],"ete":[175.0,605.0],"automne":[195.0,305.0],"hiver":[195.0,305.0]},"Rapides-des-Coeurs":{"printemps":[190.0,520.0],"ete":[135.0,375.0],"automne":[150.0,230.0],"hiver":[150.0,230.0]},"Chute-Allard":{"printemps":[165.0,480.0],"ete":[120.0,330.0],"automne":[155.0,220.0],"hiver":[155.0,220.0]}}};
+// ZONE pale (vert) entre le min et le max de la plage visee. Les valeurs de chaque saison sont ancrees au MILIEU de la saison
+// et interpolees en continu (lissage « smoothstep ») entre deux ancres voisines, en boucle sur l'annee : la zone se deforme
+// doucement d'une saison a l'autre, sans marche ni coupure. Meme logique que le template bureau.
+// tsOf(k) = horodatage de la colonne k, xOf(k) = son abscisse, yOf(v) = ordonnee d'un debit.
+const PLAGE_FILL = 'rgba(46,160,67,.13)', PLAGE_LABEL = 'Plage visée (saison)';
+function plageHas(nom) { return !!(PLAGES_DEBIT.centrales || {})[nom]; }
+function plageDoy(ts) {   // jour de l'annee fractionnaire (annee non bissextile : le 29 fevrier compte pour le 28)
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}))?/.exec(String(ts || ''));
+  if (!m) return null;
+  const mo = +m[2], d = mo === 2 ? Math.min(+m[3], 28) : +m[3];
+  return (Date.UTC(2001, mo - 1, d) - Date.UTC(2001, 0, 1)) / 864e5 + (m[4] ? +m[4] / 24 : 0.5);
+}
+let _plageAnch = null;
+function plageAnchors() {   // [{ s: saison, mid: jour de l'annee }] triees par mid ; le milieu d'une saison peut passer l'an (hiver)
+  if (_plageAnch) return _plageAnch;
+  const st = Object.keys(PLAGES_DEBIT.saisons || {}).map(k => ({ s: k, d: plageDoy('2001-' + PLAGES_DEBIT.saisons[k]) - 0.5 })).sort((a, b) => a.d - b.d);
+  _plageAnch = st.map((a, i) => {
+    const nx = st[(i + 1) % st.length], len = ((nx.d - a.d) + 365) % 365 || 365;
+    return { s: a.s, mid: (a.d + len / 2) % 365 };
+  }).sort((a, b) => a.mid - b.mid);
+  return _plageAnch;
+}
+function plageAt(pl, t) {   // [min, max] a l'instant t (jour de l'annee), interpole entre les deux ancres qui l'encadrent
+  const A = plageAnchors(); if (!A.length) return null;
+  let a = null, b = null;
+  for (const x of A) { if (x.mid <= t) a = x; else { b = x; break; } }
+  let ma, mb;
+  if (!a) { a = A[A.length - 1]; ma = a.mid - 365; } else ma = a.mid;
+  if (!b) { b = A[0]; mb = b.mid + 365; } else mb = b.mid;
+  const pa = pl[a.s], pb = pl[b.s]; if (!pa || !pb) return null;
+  const f = mb > ma ? (t - ma) / (mb - ma) : 0, s = f * f * (3 - 2 * f);
+  return [pa[0] + (pb[0] - pa[0]) * s, pa[1] + (pb[1] - pa[1]) * s];
+}
+function drawPlageDebit(cx, nom, n, tsOf, xOf, yOf, x0, x1, yTop, yBot) {
+  const pl = (PLAGES_DEBIT.centrales || {})[nom];
+  if (!pl || n < 1) return;
+  const pts = [];
+  for (let k = 0; k < n; k++) {
+    const t = plageDoy(tsOf(k)); if (t == null) continue;
+    const v = plageAt(pl, t); if (v) pts.push([xOf(k), yOf(v[1]), yOf(v[0])]);   // [x, y du max, y du min]
+  }
+  if (!pts.length) return;
+  if (pts[0][0] > x0) pts.unshift([x0, pts[0][1], pts[0][2]]);
+  if (pts[pts.length - 1][0] < x1) pts.push([x1, pts[pts.length - 1][1], pts[pts.length - 1][2]]);
+  cx.save(); cx.beginPath(); cx.rect(x0, yTop, x1 - x0, yBot - yTop); cx.clip();
+  cx.fillStyle = PLAGE_FILL; cx.beginPath();
+  pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
+  for (let i = pts.length - 1; i >= 0; i--) cx.lineTo(pts[i][0], pts[i][2]);
+  cx.closePath(); cx.fill();
+  cx.restore();
+}
+// Pastille de legende de la zone (meme vert, un peu plus soutenu pour rester visible sur le petit rectangle)
+function drawPlageSwatch(cx, x, y, w, h) {
+  cx.fillStyle = 'rgba(46,160,67,.30)'; cx.fillRect(x, y, w, h);
+  cx.strokeStyle = 'rgba(46,160,67,.55)'; cx.lineWidth = 1; cx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
 function statusClass(c, val) {
@@ -933,7 +993,7 @@ function drawBigChart() {
   const rainInnerH = splitM ? Math.max(0, Math.floor((rainInnerHAll - SPLIT_GAP) / 2)) : rainInnerHAll;
   const apInnerH = splitM ? Math.max(0, rainInnerHAll - SPLIT_GAP - rainInnerH) : 0;
   const xOf = i => xTab ? xTab[i] : pad.l + (i / xSpan) * innerW0;   // avec les variations : colonnes de jours (xTab)
-  const yMin = varOnM ? 100 : 0;   // avec les variations, le debit total ne descend jamais a 0 : l'axe debute a 100 m3/s (comme au bureau)
+  const yMin = 0;   // l'axe debute a 0 m3/s (comme au bureau) : a 100, des points etaient caches par la zone Variations
   const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
   // Grille horizontale + ticks Y (5 lignes)
@@ -960,6 +1020,8 @@ function drawBigChart() {
     cx.stroke(); cx.restore();
   };
   drawDaySeps(pad.t, pad.t + innerH);
+  // Plage de debit de la saison : traits pointilles (max vert, min jaune), derriere les courbes
+  drawPlageDebit(cx, c.nom, N, k => D.timestamps[k], xOf, yOf, pad.l, pad.l + innerW, pad.t, pad.t + innerH);
 
   // Trace un tick sur une ou deux lignes : la date en taille normale, la borne
   // horaire d'une journee partielle en dessous, plus petite et discrete.
@@ -1095,7 +1157,7 @@ function drawBigChart() {
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
   const dCur = arr[frame];
-  const stroke = statusStroke(c, dCur);
+  const stroke = '#555';   // courbe du debit total : gris neutre, sans seuil de couleur (comme le bureau)
   const turbCol = SERIES.turbine.line;
   const devCol  = SERIES.deverse.line;
 
@@ -1521,10 +1583,12 @@ function drawBigChart() {
     { c: devCol,  t: 'Déversé' }
   ];
   // Avec les variations : « Déversé » seulement s'il y en a, + ligne ▲ ouverture / ▼ fermeture (comme au bureau)
+  const zoneLb = plageHas(c.nom) ? { zone: true, t: PLAGE_LABEL } : null;
   if (varOnM) {
     if (!(c.devs || []).some(v => v > 0.5)) labels.splice(2, 1);
+    if (zoneLb) labels.push(zoneLb);
     labels.push({ tri: true, t: '▲ ouverture · ▼ fermeture' });
-  }
+  } else if (zoneLb) labels.push(zoneLb);
   // Pas d'entree apport ici : il est descendu dans le panneau du bas, qui a sa
   // propre legende. L'y laisser serait un doublon pointant vers un autre cadre.
   const wMax = Math.max.apply(null, labels.map(lb => ax.measureText(lb.t).width - (lb.tri ? lgSwW + 6 : 0)));
@@ -1547,8 +1611,8 @@ function drawBigChart() {
       ax.fillStyle = '#333'; ax.fillText('fermeture', xx, yy);
       return;
     }
-    ax.fillStyle = lb.c;
-    ax.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 1, lgSwW, lgSwH);
+    if (lb.zone) drawPlageSwatch(ax, coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 1, lgSwW, lgSwH);
+    else { ax.fillStyle = lb.c; ax.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 1, lgSwW, lgSwH); }
     ax.fillStyle = '#333';
     ax.fillText(lb.t, coL.x + lgPadX + lgSwW + 6, coL.y + lgPadY + k * lgGap);
   });
