@@ -152,10 +152,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-05 13:58</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-05 16:07</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.21.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.21.1</span>
 </footer>
 
 <script>
@@ -331,7 +331,7 @@ function pluieSerie(zoneKey) {
 
 // Plage de debit total que HQ semble maintenir, par centrale et par saison (config/metadata/plages-debit-*.json, ajustable) :
 // { saisons: { nom: 'MM-JJ' (debut) }, centrales: { nom: { saison: [min, max] } } }. Meme logique que le template bureau.
-const PLAGES_DEBIT = {"saisons":{"printemps":"03-20","ete":"06-21","automne":"09-23","hiver":"12-21"},"centrales":{"La Gabelle":{"printemps":[670.0,2440.0],"ete":[320.0,1450.0],"automne":[295.0,425.0],"hiver":[295.0,425.0]},"Shawinigan":{"printemps":[635.0,2405.0],"ete":[325.0,1490.0],"automne":[280.0,425.0],"hiver":[280.0,425.0]},"Grand-Mere":{"printemps":[625.0,2230.0],"ete":[305.0,1415.0],"automne":[270.0,410.0],"hiver":[270.0,410.0]},"La Tuque":{"printemps":[450.0,1610.0],"ete":[270.0,1095.0],"automne":[220.0,385.0],"hiver":[220.0,385.0]},"Beaumont":{"printemps":[345.0,1450.0],"ete":[220.0,895.0],"automne":[210.0,350.0],"hiver":[210.0,350.0]},"Trenche":{"printemps":[275.0,1195.0],"ete":[185.0,720.0],"automne":[195.0,325.0],"hiver":[195.0,325.0]},"Rapide-Blanc":{"printemps":[220.0,925.0],"ete":[175.0,605.0],"automne":[195.0,305.0],"hiver":[195.0,305.0]},"Rapides-des-Coeurs":{"printemps":[190.0,520.0],"ete":[135.0,375.0],"automne":[150.0,230.0],"hiver":[150.0,230.0]},"Chute-Allard":{"printemps":[165.0,480.0],"ete":[120.0,330.0],"automne":[155.0,220.0],"hiver":[155.0,220.0]}}};
+const PLAGES_DEBIT = {"saisons":{"printemps":"03-20","ete":"06-21","automne":"09-23","hiver":"12-21"},"centrales":{"La Gabelle":{"printemps":[530.0,750.0],"ete":[300.0,560.0],"automne":[295.0,420.0],"hiver":[295.0,420.0]},"Shawinigan":{"printemps":[510.0,725.0],"ete":[315.0,580.0],"automne":[280.0,420.0],"hiver":[280.0,420.0]},"Grand-Mere":{"printemps":[575.0,985.0],"ete":[305.0,655.0],"automne":[270.0,410.0],"hiver":[270.0,410.0]},"La Tuque":{"printemps":[435.0,835.0],"ete":[265.0,575.0],"automne":[215.0,385.0],"hiver":[215.0,385.0]},"Beaumont":{"printemps":[340.0,715.0],"ete":[215.0,470.0],"automne":[195.0,350.0],"hiver":[195.0,350.0]},"Trenche":{"printemps":[275.0,610.0],"ete":[180.0,425.0],"automne":[205.0,325.0],"hiver":[205.0,325.0]},"Rapide-Blanc":{"printemps":[205.0,435.0],"ete":[120.0,295.0],"automne":[205.0,255.0],"hiver":[205.0,255.0]},"Rapides-des-Coeurs":{"printemps":[175.0,390.0],"ete":[130.0,280.0],"automne":[150.0,225.0],"hiver":[150.0,225.0]},"Chute-Allard":{"printemps":[155.0,350.0],"ete":[120.0,260.0],"automne":[160.0,220.0],"hiver":[160.0,220.0]}}};
 // ZONE pale (vert) entre le min et le max de la plage visee. Les valeurs de chaque saison sont ancrees au MILIEU de la saison
 // et interpolees en continu (lissage « smoothstep ») entre deux ancres voisines, en boucle sur l'annee : la zone se deforme
 // doucement d'une saison a l'autre, sans marche ni coupure. Meme logique que le template bureau.
