@@ -106,8 +106,9 @@ Tout se passe dans la barre du bas :
 
 - **Play** — lance l'animation.
 - **Slider** — se déplacer librement dans le temps.
-- **Sélecteur Heure / Jour / Semaine / Mois** — change le pas de temps. « Heure » pour
-  suivre une crue en détail, « Mois » pour la vue d'ensemble.
+- **Saut : 1 heure / 1 jour** — règle le pas des flèches, du slider et de la lecture
+  animée (en mode « 1 jour », le curseur retombe à la même heure du jour voisin). Les
+  graphiques gardent toujours le détail de l'heure.
 - **Maintenant** — revient à la mesure la plus récente.
 
 ### En version Mobile
@@ -242,25 +243,6 @@ configuration :
 - **Répartition** : également entre les groupes en service.
 - **Surcharge** : un groupe peut dépasser 100 % du nominal (réserve de +5 à +15 %),
   typiquement en crue pour turbiner le maximum avant de devoir déverser. Affiché en orange.
-
-</details>
-
-<details>
-<summary><b>Comment les vues Jour, Semaine et Mois sont agrégées</b></summary>
-
-Règle unique : **le pic propre à chaque centrale**. On repère l'heure où le débit total
-de la centrale atteint son maximum dans la période, puis on lit *toutes* ses autres
-séries (turbiné, déversé, niveaux, production) **à cette heure précise**.
-
-La chute `H = amont − aval` et la production sont donc calculées au même instant que le
-pic de débit — ce qui garantit leur cohérence physique.
-
-Les niveaux de réservoir font exception : ils sont moyennés, car ce sont des variables
-lentes dont le pic instantané n'apprend rien. Les apports, publiés en agrégat journalier,
-retiennent le maximum de la période.
-
-En vue **Jour**, un label comme « 2026-05-16 — jusqu'à 14:00 » signale une journée encore
-incomplète. Sans suffixe, la journée est entière.
 
 </details>
 

@@ -122,6 +122,22 @@ footer a{color:#bcd;text-decoration:underline}
 #chartBox.varOn.split{height:80vh;min-height:520px;max-height:820px}   /* pluie et apport en 2 panneaux : boite plus haute */
 #varCtl{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px 2px;font-size:12.5px;color:#333}
 #varCtl select{font-size:13px;padding:2px 4px;margin-left:4px}
+/* Legende du panneau des debits : rangee horizontale fixe sous les selecteurs, comme #modal-all-legend au bureau */
+#debitLegend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;font-size:12px;color:#333;padding:6px 10px 6px}
+#debitLegend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#debitLegend .sw{display:inline-block;width:22px;height:7px}
+#debitLegend .sw.zone{height:9px;background:rgba(46,160,67,.13);border:1px solid rgba(46,160,67,.45);box-sizing:border-box}
+/* Bascule Sommaire | Detaille. Sommaire = graphique proche de l'outil « Debits et niveaux d'eau » d'Hydro-Quebec
+   (courbe de debit total sur 10 jours visibles, style du Detaille) ; Detaille = la page actuelle. */
+#viewTog{display:flex;margin:2px 10px 6px;border:1px solid #c9cfe0;border-radius:8px;overflow:hidden;width:fit-content}
+#viewTog button{border:0;background:#fff;color:#1a1a2e;font-size:13px;padding:6px 14px;cursor:pointer}
+#viewTog button.on{background:#1a1a2e;color:#fff}
+#sumBox{display:none;position:relative;height:50vh;min-height:300px;max-height:460px;background:#fff;overflow:hidden}
+#chartWrap.mode-sum #sumBox{display:block}
+#chartWrap.mode-sum #varCtl,#chartWrap.mode-sum #chartBox{display:none !important}   /* la legende #debitLegend reste visible : meme rangee que le Detaille */
+#sumCv{position:absolute;left:0;top:0;pointer-events:none}
+#sumScroll{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+#sumSpacer{height:1px}
 .hidden{display:none !important}
 </style>
 </head>
@@ -138,24 +154,33 @@ footer a{color:#bcd;text-decoration:underline}
 <section id="label" class="hidden" aria-live="polite"></section>
 
 <section id="chartWrap" class="hidden">
+  <div id="viewTog" role="group" aria-label="Type de graphique">
+    <button type="button" data-v="sommaire">Sommaire</button>
+    <button type="button" data-v="detail">D&eacute;taill&eacute;</button>
+  </div>
   <div id="varCtl" class="hidden">
     <label>Variation affich&eacute;e :
       <select id="varMin"></select>
     </label>
   </div>
+  <div id="debitLegend"></div>
   <div id="chartBox">
     <div id="chartScroll"><canvas id="bigCv"></canvas></div>
     <canvas id="axisCv" aria-hidden="true"></canvas>
+  </div>
+  <div id="sumBox">
+    <canvas id="sumCv" aria-hidden="true"></canvas>
+    <div id="sumScroll"><div id="sumSpacer"></div></div>
   </div>
 </section>
 
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 17:17</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:09</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.21.2</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.22.0</span>
 </footer>
 
 <script>
@@ -199,7 +224,7 @@ let D = null;            // dataset de la vue active { centrales, timestamps, pe
 let N = 0;               // nb de frames de la vue active
 let selectedIdx = -1;    // index dans D.centrales de la centrale selectionnee
 let frame = 0;           // toujours = N-1 (derniere frame disponible)
-let views = {};          // { horaire, journalier, hebdomadaire } -> dataset ou null
+let views = {};          // { horaire } -> dataset ou null (la vue Heure est la seule)
 let dataStamp = null;    // manifest.generatedAt du dernier chargement (detecte les vrais changements)
 let lastFetchAt = -1e9;  // performance.now() du dernier fetch reussi (garde-fou anti-spam du re-fetch auto)
 
@@ -383,11 +408,6 @@ function drawPlageDebit(cx, nom, n, tsOf, xOf, yOf, x0, x1, yTop, yBot) {
   cx.closePath(); cx.fill();
   cx.restore();
 }
-// Pastille de legende de la zone (meme vert, un peu plus soutenu pour rester visible sur le petit rectangle)
-function drawPlageSwatch(cx, x, y, w, h) {
-  cx.fillStyle = 'rgba(46,160,67,.30)'; cx.fillRect(x, y, w, h);
-  cx.strokeStyle = 'rgba(46,160,67,.55)'; cx.lineWidth = 1; cx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-}
 
 function statusClass(c, val) {
   if (val == null || c.minTotal == null || c.maxTotal == null) return '';
@@ -517,27 +537,19 @@ async function loadData(opts) {
   const idx = months.findIndex(m => m.month === month);
   const prevEntry = (idx > 0) ? months[idx - 1] : null;
 
-  const fetches = [
-    j('data/' + currFile),
-    j('data/sommaire.json')
-  ];
+  // Plus de sommaire.json (vues Jour / Semaine / Mois retirees) : seulement le mois courant et le precedent, en heures.
+  const fetches = [ j('data/' + currFile) ];
   if (prevEntry) fetches.push(j('data/' + prevEntry.file).catch(() => null));
-  const [horaireCurr, sommaire, horairePrev] = await Promise.all(fetches);
+  const [horaireCurr, horairePrev] = await Promise.all(fetches);
   const horaire = mergeHoraire(horairePrev || null, horaireCurr);
 
-  const v = {
-    horaire:      horaire || null,
-    journalier:   sommaire.journalier   || null,
-    hebdomadaire: sommaire.hebdomadaire || null
-  };
+  const v = { horaire: horaire || null };
   Object.entries(v).forEach(([k, view]) => { if (view && typeof view === 'object') view.periode = k; });
-  // Min / moy / max : sur TOUT l'historique journalier (comme la modale du bureau), calcules AVANT la troncature des vues.
-  const statsAll = {};
-  if (v.journalier && v.journalier.centrales) v.journalier.centrales.forEach(cc => { statsAll[cc.id] = computeStats(cc.debits || []); });
+  // Min / moy / max du debit total HORAIRE sur TOUT l'historique : precalcules au rendu (manifest.stats, cle = id de la centrale),
+  // donc independants de la fenetre de 30 jours chargee. Absents (ancien manifeste en cache) : repli sur les 30 jours chargees.
+  const statsAll = manifest.stats || {};
   // 30 jours (720 h) charges, defilables ; la fenetre visible en montre 10 (VIS_DAYS, cf. drawBigChart).
-  trimView(v.horaire,     720);
-  trimView(v.journalier,   10);
-  trimView(v.hebdomadaire,  6);
+  trimView(v.horaire, 720);
   Object.values(v).forEach(view => { if (view && view.centrales) view.centrales.forEach(cc => { cc.statsAll = statsAll[cc.id] || null; }); });
   // Empreinte de generation : sert a detecter un vrai changement de donnees.
   v._stamp = manifest.generatedAt || null;
@@ -615,6 +627,7 @@ function setPeriode(key) {
   N = D.timestamps.length;
   frame = N - 1;
   bigScrollReset = true;
+  sumReset = true;
   // Re-aligne selectedIdx sur la centrale par son ID (les vues peuvent ne pas
   // partager le meme ordre, meme si en pratique elles le partagent).
   if (selectedIdx >= 0 && views.horaire && views.horaire.centrales[selectedIdx]) {
@@ -695,7 +708,7 @@ function render() {
     } else if (tr < -50) {
       trendHtml = '<span class="trend-down">' + Math.round(tr) + ' m³/s en ' + trUnit + '</span>';
     } else {
-      const unit = { horaire:'h', journalier:'j', hebdomadaire:'sem', mensuel:'mois' }[D.periode] || 'h';
+      const unit = 'h';
       // stab peut etre une chaine ('">72h"' en horaire) : le suffixe est deja inclus.
       const stTxt = (stab == null) ? 'stable'
                   : (typeof stab === 'string' ? 'stable depuis ' + stab
@@ -734,7 +747,7 @@ function render() {
       '<span>max <b>' + fmtInt(stats.max) + '</b></span>' +
     '</div>';
 
-  drawBigChart();
+  drawActive();
 }
 
 function escapeHtml(s) {
@@ -800,8 +813,8 @@ function drawBigChart() {
   if (selectedIdx < 0 || !D) return;
   const c = D.centrales[selectedIdx];
   const arr = c.debits;
-  // Panneau Variations : vues Heure et Jour seulement. Le conteneur est agrandi AVANT toute mesure de hauteur.
-  const varOnM = (D.periode === 'horaire' || D.periode === 'journalier') && Array.isArray(c.man);
+  // Panneau Variations. Le conteneur est agrandi AVANT toute mesure de hauteur.
+  const varOnM = Array.isArray(c.man);
   document.getElementById('varCtl').classList.toggle('hidden', !varOnM);
   document.getElementById('chartBox').classList.toggle('varOn', varOnM);
 
@@ -820,56 +833,33 @@ function drawBigChart() {
   // pour loger la 2e ligne des ticks — la borne horaire d'une journee partielle,
   // posee sous la date par drawTick(). Avec 30, elle tombait sous le bord du
   // canvas et etait tronquee.
-  const dateOnlyM = (D.periode === 'horaire' || D.periode === 'journalier');
   // Marges mesurees sur le texte reel des echelles (8 px) plutot que fixes : le maximum de place revient au graphe.
   // Le libelle de reference a 4 chiffres + unite est le plus large possible (debits >= 1000 m3/s).
   axisCtx.font = '8px "Segoe UI",Arial';
   const scaleW = Math.ceil(axisCtx.measureText('0000 m³/s').width);
-  const pad = { l: scaleW + 8, r: 8, t: varOnM ? 18 : 8, b: dateOnlyM ? 30 : 42 };
+  const pad = { l: scaleW + 8, r: 8, t: varOnM ? 18 : 8, b: 30 };
 
   // Ticks X : format NUMERIQUE 'MM/JJ', identique a dateAxe() du template bureau.
   // ⚠ Garder alignee sur animation.html.tpl (fonction dateAxe) : les deux templates
   // sont des fichiers separes, sans module partage.
-  //   horaire      'yyyy-MM-dd HH:mm'          -> 'MM/JJ HH:mm'
-  //   journalier   'yyyy-MM-dd'                -> 'MM/JJ'
-  //   hebdomadaire 'yyyy-MM-dd -> yyyy-MM-dd'  -> 'MM/JJ -> MM/JJ'
-  //   mensuel      'yyyy-MM'                   -> 'yyyy-MM' tel quel (sans jour,
-  //                                              l'annee est la seule mise en contexte)
+  //   'yyyy-MM-dd HH:mm' -> 'MM/JJ HH:mm'
   // Remplace l'ancien format textuel ('23 juin', 'sem. du 17 aout'), qui divergeait
   // du bureau et rendait la lecture croisee des deux versions inconfortable.
   // Definies avant le dimensionnement : la largeur du graphe depend de celle des libelles.
   const fmtTick = (ts) => {
     if (!ts) return '';
-    const s = String(ts);
-    // Vue mois ('yyyy-MM' sans jour qui suit) : on garde l'annee.
-    if (/^\d{4}-\d{2}(?!-)/.test(s)) return s;
-    // Autres vues : on retire l'annee de CHAQUE date presente (la vue semaine en
-    // contient deux, d'ou le remplacement global).
-    return s.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$2/$3');
+    // On retire l'annee de la date.
+    return String(ts).replace(/(\d{4})-(\d{2})-(\d{2})/g, '$2/$3');
   };
-  // Separe un libelle en { main, sub }, comme dateAxeParts() du bureau :
-  //   main = 'MM/JJ' (ou 'MM/JJ HH:mm', 'MM/JJ -> MM/JJ', 'yyyy-MM')
-  //   sub  = '(HH:mm)' pour une journee partielle, sinon ''
-  // Le suffixe est sorti du libelle principal pour etre pose sur une 2e ligne :
-  // en une seule ligne, il doublait la largeur du dernier tick et chevauchait ses
-  // voisins. Le libelle source est "AAAA-MM-JJ — jusqu'a HH:mm" avec tiret
-  // cadratin, apostrophe typographique et 'a' accentue ; le motif tolere les
-  // variantes, sinon le suffixe resterait sur la 1re ligne.
-  // '00:00' est rendu '24:00' : la borne appartient a la journee affichee.
-  // En vues Heure et Jour, l'axe X mobile ne porte QUE la date 'MM/JJ' : l'heure
-  // du point (vue Heure) et la 2e ligne '(HH:mm)' des journees partielles sont
-  // supprimees. Ecran etroit : deux lignes de tick et un suffixe horaire
-  // surchargeaient l'axe pour une precision inutile a cette taille. Les vues
-  // Semaine/Mois gardent le comportement d'origine (elles n'ont ni l'un ni l'autre).
+  // Separe un libelle en { main, sub }, comme dateAxeParts() du bureau : main = 'MM/JJ', sub = '' (vide).
+  // L'axe X mobile ne porte QUE la date 'MM/JJ' : l'heure du point est retiree. Ecran etroit : deux lignes de tick
+  // surchargeaient l'axe pour une precision inutile a cette taille. (Autrefois, la vue Jour produisait aussi
+  // "AAAA-MM-JJ — jusqu'a HH:mm" pour une journee partielle, dont le suffixe etait supprime ; la forme { main, sub }
+  // est conservee pour les appelants.)
   const fmtTickParts = (ts) => {
     if (!ts) return { main: '', sub: '' };
-    const s = String(ts);
-    const m = s.match(/^(.*?)\s*[—–-]\s*jusqu['’]\s*[aàÀA]\s*(\d{1,2}:\d{2})\s*$/i);
     // Retire l'heure accolee a la date ('MM/JJ HH:mm' -> 'MM/JJ').
-    const stripH = (x) => dateOnlyM ? x.replace(/\s+\d{1,2}:\d{2}(:\d{2})?$/, '') : x;
-    if (!m) return { main: stripH(fmtTick(s)), sub: '' };
-    const hhmm = m[2] === '00:00' ? '24:00' : m[2];
-    return { main: stripH(fmtTick(m[1])), sub: dateOnlyM ? '' : '(' + hhmm + ')' };
+    return { main: fmtTick(String(ts)).replace(/\s+\d{1,2}:\d{2}(:\d{2})?$/, ''), sub: '' };
   };
 
   // ---- Dimensionnement : graphe defilable horizontalement ----
@@ -918,22 +908,21 @@ function drawBigChart() {
   if (varOnM) {
     const dayListM = []; for (let i = 0; i < N; i++) { const d = dkM(i); if (dayListM[dayListM.length - 1] !== d) dayListM.push(d); }
     const nd = dayListM.length, dIdx = new Map(dayListM.map((d, k) => [d, k]));
-    const jourW = D.periode === 'journalier';
     const need = curItems.length * SUB_W;
-    if (nd > 1 && (jourW || D.periode === 'horaire')) {
-      // Vue Heure : l'ecran montre toujours VIS_DAYS jours (10) ; le graphe en couvre davantage (30) et defile. La colonne
+    if (nd > 1) {
+      // L'ecran montre toujours VIS_DAYS jours (10) ; le graphe en couvre davantage (30) et defile. La colonne
       // courante prend sa place (need) et les autres se partagent le reste, jusqu'a un plancher de 14 px.
       const visN = Math.min(VIS_DAYS, nd);
       colW = Math.max(14, Math.min(innerWView / visN, visN > 1 ? (innerWView - need) / (visN - 1) : innerWView));
     } else {
-      colW = Math.max(jourW ? pxPerPt : pxPerPt * ptsPerTick, innerWView / nd);
+      colW = Math.max(pxPerPt * ptsPerTick, innerWView / nd);
     }
     const curW = Math.max(colW, need);
     xTab = new Array(N);
     for (let i = 0; i < N; i++) {
       const k = dIdx.get(dkM(i)), w = (k === nd - 1) ? curW : colW;
-      const hh = jourW ? 12 : (parseInt(String(D.timestamps[i]).slice(11, 13), 10) || 0);
-      xTab[i] = pad.l + k * colW + (jourW ? w / 2 : (hh / 24) * w);
+      const hh = parseInt(String(D.timestamps[i]).slice(11, 13), 10) || 0;
+      xTab[i] = pad.l + k * colW + (hh / 24) * w;
     }
     curLeft = pad.l + (nd - 1) * colW + (curW - need) / 2;
     innerW = (nd - 1) * colW + curW;
@@ -1009,9 +998,7 @@ function drawBigChart() {
   // Pointilles verticaux entre les jours (vues Heure et Jour) : a mi-chemin entre le dernier point d'un jour et le
   // premier du suivant. Un meme jeu de x pour les trois panneaux (debits, variations, pluie), trace entre y0 et y1.
   const daySepX = [];
-  if (D.periode === 'horaire' || D.periode === 'journalier') {
-    for (let i = 1; i < N; i++) if (dkM(i) !== dkM(i - 1)) daySepX.push((xOf(i - 1) + xOf(i)) / 2);
-  }
+  for (let i = 1; i < N; i++) if (dkM(i) !== dkM(i - 1)) daySepX.push((xOf(i - 1) + xOf(i)) / 2);
   const drawDaySeps = (y0, y1) => {
     if (!daySepX.length || y1 <= y0) return;
     cx.save(); cx.strokeStyle = '#c3c8d6'; cx.lineWidth = 1; cx.setLineDash([2, 3]);
@@ -1046,10 +1033,9 @@ function drawBigChart() {
   const xT = i => (dayCtr ? dayCtr.get(dkM(i)) : xOf(i));
   const ALIGN_EDGES = !dayCtr;
 
-  // En vue Heure : un tick par jour calendaire (a la premiere heure disponible
-  // de chaque jour), libelle court 'dd mois' (sans heure, qui varie selon le
-  // point retenu). En vue Jour : un tick par point (deja une granularite
-  // journaliere). Espacement minimal calcule a partir de la largeur REELLE du
+  // Un tick par jour calendaire (a la premiere heure disponible de chaque jour),
+  // libelle court 'MM/JJ' (sans heure, qui varie selon le point retenu).
+  // Espacement minimal calcule a partir de la largeur REELLE du
   // texte (cx.measureText) plutot qu'une constante : le premier/dernier tick
   // sont alignes gauche/droite (le texte s'etend d'un seul cote de l'ancre),
   // les intermediaires sont centres (le texte s'etend des deux cotes) — une
@@ -1110,29 +1096,6 @@ function drawBigChart() {
       }
       tickIdx.push(lastDayIdx);
     }
-  } else if (D.periode === 'journalier' || D.periode === 'hebdomadaire') {
-    // Un candidat de tick par point (deja une granularite journaliere ou
-    // hebdomadaire) ; espacement dynamique identique a la vue Heure, le
-    // libelle hebdomadaire ('sem. du d mois') etant plus long que 'd mois'.
-    tickIdx = [];
-    let lastX = -Infinity, lastAlign = 'left', lastW = 0;
-    for (let i = 0; i < N; i++) {
-      const isFirst = tickIdx.length === 0;
-      const isLast = i === N - 1;
-      const align = !ALIGN_EDGES ? 'center' : (isFirst ? 'left' : (isLast ? 'right' : 'center'));
-      const w = cx.measureText(fmtTickParts(String(D.timestamps[i] || '')).main).width;
-      const x = xT(i);
-      if (!isFirst && !isLast && x - lastX < gapFor(lastAlign, lastW, align, w)) continue;
-      tickIdx.push(i);
-      lastX = x; lastAlign = align; lastW = w;
-    }
-    if (tickIdx[tickIdx.length - 1] !== N - 1) tickIdx.push(N - 1);
-  } else {
-    tickIdx = [];
-    const xTicks = 4;
-    for (let g = 0; g <= xTicks; g++) {
-      tickIdx.push(Math.round((g / xTicks) * (N - 1)));
-    }
   }
   // Alignement des libelles : le premier et dernier tick sont colles aux bords
   // (gauche/droite) pour eviter que le texte deborde du canvas ; les ticks
@@ -1141,9 +1104,7 @@ function drawBigChart() {
     const i = tickIdx[k];
     const x = xT(i);
     // Premier/dernier tick colles au bord (gauche/droite) pour eviter que le
-    // texte deborde du canvas ; intermediaires centres. S'applique a toutes
-    // les periodes (le libelle 'MM/JJ -> MM/JJ' en hebdomadaire est assez
-    // long pour deborder aux extremites s'il restait centre).
+    // texte deborde du canvas ; intermediaires centres.
     if (ALIGN_EDGES && tickIdx.length > 1) {
       if (k === 0)                       cx.textAlign = 'left';
       else if (k === tickIdx.length - 1) cx.textAlign = 'right';
@@ -1210,11 +1171,9 @@ function drawBigChart() {
 
   // ===== PANNEAU DES VARIATIONS (entre debits et pluie), axe X partage =====
   // Barres = NIVEAU atteint apres la variation (turbine vert + deverse bleu), ▲ ouverture / ▼ fermeture
-  // et variation (m3/s) au-dessus, heure de fin dessous. Total quotidien : une barre par jour ; Par heure :
-  // une par manoeuvre (cote a cote dans le jour en vue Jour).
+  // et variation (m3/s) au-dessus, heure de fin dessous. Une barre par manoeuvre.
   if (varOnM) {
-    const jourV = D.periode === 'journalier';
-    const pxDayM = colW, pxPtM = jourV ? colW : colW / 24;
+    const pxDayM = colW, pxPtM = colW / 24;
     const COLO = '#d9640a', COLF = '#1d5e8c';
     const BWM = 4;   // largeur UNIQUE de toutes les bandes (variations, pluie, apport) : 4 px
     const items = [];
@@ -1227,31 +1186,31 @@ function drawBigChart() {
     }
     for (const [d, list] of prevByDay) {
       const sub = Math.min(SUB_W, colW / list.length);
-      list.forEach((it, j) => items.push({ day: d, x: jourV ? xOf(it.f) : dayCtr.get(d) + (j - (list.length - 1) / 2) * sub, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
+      list.forEach((it, j) => items.push({ day: d, f: it.f, x: dayCtr.get(d) + (j - (list.length - 1) / 2) * sub, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     }
-    curItems.forEach((it, j) => items.push({ day: lastDayM, x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
+    curItems.forEach((it, j) => items.push({ day: lastDayM, f: it.f, x: curLeft + (j + 0.5) * SUB_W, bw: BWM, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD }));
     items.sort((a, b) => a.x - b.x);
-    // Courbe du debit total par les niveaux affiches (le niveau persiste : prolongee a plat jusqu'au bord), avec le
-    // debit total ecrit a chaque point, comme au bureau.
+    // Courbe du debit total = les VRAIES mesures horaires (xOf(i) = position reelle de l'heure dans la colonne de son jour),
+    // comme le Sommaire. Avant : segments droits entre les niveaux retenus (un par jour, au centre de la colonne), ce qui
+    // dessinait une montee ou une descente entre deux variations alors que le debit restait plat (Trenche, 30 oct. -> 3 nov. :
+    // ~190 m3/s sans aucune manoeuvre, mais une diagonale vers 388). Les points et valeurs ecrits par-dessus sont les niveaux des
+    // variations retenues, poses a l'HEURE REELLE de la manoeuvre (xp) pour tomber sur la courbe ; it.x ne sert qu'aux barres.
     cx.save(); cx.beginPath(); cx.rect(pad.l, pad.t - 14, innerW, innerH + 14); cx.clip();
     {
-      const pts = items.map(it => [it.x, yOf(it.lT + it.lD)]);
-      // Debut de courbe : depuis le bord gauche, au debit reel de la 1re heure de la fenetre. Sans cela la ligne ne
-      // commencait qu'a la 1re variation retenue, et manquait tant qu'il n'y en avait pas (ou sur toute la fenetre).
-      const d0 = (c.debits && c.debits[0] != null) ? c.debits[0] : null;
-      if (d0 != null) pts.unshift([pad.l, yOf(d0)]);
-      // Fin de courbe au debit REEL (c.dFin : dernier debit horaire connu) : les niveaux affiches sont ceux d'apres chaque
-      // variation retenue par le filtre, donc le dernier peut etre perime de quelques m3/s sous le seuil.
-      const lastLv = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : null;
-      const endOn = c.dFin != null && (lastLv == null || Math.round(c.dFin) !== Math.round(lastLv));   // sans aucune variation : debut -> fin au debit reel
-      const endX = pad.l + innerW - 6;
-      if (endOn) pts.push([endX, yOf(c.dFin)]);
-      else if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
-      if (pts.length > 1) {
-        cx.beginPath(); cx.strokeStyle = stroke; cx.lineWidth = 3.1; cx.lineJoin = 'round';
-        pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
-        cx.stroke();
+      items.forEach(it => { it.xp = xOf(it.f); });
+      cx.beginPath(); cx.strokeStyle = stroke; cx.lineWidth = 2.4; cx.lineJoin = 'round';
+      let pen = false;
+      for (let i = 0; i < N; i++) {
+        const v = arr[i]; if (v == null) { pen = false; continue; }
+        const px = xOf(i), py = yOf(v);
+        if (pen) cx.lineTo(px, py); else { cx.moveTo(px, py); pen = true; }
       }
+      cx.stroke();
+      // Point final au debit REEL (c.dFin : dernier debit horaire connu), a l'heure de la derniere mesure : seulement s'il differe
+      // du dernier niveau ecrit (sinon le dernier point des variations tient lieu de point final).
+      const lastLv = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : null;
+      const endOn = c.dFin != null && (lastLv == null || Math.round(c.dFin) !== Math.round(lastLv));
+      const endX = xOf(N - 1);
       cx.font = 'bold 8px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'bottom';
       // Valeurs ecrites sur la courbe : si elles ne tiennent pas toutes, on PRIORISE le plus haut et le plus bas niveau de
       // chaque jour (le plus haut au-dessus du point, le plus bas en dessous) ; les autres ne sont ecrits que s'il reste de la place.
@@ -1266,26 +1225,27 @@ function drawBigChart() {
       const putL = (it, below) => {
         const yy = yOf(lvOf(it)), txtL = String(Math.round(lvOf(it)));
         cx.textBaseline = below ? 'top' : 'bottom';
-        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtL, it.x, below ? yy + 6 : yy - 6);
-        cx.fillStyle = '#222'; cx.fillText(txtL, it.x, below ? yy + 6 : yy - 6);
-        if (!below) upXs.push({ x: it.x, w: cx.measureText(txtL).width });
+        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtL, it.xp, below ? yy + 6 : yy - 6);
+        cx.fillStyle = '#222'; cx.fillText(txtL, it.xp, below ? yy + 6 : yy - 6);
+        if (!below) upXs.push({ x: it.xp, w: cx.measureText(txtL).width });
         shownL.add(it);
       };
-      for (const it of items) { cx.fillStyle = stroke; cx.beginPath(); cx.arc(it.x, yOf(lvOf(it)), 3, 0, 6.3); cx.fill(); }
+      for (const it of items) { cx.fillStyle = stroke; cx.beginPath(); cx.arc(it.xp, yOf(lvOf(it)), 3, 0, 6.3); cx.fill(); }
       for (const e of dayExt.values()) { putL(e.hi, false); if (e.lo !== e.hi) putL(e.lo, true); }
       for (const it of items) {
         if (shownL.has(it)) continue;
         const tw = cx.measureText(String(Math.round(lvOf(it)))).width;
-        if (jourV || upXs.every(u => Math.abs(it.x - u.x) >= (u.w + tw) / 2 + 3)) putL(it, false);
+        if (upXs.every(u => Math.abs(it.xp - u.x) >= (u.w + tw) / 2 + 3)) putL(it, false);
       }
       cx.textBaseline = 'bottom';
       if (endOn) {   // point final = debit reel ; etiquette sous le point si elle toucherait celle du dernier niveau
         const yy = yOf(c.dFin), txtE = String(Math.round(c.dFin)), tw = cx.measureText(txtE).width;
-        const pv = items[items.length - 1], close = !!pv && (endX - pv.x) < tw + 4;
+        const pv = items[items.length - 1], close = !!pv && (endX - pv.xp) < tw + 4;
+        const lbX = Math.min(endX + 8, pad.l + innerW - 2);   // etiquette collee au point, sans deborder du graphique
         cx.fillStyle = stroke; cx.beginPath(); cx.arc(endX, yy, 3, 0, 6.3); cx.fill();
         cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
-        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtE, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
-        cx.fillStyle = '#222'; cx.fillText(txtE, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
+        cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtE, lbX, close ? yy + 6 : yy - 6);
+        cx.fillStyle = '#222'; cx.fillText(txtE, lbX, close ? yy + 6 : yy - 6);
         cx.textAlign = 'center';
       }
     }
@@ -1396,9 +1356,8 @@ function drawBigChart() {
     const plBarsM = plM.hVals || plM.vals;   // repli si p1 absent (vieux dataset)
     // Avec les variations (comme la modale d'une centrale au bureau) : bandes pleines de meme largeur que les
     // barres du panneau Variations, sans courbe de cumul 24 h.
-    // Jour : meme largeur que les barres du panneau Variations. Heure : une barre par heure, donc tres fines (pluie a gauche
-    // du point, apport a droite : 2 barres par pas de colW / 24).
-    const bwRM = varOnM ? (D.periode === 'journalier' ? Math.min(18, colW * 0.5) * 0.6 : Math.max(1, colW / 24 * 0.9)) : 0;
+    // Une barre par heure, donc tres fines (pluie a gauche du point, apport a droite : 2 barres par pas de colW / 24).
+    const bwRM = varOnM ? Math.max(1, colW / 24 * 0.9) : 0;
     cx.strokeStyle = SERIES.pluie.line;
     cx.fillStyle = SERIES.pluie.line;
     cx.lineWidth = stemWidth(innerW, N, 3);
@@ -1570,52 +1529,20 @@ function drawBigChart() {
     ax.fillText('Débits (m³/s)', pad.l, pad.t + 1);
   }
 
-  // Legende : coin choisi dynamiquement pour ne pas se poser sur les courbes
-  // (l'ancien coin fixe haut-gauche tombait en plein dans les donnees des centrales
-  // dont le debit est eleve en debut de fenetre).
-  const lgSwW = 18, lgSwH = 6, lgGap = 9, lgPadX = 6, lgPadY = 5;
-  ax.font = '6px "Segoe UI",Arial';
-  // Ni apport ni pluie ici : les deux vivent dans le panneau du bas, qui a sa
-  // propre legende. Cette legende ne decrit que les series du panneau des debits.
-  const labels = [
-    { c: stroke,  t: 'Débit total' },
-    { c: turbCol, t: 'Turbiné' },
-    { c: devCol,  t: 'Déversé' }
-  ];
-  // Avec les variations : « Déversé » seulement s'il y en a, + ligne ▲ ouverture / ▼ fermeture (comme au bureau)
-  const zoneLb = plageHas(c.nom) ? { zone: true, t: PLAGE_LABEL } : null;
-  if (varOnM) {
-    if (!(c.devs || []).some(v => v > 0.5)) labels.splice(2, 1);
-    if (zoneLb) labels.push(zoneLb);
-    labels.push({ tri: true, t: '▲ ouverture · ▼ fermeture' });
-  } else if (zoneLb) labels.push(zoneLb);
-  // Pas d'entree apport ici : il est descendu dans le panneau du bas, qui a sa
-  // propre legende. L'y laisser serait un doublon pointant vers un autre cadre.
-  const wMax = Math.max.apply(null, labels.map(lb => ax.measureText(lb.t).width - (lb.tri ? lgSwW + 6 : 0)));
-  const boxW = wMax + lgSwW + 14 + 2 * lgPadX;
-  const boxH = labels.length * lgGap + 2 * lgPadY;
-  const lgTop = plM ? pad.t + 16 : pad.t;   // sous le titre du panneau, s'il y en a un
-  const coL = pickCorner({ x0: pad.l, y0: lgTop, w: innerWView, h: pad.t + innerH - lgTop },
-                         boxW, boxH, varOnM ? [arr] : [arr, c.turbs, c.devs], yOf, xOfView, null);
-  ax.fillStyle = 'rgba(255,255,255,.85)';
-  ax.fillRect(coL.x, coL.y, boxW, boxH);
-  ax.strokeStyle = '#dde'; ax.lineWidth = 1;
-  ax.strokeRect(coL.x, coL.y, boxW, boxH);
-  ax.textAlign = 'left'; ax.textBaseline = 'top';
-  labels.forEach((lb, k) => {
-    if (lb.tri) {
-      let xx = coL.x + lgPadX; const yy = coL.y + lgPadY + k * lgGap;
-      ax.fillStyle = '#d9640a'; ax.fillText('▲', xx, yy); xx += ax.measureText('▲ ').width;
-      ax.fillStyle = '#333'; ax.fillText('ouverture', xx, yy); xx += ax.measureText('ouverture · ').width;
-      ax.fillStyle = '#1d5e8c'; ax.fillText('▼', xx, yy); xx += ax.measureText('▼ ').width;
-      ax.fillStyle = '#333'; ax.fillText('fermeture', xx, yy);
-      return;
-    }
-    if (lb.zone) drawPlageSwatch(ax, coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 1, lgSwW, lgSwH);
-    else { ax.fillStyle = lb.c; ax.fillRect(coL.x + lgPadX, coL.y + lgPadY + k * lgGap + 1, lgSwW, lgSwH); }
-    ax.fillStyle = '#333';
-    ax.fillText(lb.t, coL.x + lgPadX + lgSwW + 6, coL.y + lgPadY + k * lgGap);
-  });
+  // Legende du panneau des debits : rangee HTML horizontale FIXE, sous le selecteur de
+  // variation et au-dessus du graphique (meme emplacement et meme format que
+  // #modal-all-legend au bureau). Plus de cadre dessine dans le canvas : il n'a plus a
+  // eviter les courbes ni a varier de coin. Ni apport ni pluie ici : les deux vivent dans
+  // le panneau du bas, qui a sa propre legende.
+  {
+    const sw = (col, txt) => '<span class="lg"><span class="sw" style="background:' + col + '"></span>' + txt + '</span>';
+    let lg = sw(stroke, 'Débit total') + sw(turbCol, 'Turbiné');
+    // Avec les variations : « Déversé » seulement s'il y en a, + ligne ▲ ouverture / ▼ fermeture (comme au bureau)
+    if (!varOnM || (c.devs || []).some(v => v > 0.5)) lg += sw(devCol, 'Déversé');
+    if (plageHas(c.nom)) lg += '<span class="lg"><span class="sw zone"></span>' + PLAGE_LABEL + '</span>';
+    if (varOnM) lg += '<span class="lg"><span style="color:#d9640a">▲</span> ouverture · <span style="color:#1d5e8c">▼</span> fermeture</span>';
+    document.getElementById('debitLegend').innerHTML = lg;
+  }
 
   // Ouverture sur les donnees recentes : au changement de centrale ou de vue, et
   // tant que l'utilisateur etait deja en bout de course (sinon on respecte sa position).
@@ -1623,11 +1550,185 @@ function drawBigChart() {
   bigScrollReset = false;
 }
 
+// --- Sommaire : une seule courbe (debit total) sur une fenetre de 10 jours, comme l'outil « Debits et niveaux d'eau »
+// d'Hydro-Quebec (LineChart Google Charts, 10 jours, dates MM/dd). On a plus d'historique qu'eux (30 jours charges) :
+// la fenetre visible reste de 10 jours et on defile vers l'arriere. A la demande de l'utilisateur, le STYLE est celui du
+// Detaille : meme echelle Y (de 0, max de la periode + 5 %), memes couleurs, meme rangee de legende, plage visee de la
+// saison. Seules les graduations de date different : un libelle tous les 2 jours (au lieu d'un par jour).
+// (L'outil HQ n'a aucun ratio par centrale : echelle automatique Google Charts. Voir la memoire outil-hq-debits-niveaux.)
+const SUM_VIS_DAYS = 10;
+const SUM = { line: '#555', text: '#666', grid: '#e3e6ef', tick: '#c3c8d6' };   // memes couleurs que le Detaille
+let sumReset = true, sumRaf = 0, sumGeo = null;
+const sumAnchor = { atEnd: true, t0: null };   // fenetre visible : collee a la fin, sinon debut (ms) de la fenetre
+const sumBox = document.getElementById('sumBox'), sumScroll = document.getElementById('sumScroll'),
+      sumSpacer = document.getElementById('sumSpacer'), sumCv = document.getElementById('sumCv');
+// 'AAAA-MM-JJ HH:mm' (heure locale Quebec) -> ms « naives » (aucune conversion de fuseau : l'axe est lineaire en heure locale)
+function tsMsLocal(s) {
+  s = String(s || '');
+  return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13) || 0, +s.slice(14, 16) || 0);
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+function drawSummary() {
+  if (!D || selectedIdx < 0) return;
+  const c = D.centrales[selectedIdx], arr = c.debits || [], n = D.timestamps.length;
+  const viewW = sumBox.clientWidth, boxH = sumBox.clientHeight;
+  if (!viewW || !boxH || !n) return;
+  const H = boxH - 12;                                  // 12 px du bas : barre de defilement
+  const cx = sumCv.getContext('2d');
+  // Marges : memes regles que le Detaille (marge gauche d'apres le libelle le plus large « 0000 m³/s » a 8 px)
+  cx.font = '8px "Segoe UI",Arial';
+  const padL = Math.ceil(cx.measureText('0000 m³/s').width) + 8, padR = 8, padT = 8, padB = 30;
+  const plotW = viewW - padL - padR, plotH = H - padT - padB;
+  // Temps de chaque point. Un horodatage repete (heure doublee au passage a l'heure normale) est ignore ;
+  // msF = temps « comble » (le point ignore reprend celui d'avant) pour les trace indexes par frame.
+  const ms = new Array(n), msF = new Array(n); let prev = -Infinity, first = null, last = null;
+  for (let i = 0; i < n; i++) {
+    const t = tsMsLocal(D.timestamps[i]);
+    if (t > prev) { ms[i] = t; prev = t; if (first == null) first = t; last = t; } else ms[i] = null;
+    msF[i] = ms[i] != null ? ms[i] : (i > 0 ? msF[i - 1] : t);
+  }
+  if (first == null || last <= first) return;
+  const winMs = Math.min(SUM_VIS_DAYS * 864e5, last - first), pxPerMs = plotW / winMs;
+  const maxScroll = Math.max(0, (last - first - winMs) * pxPerMs);
+  sumSpacer.style.width = (viewW + maxScroll) + 'px';
+  // La position est memorisee en TEMPS (et « collee a la fin » ou non), pas en pixels : si la largeur change apres un
+  // premier trace (barre de defilement de la page, rotation), l'echelle px/ms change et un scrollLeft en pixels deriverait.
+  if (sumReset) { sumAnchor.atEnd = true; sumReset = false; }   // ouverture sur les donnees les plus recentes
+  sumGeo = { viewW, first, pxPerMs, maxScroll };
+  if (sumAnchor.atEnd) sumScroll.scrollLeft = maxScroll;
+  else if (sumAnchor.t0 != null) sumScroll.scrollLeft = Math.max(0, Math.min(maxScroll, (sumAnchor.t0 - first) * pxPerMs));
+  const t0 = first + Math.min(sumScroll.scrollLeft, maxScroll) / pxPerMs, t1 = t0 + winMs;
+  // Echelle Y : MEME regle que le Detaille (de 0 a max des 3 series sur la periode chargee + 5 %, plancher 200),
+  // donc fixe pendant le defilement.
+  let yMaxRaw = 1;
+  ['debits', 'turbs', 'devs'].forEach(k => { for (const v of (c[k] || [])) if (v != null && v > yMaxRaw) yMaxRaw = v; });
+  const yMin = 0, yMax = Math.max(200, yMaxRaw + Math.max(50, yMaxRaw * 0.05));
+  const xOf = t => padL + (t - t0) * pxPerMs, yOf = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+  // Legende : meme rangee HTML que le Detaille, limitee a ce que le Sommaire trace (debit total + plage visee)
+  document.getElementById('debitLegend').innerHTML =
+    '<span class="lg"><span class="sw" style="background:#555"></span>Débit total</span>' +
+    (plageHas(c.nom) ? '<span class="lg"><span class="sw zone"></span>' + PLAGE_LABEL + '</span>' : '');
+  // Canvas
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  sumCv.style.width = viewW + 'px'; sumCv.style.height = H + 'px';
+  sumCv.width = Math.round(viewW * dpr); sumCv.height = Math.round(H * dpr);
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Grille horizontale + graduations Y (5 intervalles, libelles « NNN m³/s »), comme le Detaille
+  cx.font = '8px "Segoe UI",Arial'; cx.textAlign = 'right'; cx.textBaseline = 'middle';
+  for (let g = 0; g <= 5; g++) {
+    const y = padT + (g / 5) * plotH;
+    cx.strokeStyle = SUM.grid; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(padL + plotW, y); cx.stroke();
+    cx.fillStyle = SUM.text; cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', padL - 6, y);
+  }
+  // Plage visee de la saison (zone verte pale), derriere la courbe, comme le Detaille
+  drawPlageDebit(cx, c.nom, n, k => D.timestamps[k], k => xOf(msF[k]), yOf, padL, padL + plotW, padT, padT + plotH);
+  // Graduations X : minuit local tous les 2 jours, ancres sur le dernier jour des donnees, du plus recent vers le plus ancien
+  const lastD = new Date(last), lastMid = Date.UTC(lastD.getUTCFullYear(), lastD.getUTCMonth(), lastD.getUTCDate());
+  cx.textAlign = 'center'; cx.textBaseline = 'top'; cx.fillStyle = SUM.text;
+  for (let t = lastMid; t >= t0 - 864e5; t -= 2 * 864e5) {
+    if (t > t1) continue;
+    const x = xOf(t); if (x < padL - 2 || x > padL + plotW + 2) continue;
+    const d = new Date(t);
+    cx.strokeStyle = SUM.tick; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(x, padT + plotH); cx.lineTo(x, padT + plotH + 4); cx.stroke();
+    cx.fillText(String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + String(d.getUTCDate()).padStart(2, '0'), x, padT + plotH + 8);
+  }
+  // Courbe du debit total (meme gris et meme epaisseur que le Detaille), interrompue aux valeurs manquantes
+  cx.save(); cx.beginPath(); cx.rect(padL, padT, plotW, plotH); cx.clip();
+  cx.strokeStyle = SUM.line; cx.lineWidth = 2.4; cx.lineJoin = 'round'; cx.beginPath();
+  let pen = false;
+  for (let i = 0; i < n; i++) {
+    if (ms[i] == null) continue;
+    const v = arr[i];
+    if (v == null) { pen = false; continue; }
+    const x = xOf(ms[i]), y = yOf(v);
+    if (pen) cx.lineTo(x, y); else { cx.moveTo(x, y); pen = true; }
+  }
+  cx.stroke(); cx.restore();
+  // Points de debit sur la courbe, comme le Detaille : niveaux des variations retenues (MEME chaine et MEME filtre que le
+  // Detaille, 50 m3/s par defaut), poses a l'heure reelle, avec le debit ecrit. Etiquettes : le plus haut (au-dessus) et le plus
+  // bas (en dessous) niveau de chaque jour en priorite, les autres seulement s'il reste de la place.
+  if (Array.isArray(c.man)) {
+    const chain = varChain(c, +varMinSel.value, varMode);
+    const items = chain.map(it => ({ lv: it.lT + it.lD, x: xOf(msF[it.f]), day: String(D.timestamps[it.f] || '').slice(0, 10) }))
+      .filter(it => it.x >= padL - 1 && it.x <= padL + plotW + 1);
+    cx.save(); cx.beginPath(); cx.rect(padL, 0, plotW, H); cx.clip();
+    cx.font = 'bold 8px "Segoe UI",Arial'; cx.textAlign = 'center';
+    const put = (x, v, below) => {
+      const y = yOf(v), txt = String(Math.round(v));
+      cx.textBaseline = below ? 'top' : 'bottom';
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, x, below ? y + 6 : y - 6);
+      cx.fillStyle = '#222'; cx.fillText(txt, x, below ? y + 6 : y - 6);
+    };
+    for (const it of items) { cx.fillStyle = SUM.line; cx.beginPath(); cx.arc(it.x, yOf(it.lv), 3, 0, 6.3); cx.fill(); }
+    const ext = new Map();
+    for (const it of items) {
+      const e = ext.get(it.day);
+      if (!e) ext.set(it.day, { hi: it, lo: it });
+      else { if (it.lv > e.hi.lv) e.hi = it; if (it.lv < e.lo.lv) e.lo = it; }
+    }
+    const shown = new Set(), upXs = [];
+    for (const e of ext.values()) {
+      put(e.hi.x, e.hi.lv, false); shown.add(e.hi); upXs.push({ x: e.hi.x, w: cx.measureText(String(Math.round(e.hi.lv))).width });
+      if (e.lo !== e.hi) { put(e.lo.x, e.lo.lv, true); shown.add(e.lo); }
+    }
+    for (const it of items) {
+      if (shown.has(it)) continue;
+      const tw = cx.measureText(String(Math.round(it.lv))).width;
+      if (upXs.every(u => Math.abs(it.x - u.x) >= (u.w + tw) / 2 + 3)) { put(it.x, it.lv, false); upXs.push({ x: it.x, w: tw }); }
+    }
+    // Point final au debit REEL (dernier debit horaire connu), seulement s'il differe du dernier niveau ecrit
+    const lastLv = chain.length ? chain[chain.length - 1].lT + chain[chain.length - 1].lD : null;
+    const endX = xOf(last);
+    if (c.dFin != null && (lastLv == null || Math.round(c.dFin) !== Math.round(lastLv)) && endX <= padL + plotW + 1) {
+      const y = yOf(c.dFin), txt = String(Math.round(c.dFin)), tw = cx.measureText(txt).width;
+      const pv = items.length ? items[items.length - 1] : null, close = !!pv && (endX - pv.x) < tw + 4;
+      cx.fillStyle = SUM.line; cx.beginPath(); cx.arc(endX, y, 3, 0, 6.3); cx.fill();
+      cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
+      const lbX = Math.min(endX + 8, padL + plotW - 2);
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, lbX, close ? y + 6 : y - 6);
+      cx.fillStyle = '#222'; cx.fillText(txt, lbX, close ? y + 6 : y - 6);
+    }
+    cx.restore();
+  }
+}
+// Bascule Sommaire | Detaille (memorisee sur l'appareil ; le Sommaire est la vue par defaut)
+let viewMode = 'sommaire';
+try { const sv = localStorage.getItem('hq-mobile-vue'); if (sv === 'detail' || sv === 'sommaire') viewMode = sv; } catch (e) {}
+function applyViewMode() {
+  document.getElementById('chartWrap').classList.toggle('mode-sum', viewMode === 'sommaire');
+  document.querySelectorAll('#viewTog button').forEach(b => b.classList.toggle('on', b.dataset.v === viewMode));
+}
+function drawActive() { if (viewMode === 'sommaire') drawSummary(); else drawBigChart(); }
+document.querySelectorAll('#viewTog button').forEach(b => b.addEventListener('click', () => {
+  if (viewMode === b.dataset.v) return;
+  viewMode = b.dataset.v;
+  try { localStorage.setItem('hq-mobile-vue', viewMode); } catch (e) {}
+  applyViewMode();
+  if (viewMode === 'detail') bigScrollReset = true;
+  if (D) drawActive();
+}));
+sumScroll.addEventListener('scroll', () => {
+  // On ne relit la position que si la largeur n'a pas change depuis le dernier trace : sinon le navigateur a pu
+  // rogner scrollLeft de lui-meme et on memoriserait une fausse position (le redessin suit via ResizeObserver).
+  if (sumGeo && sumBox.clientWidth === sumGeo.viewW) {
+    const sl = sumScroll.scrollLeft;
+    sumAnchor.atEnd = sl >= sumGeo.maxScroll - 2;
+    sumAnchor.t0 = sumGeo.first + sl / sumGeo.pxPerMs;
+  }
+  if (sumRaf) return;
+  sumRaf = requestAnimationFrame(() => { sumRaf = 0; if (viewMode === 'sommaire' && D) drawSummary(); });
+}, { passive: true });
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (viewMode === 'sommaire' && D) drawSummary(); }).observe(sumBox);
+applyViewMode();
+
 // Redessine sur rotation / resize
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (D) drawBigChart(); }, 100);
+  resizeTimer = setTimeout(() => { if (D) drawActive(); }, 100);
 }, { passive: true });
 
 // Demarrage

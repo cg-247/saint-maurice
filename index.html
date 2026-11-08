@@ -478,9 +478,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.21.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.22.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 17:17</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:09</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -544,11 +544,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
     <span id="sliderTs">&#8212;</span>
     <input type="range" id="slider" min="0" value="0">
   </div>
-  <select id="periodeSel" title="Pas de temps">
-    <option value="horaire" selected>Heure</option>
-    <option value="journalier">Jour</option>
-    <option value="hebdomadaire">Semaine</option>
-    <option value="mensuel">Mois</option>
+  <select id="periodeSel" title="Saut du curseur (fl&egrave;ches, glissement, lecture) : les donn&eacute;es et les graphiques restent toujours au d&eacute;tail de l'heure">
+    <option value="horaire" selected>Saut : 1 heure</option>
+    <option value="journalier">Saut : 1 jour</option>
   </select>
   <select id="speed">
     <option value="800">Lent</option>
@@ -588,10 +586,10 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   }
 })();
 
-// ALL contient les vues actives + meta partages. Les donnees sont chargees a la
-// demande depuis data/sommaire.json (vues Jour/Semaine/Mois entieres) et data/{YYYY-MM}-horaire.json
-// (vue Heure, par mois). La structure ALL.byPeriode est compatible avec l'ancien
-// format pour minimiser les changements dans le code de rendu.
+// ALL contient la vue active + meta partages. Les donnees sont chargees a la demande
+// depuis data/{YYYY-MM}-horaire.json (vue Heure, par mois). Il n'y a plus de vues Jour / Semaine / Mois
+// (ni de sommaire.json) : tout est au detail de l'heure, le « saut » du curseur est gere dans le navigateur.
+// La structure ALL.byPeriode est conservee telle quelle pour minimiser les changements dans le code de rendu.
 //
 // loadedMonths : Set des cles 'YYYY-MM' deja fetchees (vue Heure).
 // horaireRaw   : objet { centrales, reservoirs, timestamps, riverSummaries } construit
@@ -828,44 +826,22 @@ function dateCourte(ts) {
 // Reserve aux axes : le titre de la modale et le bandeau d'horodatage gardent la
 // date complete, c'est la qu'on lit l'annee sans ambiguite.
 //
-// Gere les 4 formats produits par Format-BinForDisplay (cf. lib/Resample.ps1) :
-//   'AAAA-MM-JJ HH:mm'            (heure)   -> 'MM/JJ HH:mm'
-//   'AAAA-MM-JJ'                  (jour)    -> 'MM/JJ'
-//   'AAAA-MM-JJ → AAAA-MM-JJ'     (semaine) -> 'MM/JJ → MM/JJ'
-//   'AAAA-MM'                     (mois)    -> 'AAAA-MM' (inchange : sans jour,
-//                                              l'annee est la seule mise en contexte)
+// Format des horodatages (produits par Format-TimestampForDisplay, cf. lib/Resample.ps1) :
+//   'AAAA-MM-JJ HH:mm' (heure) -> 'MM/JJ HH:mm'
 function dateAxe(ts) {
   if (!ts) return '';
   const s = String(ts);
-  // Vue mois ('AAAA-MM' sans jour) : on garde l'annee.
-  if (/^\d{4}-\d{2}(?!-)/.test(s)) return s;
-  // Toutes les autres vues : on retire l'annee de chaque date presente (la vue
-  // semaine en contient deux, d'ou le remplacement global).
+  // On retire l'annee de la date presente.
   return s.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$2/$3');
 }
 
-// Separe un libelle d'axe en { main, sub } :
-//   main = 'MM/JJ' (ou 'MM/JJ HH:mm', 'MM/JJ → MM/JJ', 'AAAA-MM' selon la vue)
-//   sub  = '(HH:mm)' pour une journee partielle, sinon ''
-//
-// Le suffixe de journee partielle est sorti du libelle principal pour etre pose
-// sur une 2e ligne : en une seule ligne, il doublait la largeur du dernier tick
-// et chevauchait ses voisins.
-//
-// Le libelle source est "AAAA-MM-JJ — jusqu'a HH:mm" avec tiret CADRATIN,
-// apostrophe TYPOGRAPHIQUE et 'a' ACCENTUE. Le motif tolere les variantes
-// (droite/typographique, accentue/non) : une classe trop stricte ne matcherait
-// pas et le suffixe resterait sur la 1re ligne.
-//
-// '00:00' est rendu '24:00' : la borne appartient a la journee affichee, et
-// '00:00' sous une date qui est celle de la veille se lit mal.
+// Separe un libelle d'axe en { main, sub } : main = 'MM/JJ HH:mm', sub = '' (vide).
+// Autrefois, la vue Jour produisait "AAAA-MM-JJ — jusqu'a HH:mm" pour une journee partielle et le suffixe etait pose sur une 2e
+// ligne (sub) ; plus de journee partielle depuis que les vues Jour / Semaine / Mois sont retirees. La forme { main, sub } est
+// conservee pour les appelants (drawTickLabel).
 function dateAxeParts(ts) {
   if (!ts) return { main: '', sub: '' };
-  const s = String(ts);
-  const m = s.match(/^(.*?)\s*[—–-]\s*jusqu['’]\s*[aàÀA]\s*(\d{1,2}:\d{2})\s*$/i);
-  if (!m) return { main: dateAxe(s), sub: '' };
-  const hhmm = m[2] === '00:00' ? '24:00' : m[2];
-  return { main: dateAxe(m[1]), sub: '(' + hhmm + ')' };
+  return { main: dateAxe(String(ts)), sub: '' };
 }
 
 // Trace un libelle de tick sur une ou deux lignes : la date en taille normale,
@@ -988,9 +964,8 @@ function setPeriode(key) {
 // --- Chargement initial asynchrone ---
 // Fetch dans cet ordre :
 //   1. manifest.json (meta + liste des mois horaires)
-//   2. sommaire.json (vues Jour/Semaine/Mois entieres)
-//   3. {latestMonth}-horaire.json (mois courant pour la vue Heure)
-// Une fois les 3 charges, on reconstruit ALL.byPeriode et on appelle setPeriode().
+//   2. {latestMonth}-horaire.json (mois courant pour la vue Heure) ; les mois precedents suivent en arriere-plan
+// Une fois ces 2 charges, on reconstruit ALL.byPeriode et on appelle setPeriode().
 // opts.forceNetwork=true : cache:'reload' au lieu de 'no-cache'. C'est ce que le
 // service worker reconnait (isDataRequest + req.cache==='reload') pour bypasser le
 // stale-while-revalidate et ramener des donnees vraiment fraiches. Utilise par le
@@ -1152,7 +1127,7 @@ async function maybeLoadPreviousMonth() {
     const currentTs = wasInHoraire ? D.timestamps[frame] : null;
     const nBefore = wasInHoraire ? D.timestamps.length : 0;
     await ensureMonthLoaded(prevMonth);
-    if (wasInHoraire && periodeSel.value === 'horaire') {
+    if (wasInHoraire) {   // (periodeSel regle seulement le saut du curseur : la vue est toujours Heure)
       // Re-applique la vue : N change, frame doit pointer sur le meme ts qu'avant.
       setPeriode('horaire');
       // Le mois ajoute s'insere AVANT les frames existantes : la fenetre defilante de la sparkline
@@ -1174,6 +1149,26 @@ async function maybeLoadPreviousMonth() {
   }
 }
 
+// Prechargement en arriere-plan des mois horaires precedents, un a la fois : le saut « 1 jour » et « Debut » doivent pouvoir
+// parcourir toute la saison, alors que seul le mois courant est charge au depart (~1,1 Mo par mois). Reutilise
+// maybeLoadPreviousMonth (qui repositionne le curseur et les fenetres). Pause pendant la lecture animee ou un re-fetch.
+const PRELOAD_MONTHS = true;
+let preloadTimer = null;
+function preloadPreviousMonths() {
+  if (!PRELOAD_MONTHS || preloadTimer) return;
+  const step = async () => {
+    preloadTimer = null;
+    if (!manifest) return;
+    const loaded = Array.from(loadedMonths).sort();
+    if (!loaded.length) return;
+    if (manifest.months.findIndex(m => m.month === loaded[0]) <= 0) return;   // tout est deja charge
+    if (isFetching || autoRefreshing || playing) { preloadTimer = setTimeout(step, 2000); return; }
+    await maybeLoadPreviousMonth();
+    preloadTimer = setTimeout(step, 800);
+  };
+  preloadTimer = setTimeout(step, 1500);
+}
+
 async function init() {
   try {
     manifest = await fetchJson('data/manifest.json');
@@ -1182,26 +1177,16 @@ async function init() {
     ALL.legend = manifest.legend;
     ALL.defaultPeriode = manifest.defaultPeriode || 'horaire';
 
-    // Sommaire (vues agregees) en parallele avec le mois courant.
+    // Mois courant seulement au depart ; les mois precedents suivent en arriere-plan (preloadPreviousMonths, plus bas).
     const latest = manifest.latestMonth;
-    const [sommaire] = await Promise.all([
-      fetchJson('data/sommaire.json'),
-      latest ? ensureMonthLoaded(latest) : Promise.resolve()
-    ]);
-    if (sommaire.journalier)   ALL.byPeriode.journalier   = sommaire.journalier;
-    if (sommaire.hebdomadaire) ALL.byPeriode.hebdomadaire = sommaire.hebdomadaire;
-    if (sommaire.mensuel)      ALL.byPeriode.mensuel      = sommaire.mensuel;
+    if (latest) await ensureMonthLoaded(latest);
 
-    // Choisit la periode par defaut, en se rabattant sur une vue disponible.
-    let initialPeriode = ALL.defaultPeriode;
-    if (!ALL.byPeriode[initialPeriode]) {
-      initialPeriode = ['horaire','journalier','hebdomadaire','mensuel'].find(k => ALL.byPeriode[k]) || 'horaire';
-    }
-    periodeSel.value = initialPeriode;
-    setPeriode(initialPeriode);
+    // La vue est TOUJOURS la vue Heure (donnees et graphiques au detail de l'heure) ; le selecteur regle seulement le saut du curseur.
+    setPeriode('horaire');
     dataStamp = manifest.generatedAt || null;
     setGeneratedAt(dataStamp);
     lastFetchAt = performance.now();
+    preloadPreviousMonths();
   } catch (err) {
     console.error('Erreur de chargement initial', err);
     if (riverBox) riverBox.innerHTML = '<b>Erreur de chargement</b> ' + (err.message || err);
@@ -1213,7 +1198,7 @@ init();
 // Comme la version mobile : une PWA ne rafraichit jamais les donnees toute seule,
 // c'est du code applicatif. Au retour de l'onglet/app au premier plan, on re-fetch
 // SILENCIEUSEMENT le manifest (bypass SW via forceNetwork). Si generatedAt a change,
-// on recharge sommaire + mois courant et on re-rend la vue active. Sinon : rien.
+// on recharge le mois courant et on re-rend la vue. Sinon : rien.
 // Garde-fous : pas de re-entrance, pas pendant le lazy-load, au plus 1 fois / 30 s.
 //
 // opts.manual = true (clic sur "Actualiser") : leve le throttle de 30 s et
@@ -1239,25 +1224,19 @@ async function autoRefresh(opts) {
     lastFetchAt = performance.now();
     const freshStamp = fresh.generatedAt || null;
     if (freshStamp != null && freshStamp === dataStamp) return 'same'; // rien de neuf
-    // Donnees changees : recharge sommaire + mois courant en bypass cache.
+    // Donnees changees : recharge le mois courant en bypass cache.
     manifest = fresh;
     const latest = manifest.latestMonth;
     loadedMonths.clear();
     manifest.months.forEach(m => { delete m._data; });
     horaireRaw = null;
-    const [sommaire] = await Promise.all([
-      fetchJson('data/sommaire.json', { forceNetwork: true }),
-      latest ? ensureMonthLoaded(latest, { forceNetwork: true }) : Promise.resolve()
-    ]);
-    if (sommaire.journalier)   ALL.byPeriode.journalier   = sommaire.journalier;
-    if (sommaire.hebdomadaire) ALL.byPeriode.hebdomadaire = sommaire.hebdomadaire;
-    if (sommaire.mensuel)      ALL.byPeriode.mensuel      = sommaire.mensuel;
+    if (latest) await ensureMonthLoaded(latest, { forceNetwork: true });
     dataStamp = freshStamp;
     setGeneratedAt(dataStamp);
-    // Re-rend la vue active (ou un fallback dispo). setPeriode repositionne sur la
-    // derniere frame, ce qui est le comportement attendu d'un rafraichissement.
-    const curKey = (D && D.periode) || periodeSel.value || ALL.defaultPeriode || 'horaire';
-    setPeriode(ALL.byPeriode[curKey] ? curKey : (['horaire','journalier','hebdomadaire','mensuel'].find(k => ALL.byPeriode[k]) || 'horaire'));
+    // Re-rend la vue Heure (la seule). setPeriode repositionne sur la derniere frame,
+    // ce qui est le comportement attendu d'un rafraichissement.
+    setPeriode('horaire');
+    preloadPreviousMonths();   // le re-fetch n'a recharge que le mois courant : on reprend le prechargement des precedents
     return 'updated';
   } catch (e) {
     /* hors-ligne ou erreur reseau : on garde les donnees actuelles.
@@ -2360,8 +2339,7 @@ const SPARK_PX_DAY = 7;           // px image par JOUR sur la sparkline defilant
 // 'jour' = somme par jour (net) | 'manoeuvre' = ouvertures et fermetures separees
 let variationMode = 'manoeuvre';   // le mode « Total quotidien » est retire : toujours une barre par manoeuvre
 function stripOn() {
-  return !!D && (D.periode === 'horaire' || D.periode === 'journalier') &&
-         D.centrales.some(c => c.man && c.man.length);
+  return !!D && D.centrales.some(c => c.man && c.man.length);
 }
 function labelHBase() { return D.labelH - STRIP_H; }
 function labelHEff()  { return stripOn() ? D.labelH : labelHBase(); }
@@ -2397,27 +2375,9 @@ function manGroups(c) {
   const key = variationMode + '|' + D.periode + '|' + man.length + '|' + D.timestamps.length;
   if (c._mgKey === key) return c._mg;
   const items = [];
-  const jour = D.periode === 'journalier';
-  const dayOf = f => jour ? f : String(D.timestamps[f] || '').slice(0, 10);
+  const dayOf = f => String(D.timestamps[f] || '').slice(0, 10);
   if (variationMode === 'manoeuvre') {
-    if (jour) {
-      const by = new Map();
-      for (const m of man) {
-        let g = by.get(m[0]);
-        if (!g) { g = { f: m[0], o: [0, 0, 0, -1, null], c: [0, 0, 0, -1, null] }; by.set(m[0], g); }
-        const t = m[1] > 0 ? g.o : g.c;
-        t[0] += m[3]; t[1] += m[4]; t[2]++;
-        if (Math.abs(m[1]) > t[3]) { t[3] = Math.abs(m[1]); t[4] = m[2]; }   // heure de fin de la plus grande
-      }
-      for (const g of by.values()) {
-        const parts = [], hrs = [];
-        if (g.o[2]) { parts.push([g.o[0], g.o[1]]); hrs.push(g.o[4]); }
-        if (g.c[2]) { parts.push([g.c[0], g.c[1]]); hrs.push(g.c[4]); }
-        items.push({ f: g.f, parts: parts, hrs: hrs });
-      }
-    } else {
-      for (const m of man) items.push({ f: m[0], parts: [[m[3], m[4]]], hrs: [m[2]] });
-    }
+    for (const m of man) items.push({ f: m[0], parts: [[m[3], m[4]]], hrs: [m[2]] });
   } else {
     const by = new Map();
     for (const m of man) {
@@ -2450,8 +2410,7 @@ function drawVariationStrip(ctx, c, win, i, plotX, plotW, y0, h, sx, sy, fsAxis)
   ctx.beginPath(); ctx.moveTo(plotX, midY); ctx.lineTo(plotX + plotW, midY); ctx.stroke();
   if (!g.amp) return;
   const k = half / g.amp;
-  const jourSep = (variationMode === 'manoeuvre' && D.periode === 'journalier');
-  const bw = Math.max(1.2 * sx, Math.min(pxF * (jourSep ? 0.42 : 0.72), 6 * sx));
+  const bw = Math.max(1.2 * sx, Math.min(pxF * 0.72, 6 * sx));
   ctx.save();
   ctx.beginPath(); ctx.rect(plotX, y0, plotW, h); ctx.clip();
   for (const it of g.items) {
@@ -3118,7 +3077,7 @@ function draw(i) {
           const sh = c.stables ? c.stables[i] : null;
           const stTxt = (sh === null || sh === undefined) ? 'stable'
                       : (typeof sh === 'string' ? 'stable depuis ' + sh
-                                                : 'stable depuis ' + sh + (D.periode === 'horaire' ? 'h' : (D.periode === 'journalier' ? 'j' : 'sem')));
+                                                : 'stable depuis ' + sh + 'h');
           drawLeftSegments(ctx, [
             { text: stTxt, color: '#3a3a3a' }
           ], leftX, ly + lhT*0.7440, fontTrend);
@@ -3182,8 +3141,8 @@ function draw(i) {
       const plotY = ly + lhEff - sparkH - stripPx - sparkBottomMargin;
       const plotW = lwC - barW - 8 * sx - yLabelW;
       const plotH = sparkH - xLabelH;
-      // Heure et Jour : fenetre defilante partagee (cf. sparkWindow). Semaine et Mois : tout tient, pas de defilement.
-      const scrolled = (D.periode === 'horaire' || D.periode === 'journalier') && N > 2;
+      // Fenetre defilante partagee (cf. sparkWindow) ; pas de defilement s'il n'y a presque rien a defiler.
+      const scrolled = N > 2;
       const win = scrolled ? sparkWindow(i, N) : { start: 0, end: N - 1, Wv: Math.max(1, N - 1), pxF: 0 };
       const xOfK = k => plotX + ((k - win.start) / win.Wv) * plotW;
       // Min/max combine sur les 3 series (debit total, turbine, deverse) pour
@@ -3225,15 +3184,13 @@ function draw(i) {
         ctx.fillStyle = 'rgba(60,60,70,.75)';
         ctx.textBaseline = 'top';
         const xAxisY = plotY + plotH + stripPx + 2 * sy;
-        // Dates des deux bords de la FENETRE visible (toutes les donnees en Semaine/Mois).
+        // Dates des deux bords de la FENETRE visible.
         const tsFirst = D.timestamps[Math.max(0, Math.round(win.start))] || '';
         const tsLast  = D.timestamps[Math.min(N - 1, Math.round(win.end))] || '';
-        // Format compact : pour Heure '04-04 06:00' -> '04-04' ; pour Jour '2026-04-04' -> '04-04' ;
-        // pour Semaine '2026-04-04 -> ...' -> '04-04' ; pour Mois '2026-04' -> '04'.
+        // Format compact : '2026-04-04 06:00' -> '04-04'.
         const compactX = (s) => {
           if (!s) return '';
-          if (D.periode === 'mensuel') return s.split('-')[1] || s;
-          // Sinon prend la date 'AAAA-MM-JJ' et garde 'MM-JJ'.
+          // Prend la date 'AAAA-MM-JJ' et garde 'MM-JJ'.
           const datePart = s.split(' ')[0];
           const m = datePart.match(/^\d{4}-(\d{2})-(\d{2})/);
           return m ? (m[1] + '-' + m[2]) : datePart;
@@ -3690,7 +3647,6 @@ function draw(i) {
           const tsLast  = D.timestamps[D.timestamps.length - 1] || '';
           const compactX = (s) => {
             if (!s) return '';
-            if (D.periode === 'mensuel') return s.split('-')[1] || s;
             const datePart = s.split(' ')[0];
             const m = datePart.match(/^\d{4}-(\d{2})-(\d{2})/);
             return m ? (m[1] + '-' + m[2]) : datePart;
@@ -3873,6 +3829,7 @@ function go(i) {
   frame = Math.max(0, Math.min(N-1, i));
   slider.value = frame;
   const ts = D.timestamps[frame];
+  if (!_daySteppingNow && ts) anchorHM = String(ts).slice(11, 16);   // heure d'ancrage du saut « 1 jour » : celle ou l'on a place le curseur
   // Lazy load du mois precedent quand l'utilisateur s'approche du debut en vue Heure.
   // Seuil : dans les 10 % de gauche du slider, ou les 24 premieres frames.
   if (D.periode === 'horaire' && manifest && !isFetching) {
@@ -3919,11 +3876,36 @@ function go(i) {
   }
 }
 
-// Bascule de periode (setPeriode reconstruit la vue et repositionne le slider)
+// --- Saut du curseur : 1 heure | 1 jour ---
+// Les DONNEES et les GRAPHIQUES restent toujours au detail de l'heure (D est toujours la vue Heure) : le selecteur ne regle que
+// le saut des fleches, du glissement et de la lecture animee. En mode « 1 jour », le curseur retombe sur la MEME heure du jour
+// voisin (heure d'ancrage = celle ou le curseur a ete place ; un jour de 23 ou 25 h n'y change rien : on cherche par horodatage).
+let stepMode = 'horaire';        // 'horaire' | 'journalier' (valeur du selecteur)
+let anchorHM = null;             // 'HH:mm'
+let _daySteppingNow = false;     // vrai pendant un saut d'un jour : go() ne deplace alors pas l'heure d'ancrage
+// 1re frame du jour `day` ('AAAA-MM-JJ') a l'heure `hm` ou apres (recherche dichotomique : horodatages tries). Si l'heure
+// manque ou si le jour est partiel (dernier jour), on retombe sur la derniere frame de ce jour ; hors donnees : bornes.
+function frameAtDayHM(day, hm) {
+  const ts = D.timestamps, target = day + ' ' + hm;
+  let lo = 0, hi = ts.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (String(ts[mid]) < target) lo = mid + 1; else hi = mid; }
+  if (lo >= ts.length || String(ts[lo]).slice(0, 10) !== day) lo = Math.max(0, lo - 1);
+  return Math.min(ts.length - 1, lo);
+}
+function dayShiftFrame(from, dir) {
+  const ts = String(D.timestamps[from] || '');
+  const d = new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(5, 7) - 1, +ts.slice(8, 10) + dir));
+  return frameAtDayHM(d.toISOString().slice(0, 10), anchorHM || ts.slice(11, 16));
+}
+function goDayAnchored(f) { _daySteppingNow = true; try { go(f); } finally { _daySteppingNow = false; } }
+function stepCursor(dir) {       // dir = +1 (suivant) ou -1 (precedent), selon le saut choisi
+  if (stepMode === 'journalier') goDayAnchored(dayShiftFrame(frame, dir));
+  else go(frame + dir);
+}
 periodeSel.addEventListener('change', () => {
   stop();
-  sparkReset();            // nouvelle echelle de temps : la fenetre de la sparkline suit de nouveau le curseur
-  setPeriode(periodeSel.value);
+  stepMode = periodeSel.value === 'journalier' ? 'journalier' : 'horaire';
+  if (D && D.timestamps[frame]) anchorHM = String(D.timestamps[frame]).slice(11, 16);
 });
 // Variations (ouvertures / fermetures) sous la sparkline des centrales : choix memorise.
 const variationSel = document.getElementById('variationSel');
@@ -3936,7 +3918,7 @@ variationSel.addEventListener('change', () => {
 
 function startPlay() {
   playing=true; btnPlay.textContent='⏸ Pause';
-  timer = setInterval(()=>{ if(frame>=N-1){stop();return;} go(frame+1); }, +speedSel.value);
+  timer = setInterval(()=>{ if(frame>=N-1){stop();return;} const before = frame; stepCursor(1); if (frame === before) stop(); }, +speedSel.value);
 }
 function stop() {
   playing=false; btnPlay.textContent='▶ Play';
@@ -3944,11 +3926,17 @@ function stop() {
 }
 
 btnPlay.addEventListener('click',()=>{ if(playing){stop();}else{if(frame>=N-1)go(0); startPlay();} });
-btnPrev.addEventListener('click',()=>{ stop(); go(frame-1); });
-btnNext.addEventListener('click',()=>{ stop(); go(frame+1); });
+btnPrev.addEventListener('click',()=>{ stop(); stepCursor(-1); });
+btnNext.addEventListener('click',()=>{ stop(); stepCursor(1); });
 btnStart.addEventListener('click',()=>{ stop(); go(0); });
 btnEnd.addEventListener('click',()=>{ stop(); go(N-1); });
-slider.addEventListener('input',()=>{ stop(); go(+slider.value); });
+// Glissement : en mode « 1 jour », le curseur se cale sur l'heure d'ancrage du jour sous le pointeur
+slider.addEventListener('input',()=>{
+  stop();
+  const i = +slider.value;
+  if (stepMode === 'journalier' && D && D.timestamps[i]) goDayAnchored(frameAtDayHM(String(D.timestamps[i]).slice(0, 10), anchorHM || String(D.timestamps[i]).slice(11, 16)));
+  else go(i);
+});
 speedSel.addEventListener('change',()=>{ if(playing){stop();startPlay();} });
 
 // --- Calque des zones meteo : bascule (etat non persiste) ---
@@ -4352,7 +4340,7 @@ function sparkScrollTo(end) {
   draw(frame);
 }
 function sparkTarget(ev) {
-  if (!D || !(D.periode === 'horaire' || D.periode === 'journalier')) return -1;
+  if (!D) return -1;
   const p = imgCoordsFromEv(ev);
   const k = hitTestSparkline(p.x, p.y);
   return (k !== -1 && isExpanded(D.centrales[k])) ? k : -1;
@@ -4879,7 +4867,7 @@ function yRef30(c0, last) {
 function drawBigChart() {
   if (modalIdx < 0) return;
   const c0 = D.centrales[modalIdx];
-  const scrollable = (D.periode === 'horaire' || D.periode === 'journalier') && N > 2;
+  const scrollable = N > 2;
   if (!scrollable) { modalWin = { scrollable: false, start: 0, n: N }; modalWinC = null; drawBigChartCore(); return; }
   const keep = modalKeep(c0), Nk = keep.length;
   const innerWv = Math.max(200, modalCv.clientWidth - 60 - 78);
@@ -4984,22 +4972,15 @@ window.addEventListener('mouseup', () => {
 // (cote a cote dans le jour). ⚠ Manoeuvres inferees du debit, pas une position de vanne mesuree.
 function drawModalVariations(cx, c, g) {
   const { pad, innerW, varTop, varH, xOf, xCur, xFut, pxF, yOfDebit, colDebit, debitTop, debitBot, chain, prevLvl } = g;
-  const jourView = D.periode === 'journalier';
-  const pxDay = jourView ? pxF : pxF * 24;
+  const pxDay = pxF * 24;
   const COLO = '#d9640a', COLF = '#1d5e8c';
   const items = [];                                    // { x, d, bw, delta, hr, lT, lD }
   if ((g.mode || variationMode) === 'jour') {
     for (const it of chain) items.push({ x: xOf(it.f), d: it.f, bw: Math.min(18, pxDay * 0.5) * 0.6, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });
   } else {
-    const by = new Map();
-    for (const it of chain) { const d = modalDayKey(it.f); if (!by.has(d)) by.set(d, []); by.get(d).push(it); }
-    for (const list of by.values()) {
-      const n = list.length, sub = Math.min(60, pxDay / n);
-      const x0 = xOf(list[0].f);
-      list.forEach((it, j) => {
-        const xx = jourView ? x0 + (j - (n - 1) / 2) * sub : xOf(it.f);
-        items.push({ x: xx, d: it.f, bw: (jourView ? Math.max(1.5, Math.min(18, sub * 0.6)) : Math.max(1.5, pxF * 0.8)) * 0.6, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });
-      });
+    // Une barre par manoeuvre, a l'HEURE REELLE de la manoeuvre (xOf(frame)).
+    for (const it of chain) {
+      items.push({ x: xOf(it.f), d: it.f, bw: Math.max(1.5, pxF * 0.8) * 0.6, delta: it.delta, hr: it.hr, lT: it.lT, lD: it.lD });
     }
   }  items.sort((a, b) => a.x - b.x);
   modalHits = { top: varTop - 4, bot: varTop + varH + 4, list: items.map(it => ({ x: it.x, w: Math.max(it.bw / 2, 7), day: String(D.timestamps[it.d] || '').slice(0, 10), hr: it.hr, lT: it.lT, lD: it.lD, delta: it.delta })) };
@@ -5009,7 +4990,9 @@ function drawModalVariations(cx, c, g) {
   const Y = v => varTop + varH * (1 - v / yMaxL);
   const lastLvl = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : prevLvl;
   const endOn = g.endV != null && (lastLvl == null || Math.round(g.endV) !== Math.round(lastLvl));
-  const endX = pad.l + innerW - 6;
+  // La courbe du total est faite des VRAIES mesures horaires (g.debits, alignees sur xOf) ; elle finit a la derniere mesure.
+  const hourly = Array.isArray(g.debits) && g.debits.length > 1;
+  const endX = hourly ? xOf(g.debits.length - 1) : pad.l + innerW - 6;
   if (xFut < pad.l + innerW) { cx.fillStyle = 'rgba(150,150,160,.18)'; cx.fillRect(xFut, varTop, pad.l + innerW - xFut, varH); }
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
   // Pas d'echelle a gauche : le debit total apres chaque variation est ecrit sur la courbe du panneau des debits
@@ -5022,19 +5005,17 @@ function drawModalVariations(cx, c, g) {
   // Debit total apres chaque variation, sur le panneau des debits (meme x que la barre)
   cx.restore(); cx.save(); cx.beginPath(); cx.rect(pad.l, debitTop - 14, innerW, debitBot - debitTop + 14); cx.clip();   // sort du clip du panneau variations
   {
-    // Courbe par les niveaux affiches. Le niveau PERSISTE entre deux variations : on la prolonge a plat jusqu'aux bords de la
-    // fenetre (depuis le niveau avant la fenetre, jusqu'a la fin), donc elle reste visible meme avec un filtre tres eleve
-    // (0 ou 1 variation dans la fenetre).
-    const pts = items.map(it => [it.x, yOfDebit(it.lT + it.lD)]);
-    if (prevLvl != null) pts.unshift([pad.l, yOfDebit(prevLvl)]);
-    else if (g.startV != null) pts.unshift([pad.l, yOfDebit(g.startV)]);   // aucun niveau avant la fenetre : debut au debit reel de la 1re heure
-    // Fin de courbe au debit REEL (g.endV : dernier debit horaire connu) : les niveaux affiches sont ceux d'apres chaque
-    // variation retenue par le filtre, donc le dernier peut etre perime de quelques m3/s sous le seuil.
-    if (endOn) pts.push([endX, yOfDebit(g.endV)]);
-    else if (pts.length) pts.push([pad.l + innerW, pts[pts.length - 1][1]]);
-    if (pts.length > 1) {
-      cx.beginPath(); cx.strokeStyle = colDebit; cx.lineWidth = 3.1; cx.lineJoin = 'round';
-      pts.forEach((p, i) => { if (i) cx.lineTo(p[0], p[1]); else cx.moveTo(p[0], p[1]); });
+    if (hourly) {
+      // Vraies mesures horaires. Avant, des segments droits reliaient les niveaux retenus : entre deux variations la courbe
+      // montait ou descendait en diagonale alors que le debit restait plat (ex. Trenche, 30 oct. -> 3 nov. : ~190 m3/s sans
+      // manoeuvre, mais une diagonale vers 388). Les points et valeurs ecrits ci-dessous restent les niveaux des variations.
+      cx.beginPath(); cx.strokeStyle = colDebit; cx.lineWidth = 2.6; cx.lineJoin = 'round';
+      let pen = false;
+      for (let i = 0; i < g.debits.length; i++) {
+        const v = g.debits[i]; if (v == null) { pen = false; continue; }
+        const px = xOf(i), py = yOfDebit(v);
+        if (pen) cx.lineTo(px, py); else { cx.moveTo(px, py); pen = true; }
+      }
       cx.stroke();
     }
   }
@@ -5049,9 +5030,10 @@ function drawModalVariations(cx, c, g) {
     const yy = yOfDebit(g.endV), txt = String(Math.round(g.endV)), tw = cx.measureText(txt).width;
     const pv = items.length ? items[items.length - 1] : null, close = pv && (endX - pv.x) < tw + 4;
     cx.fillStyle = colDebit; cx.beginPath(); cx.arc(endX, yy, 3, 0, 6.3); cx.fill();
+    const lbX = hourly ? Math.min(endX + 8, pad.l + innerW - 2) : pad.l + innerW - 2;   // vue Heure : etiquette collee au point final
     cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
-    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
-    cx.fillStyle = '#222'; cx.fillText(txt, pad.l + innerW - 2, close ? yy + 6 : yy - 6);
+    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, lbX, close ? yy + 6 : yy - 6);
+    cx.fillStyle = '#222'; cx.fillText(txt, lbX, close ? yy + 6 : yy - 6);
     cx.textAlign = 'center';
   }
   cx.restore(); cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 24, innerW, varH + 24 + 34); cx.clip();   // retour au clip du panneau variations
@@ -5061,7 +5043,7 @@ function drawModalVariations(cx, c, g) {
     const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
     cx.font = 'bold 10px "Segoe UI",Arial';
     const tw = cx.measureText(txt).width;
-    if (jourView || it.x - lastX >= tw + 3) {
+    if (it.x - lastX >= tw + 3) {
       cx.textAlign = 'center'; cx.textBaseline = 'bottom'; cx.fillStyle = col;
       cx.strokeStyle = '#fff'; cx.lineWidth = 3;
       cx.strokeText(txt, it.x, y); cx.fillText(txt, it.x, y);
@@ -5132,14 +5114,14 @@ function drawBigChartCore() {
   const totalH = h - pad.t - pad.b;
   // Panneau des VARIATIONS (ouvertures / fermetures) entre les debits et la pluie : meme axe X.
   // Vues Heure et Jour seulement, et si le sélecteur n'est pas sur « masquees ».
-  const varOn = (D.periode === 'horaire' || D.periode === 'journalier') && !!(c.man || c.items);
+  const varOn = !!(c.man || c.items);
   const varH = varOn ? 110 : 0, varGap = varOn ? (modalWin.scrollable ? 24 : 18) : 0;    // espace du titre « Variations (m³/s) » (meme taille que le titre « Débits »)
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
-  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl, startV: c.debits ? c.debits[0] : null, endV: c.dFinEnd, titleSize: modalWin.scrollable ? 15.6 : 12 });
+  const modalVarPanel = () => drawModalVariations(cx, c, { pad, innerW, varTop, varH, xOf, xCur: xOf(frame), xFut: Math.max(pad.l, xOf(frame + 1)), pxF: innerW / xSpan, yOfDebit: yOf, colDebit: stroke, debitTop: pad.t, debitBot: pad.t + innerH, chain: c.items || [], prevLvl: c.prevLvl, endV: c.dFinEnd, debits: c.debits, titleSize: modalWin.scrollable ? 15.6 : 12 });
   const rainTop = (varOn ? varTop + varH : pad.t + innerH) + rainGap;
   const rainInnerH = Math.max(0, totalH - innerH - varGap - varH - rainGap);
-  const xOff = (modalWin.scrollable && D.periode === 'journalier') ? 0.5 : 0;   // Jour : le point est au CENTRE de la colonne du jour
+  const xOff = 0;
   const xOf = i => pad.l + ((i + xOff) / xSpan) * innerW;
   const yMin = 0;                                      // l'axe debute a 0 m3/s : a 100, des points etaient caches par la zone Variations
   const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
@@ -5287,7 +5269,7 @@ function drawBigChartCore() {
   // hydrologie (la pluie tombe du ciel). Axe X partage avec le panneau des debits,
   // donc une averse se lit directement au-dessus de la reaction du debit qu'elle
   // provoque 24-48 h plus tard (cf. point 29 de BESOIN.md).
-  drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan, xOff, barW: modalWin.scrollable ? 0.6 * (D.periode === 'journalier' ? Math.min(18, (innerW / xSpan) * 0.5) : Math.max(1.5, (innerW / xSpan) * 0.8)) : 0 },
+  drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan, xOff, barW: modalWin.scrollable ? 0.6 * Math.max(1.5, (innerW / xSpan) * 0.8) : 0 },
                 hasApport ? { vals: c.apports, max: c.maxApport } : null);
 
   // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
@@ -6490,20 +6472,20 @@ function drawAll() {
     const ts = String(D.timestamps[frame] || ''), dd = new Date(ts.slice(0, 10) + 'T12:00:00Z');
     allDateEl.textContent = isNaN(dd.getTime()) ? '' : dd.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) + (D.periode === 'horaire' && ts.length >= 13 ? ' · ' + ts.slice(11, 13) + ' h' : '');
   }
-  if (!(D.periode === 'horaire' || D.periode === 'journalier') || N < 2) {
+  if (N < 2) {
     cx.fillStyle = '#666'; cx.font = '15px "Segoe UI",Arial'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
-    cx.fillText('Les variations sont disponibles dans les vues Heure et Jour.', w / 2, h / 2);
+    cx.fillText('Pas assez de données pour afficher les variations.', w / 2, h / 2);
     allWin = { n: 0, N: 0, keep: [], start: 0 }; allHits = []; return;
   }
   const cs = allInstalls(), chains = cs.map(allChain), keep = allKeep(), Nk = keep.length;   // installations nord -> sud (reservoirs intercales si affiches)
-  const innerW = w - ALL_PADL - ALL_PADR, jourView = D.periode === 'journalier';
+  const innerW = w - ALL_PADL - ALL_PADR;
   const pxF = allPxF(), Wn = Math.max(1, Math.min(Nk, Math.round(innerW / pxF)));
   if (allStart === null) allStart = Nk - Wn;         // ouverture : les derniers jours
   allStart = Math.max(0, Math.min(Nk - Wn, Math.round(allStart)));
   const s = allStart, win = keep.slice(s, s + Wn), pos = new Map(); win.forEach((i, k) => pos.set(i, k));
   allWin = { n: Wn, N: Nk, keep: keep, start: s };
-  const xOff = jourView ? 0.5 : 0, xOf = k => ALL_PADL + ((k + xOff) / Wn) * innerW;
-  const pxDayW = (jourView ? 1 : 24) * innerW / Wn;
+  const xOf = k => ALL_PADL + (k / Wn) * innerW;
+  const pxDayW = 24 * innerW / Wn;
   const fw = pos.has(frame) ? pos.get(frame) : (frame < win[0] ? -10 * Wn : 10 * Wn);
   const xCur = xOf(fw), xFut = Math.max(ALL_PADL, xOf(fw + 1));
   allCurX = pos.has(frame) ? xCur : null;             // position de la barre rouge (pour la saisir a la souris)
@@ -6581,7 +6563,7 @@ function drawAll() {
       D.timestamps = win.map(i => ts0[i]); N = Wn; frame = fw;
       if (!c._res) drawPlageDebit(cx, c.nom, Wn, k => D.timestamps[k], xOf, yOf, ALL_PADL, ALL_PADL + innerW, debTop, debBot);   // plage de la saison (centrales seulement)
       drawModalVariations(cx, c, { pad: { l: ALL_PADL }, innerW, varTop, varH: ALL_VARH, xOf, xCur, xFut, pxF: innerW / Wn, yOfDebit: yOf, colDebit: stroke,
-        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, startV: c.debits ? c.debits[win[0]] : null, endV: (s + Wn >= Nk) ? c.dFin : null, titleSize: 12, titleMuted: true });
+        debitTop: debTop, debitBot: debBot, chain: chW, prevLvl, mode, endV: (s + Wn >= Nk) ? c.dFin : null, debits: c.debits ? win.map(i => c.debits[i]) : null, titleSize: 12, titleMuted: true });
       for (const h of modalHits.list) hits.push(Object.assign({}, h, { nom: c.nom, res: !!c._res, y0: modalHits.top, y1: modalHits.bot }));
     } finally { D.timestamps = ts0; N = N0; frame = f0; modalHits = mh0; }
     cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(0, top + ALL_PH - 1); cx.lineTo(w, top + ALL_PH - 1); cx.stroke();

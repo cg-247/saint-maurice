@@ -23,7 +23,7 @@
 // partir de data/pwa/version.json. La valeur ci-dessous est juste un placeholder
 // pour developpement local et lecture du source - ne pas modifier directement,
 // modifier version.json et lancer render-animation.ps1.
-const CACHE_VERSION = 'hq-sm-v2.21.2';
+const CACHE_VERSION = 'hq-sm-v2.22.0';
 const SHELL_CACHE = CACHE_VERSION + '-shell';
 const DATA_CACHE  = CACHE_VERSION + '-data';
 
@@ -70,7 +70,7 @@ self.addEventListener('activate', (event) => {
 });
 
 function isDataRequest(url) {
-  // data/sommaire.json, data/manifest.json, data/AAAA-MM-horaire.json
+  // data/manifest.json, data/AAAA-MM-horaire.json
   return /\/data\/[^/]+\.json(\?.*)?$/.test(url.pathname);
 }
 
