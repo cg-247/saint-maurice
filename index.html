@@ -194,6 +194,13 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
 #modal-all-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 #modal-all-legend .sw{display:inline-block;width:22px;height:7px}
 #modal-all-legend .sw.zone{height:9px;background:rgba(46,160,67,.13);border:1px solid rgba(46,160,67,.45);box-sizing:border-box}
+/* Legende de la modale d'un ouvrage / station : meme rangee que ci-dessus, posee au-dessus du canvas (plus de cadre dans le graphique) */
+#modal-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;font-size:12px;color:#333;margin:0 0 6px;flex:0 0 auto}
+#modal-legend:empty{display:none}
+#modal-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#modal-legend .sw{display:inline-block;width:22px;height:7px}
+#modal-legend .sw.ln{height:3px}
+#modal-legend .sw.zone{height:9px;background:rgba(46,160,67,.13);border:1px solid rgba(46,160,67,.45);box-sizing:border-box}
 #modal-all-canvas{flex:1 1 0;min-height:120px;display:block;width:100%;cursor:crosshair}
 #modal-all-note{font-size:11px;font-style:italic;color:#6a7280;margin-top:6px;line-height:1.3;flex:0 0 auto;padding-left:60px}
 #modal-all-note b{font-weight:700;font-style:italic}
@@ -478,9 +485,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.22.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.23.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-08 09:30</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-08 09:59</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -513,6 +520,7 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
       </label>
     </div>
     <div id="modal-table"></div>
+    <div id="modal-legend"></div>
     <canvas id="modal-canvas"></canvas>
     <div id="modal-note"></div>
   </div>
@@ -680,11 +688,6 @@ function drawPlageDebit(cx, nom, n, tsOf, xOf, yOf, x0, x1, yTop, yBot) {
   for (let i = pts.length - 1; i >= 0; i--) cx.lineTo(pts[i][0], pts[i][2]);
   cx.closePath(); cx.fill();
   cx.restore();
-}
-// Pastille de legende de la zone (meme vert, un peu plus soutenu pour rester visible sur le petit rectangle)
-function drawPlageSwatch(cx, x, y, w, h) {
-  cx.fillStyle = 'rgba(46,160,67,.30)'; cx.fillRect(x, y, w, h);
-  cx.strokeStyle = 'rgba(46,160,67,.55)'; cx.lineWidth = 1; cx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 const iconImgs = {};
 let iconsLoaded = 0;
@@ -1135,7 +1138,7 @@ async function maybeLoadPreviousMonth() {
       const shift = D.timestamps.length - nBefore;
       if (sparkEnd !== null) sparkEnd += shift;
       if (sparkLastI >= 0) sparkLastI += shift;
-      if (modalStart !== null && modalIdx >= 0 && modalWin.N) modalStart += modalKeep(D.centrales[modalIdx]).length - modalWin.N;
+      if (modalStart !== null && modalIdx >= 0 && modalWin.N) modalStart += modalKeep(modalC()).length - modalWin.N;
       if (allStart !== null && allOpen && allWin.N) allStart += allKeep().length - allWin.N;
       if (currentTs) {
         const newIdx = D.timestamps.indexOf(currentTs);
@@ -1357,7 +1360,10 @@ const SERIES = {
   // precede la consequence, elle est volontairement moins appuyee.
   pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
   // Donnee absente / serie neutre.
-  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
+  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' },
+  // Remplissage d'un reservoir (% de la plage d'exploitation) : sarcelle, distincte du bleu du deverse et du vert du turbine.
+  // Pas encore utilise au bureau ; present ici pour que la palette reste identique dans les deux gabarits.
+  remplissage: { line: 'rgba(13,148,136,.92)', solid: '#0f766e', label: 'Remplissage' }
 };
 
 // Notes explicatives affichees sous le panneau de pluie des modales (centrale et
@@ -3856,9 +3862,6 @@ function go(i) {
   if (typeof modalIdx !== 'undefined' && modalIdx >= 0 && typeof drawBigChart === 'function') {
     drawBigChart();
   }
-  if (typeof modalResIdx !== 'undefined' && modalResIdx >= 0 && typeof drawBigChartRes === 'function') {
-    drawBigChartRes();
-  }
   if (typeof modalNivResIdx !== 'undefined' && modalNivResIdx >= 0 && typeof drawBigChartNivRes === 'function') {
     // Le graphe ET l'en-tete suivent le curseur : le bilan (apport - deversement) change
     // a chaque frame, pas seulement le trace.
@@ -4455,51 +4458,45 @@ function computeStats(arr) {
   for (const v of arr) { if (v == null) continue; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; n++; }
   return { min: n ? mn : null, max: n ? mx : null, avg: n ? sum / n : null, n };
 }
-// Choisit, parmi les 4 coins d'une zone de trace, celui ou un bloc (boxW x boxH)
-// masque le MOINS de donnees. Les series a eviter sont passees en `series` (tableau
-// de tableaux de valeurs) avec leur convertisseur Y.
-//
-// Une legende posee dans un coin fixe finit toujours par tomber sur la courbe : selon
-// la centrale et la periode affichee, les donnees occupent le haut (crue), le bas
-// (etiage) ou la droite (pic recent). D'ou le choix a chaque rendu.
-//
-// `avoidX` (optionnel) : abscisse a fuir a score egal — typiquement le curseur, pour
-// ne pas masquer la valeur que l'utilisateur est en train de lire.
-function pickCorner(zone, boxW, boxH, series, yOf, xOf, avoidX) {
-  const { x0, y0, w, h } = zone;
-  // 6 positions candidates : les 4 coins + les 2 CENTRES (haut et bas). Sur un
-  // hydrogramme, le centre haut est souvent la zone la plus degagee (les courbes
-  // culminent a la crue puis redescendent, laissant un creux au milieu) et les coins
-  // forcaient la legende contre une courbe alors qu'il y avait de la place au centre.
-  const cx0 = x0 + (w - boxW) / 2;
-  const cands = [
-    { x: x0 + 4,             y: y0 + 4 },
-    { x: cx0,                y: y0 + 4 },
-    { x: x0 + w - boxW - 4,  y: y0 + 4 },
-    { x: x0 + 4,             y: y0 + h - boxH - 4 },
-    { x: cx0,                y: y0 + h - boxH - 4 },
-    { x: x0 + w - boxW - 4,  y: y0 + h - boxH - 4 }
-  ];
-  const margin = 8;
-  for (const co of cands) {
-    let score = 0;
-    const bx0 = co.x - margin, bx1 = co.x + boxW + margin;
-    const by0 = co.y - margin, by1 = co.y + boxH + margin;
-    for (const serie of series) {
-      if (!serie) continue;
-      for (let i = 0; i < serie.length; i++) {
-        const v = serie[i];
-        if (v == null) continue;
-        const px = xOf(i), py = yOf(v);
-        if (px >= bx0 && px <= bx1 && py >= by0 && py <= by1) score++;
-      }
-    }
-    co.score = score;
-    co.distX = (avoidX == null) ? 0 : Math.abs((co.x + boxW / 2) - avoidX);
+// ----- Legende des graphiques de la modale : UNE rangee HTML au-dessus du canvas, pas de cadre dessine dans le graphique -----
+// (meme format que #modal-all-legend, la legende de « toutes les centrales »). Avant, chaque panneau posait un cadre blanc dans un
+// coin choisi pour masquer le moins de donnees (pickCorner), ce qui masquait quand meme des points. La rangee est posee AVANT la
+// mesure du canvas (les fonctions de trace l'appellent en premier) : sa hauteur ne change donc pas la taille du graphique en cours.
+// Entrees : { col, txt } (rectangle plein), { col, txt, line:true } ou kind:'line' (trait), kind:'dash' (trait tirete),
+// { zone:true, txt } (zone verte de la plage visee), { tri:true } (▲ ouverture / ▼ fermeture), { note } (texte en italique).
+const modalLegEl = document.getElementById('modal-legend');
+let modalLegStr = '';
+function lgHtml(items) {
+  return (items || []).map(it => {
+    if (it.tri)  return '<span class="lg"><span style="color:#d9640a">▲</span> ouverture · <span style="color:#1d5e8c">▼</span> fermeture</span>';
+    if (it.note) return '<span class="lg" style="font-style:italic;color:#666">' + it.note + '</span>';
+    if (it.zone) return '<span class="lg"><span class="sw zone"></span>' + it.txt + '</span>';
+    if (it.line || it.kind === 'line') return '<span class="lg"><span class="sw ln" style="background:' + it.col + '"></span>' + it.txt + '</span>';
+    if (it.kind === 'dash') return '<span class="lg"><span class="sw ln" style="background:repeating-linear-gradient(90deg,' + it.col + ' 0 6px,transparent 6px 10px)"></span>' + it.txt + '</span>';
+    return '<span class="lg"><span class="sw" style="background:' + it.col + '"></span>' + it.txt + '</span>';
+  }).join('');
+}
+function setModalLegend(items) {
+  const s = lgHtml(items);
+  if (s !== modalLegStr) { modalLegStr = s; modalLegEl.innerHTML = s; }
+}
+// Entrees de legende du panneau PLUIE (et apport) : une par FORME (barres = pluie du pas de temps, courbe = cumul 24 h, bandes =
+// apport). Le panneau porte DEUX echelles (mm a gauche, m3/s a droite) : chaque entree est suffixee du cote de son axe, mais
+// seulement quand les deux coexistent. `bands` : bandes pleines (vue defilante), donc pas de courbe de cumul.
+function rainLegendItems(pl, ap, bands) {
+  if (!pl) return [];
+  const twoAxes = !!(ap && ap.max > 0);
+  const sfxL = twoAxes ? ' (éch. gauche)' : '';
+  const sfxR = twoAxes ? ' (éch. droite)' : '';
+  const out = [];
+  if (pl.hVals) {
+    out.push({ col: SERIES.pluie.line, txt: 'Pluie tombée' + sfxL });
+    if (!bands) out.push({ col: SERIES.pluie.solid, txt: 'Cumul 24 h' + sfxL, line: true });
+  } else {
+    out.push({ col: SERIES.pluie.line, txt: 'Pluie 24 h' + sfxL });
   }
-  // Score croissant (moins de chevauchement), puis le plus loin de avoidX.
-  cands.sort((a, b) => (a.score - b.score) || (b.distX - a.distX));
-  return cands[0];
+  if (twoAxes) out.push({ col: SERIES.apport.line, txt: 'Apport naturel' + sfxR });
+  return out;
 }
 
 // Dessine le panneau PLUIE (1/3 du bas) d'une modale : cadre, axe Y, titre, legende,
@@ -4667,71 +4664,6 @@ function drawRainPanel(cx, pl, geo, ap) {
     cx.textBaseline = 'bottom';
     cx.fillText(pTxt, xCur + (fitsR ? 6 : -6), yP - 3);
   }
-  // Legende encadree, meme format que celle du panneau des debits. Coin choisi
-  // dynamiquement pour ne pas se poser sur les barres (une averse forte peut occuper
-  // n'importe quelle partie de la fenetre selon la periode affichee).
-  cx.font = '12px "Segoe UI",Arial';
-  // Deux entrees quand l'apport partage le panneau : sans libelle, deux series de
-  // couleurs differentes dans un cadre intitule 'Pluie' seraient ambigues.
-  // Trois entrees possibles, une par FORME : barres (pluie du pas), courbe (cumul),
-  // stem (apport). La forme porte le sens, la legende doit donc la nommer.
-  // Le panneau porte DEUX echelles : mm a gauche, m3/s a droite. Sans marquage, rien
-  // ne dit laquelle lire pour quelle serie — on suffixe donc chaque entree par son
-  // cote, mais seulement quand les deux axes coexistent (sans apport, il n'y a qu'un
-  // axe et la mention serait du bruit).
-  const twoAxes = !!(ap && ap.max > 0);
-  const sfxL = twoAxes ? ' (éch. gauche)' : '';
-  const sfxR = twoAxes ? ' (éch. droite)' : '';
-  const lgItemsR = [];
-  if (pl.hVals) {
-    lgItemsR.push({ col: SERIES.pluie.line,  txt: 'Pluie tombée' + sfxL });
-    if (!bwR) lgItemsR.push({ col: SERIES.pluie.solid, txt: 'Cumul 24 h' + sfxL, line: true });
-  } else {
-    lgItemsR.push({ col: SERIES.pluie.line, txt: 'Pluie 24 h' + sfxL });
-  }
-  if (twoAxes) lgItemsR.push({ col: SERIES.apport.line, txt: 'Apport naturel' + sfxR });
-  const swW = 22, swH = 7, padX = 8, padY = 6;
-  let lgW = 0;
-  for (const it of lgItemsR) lgW = Math.max(lgW, cx.measureText(it.txt).width);
-  const bw = lgW + swW + 8 + 2 * padX;
-  const bh = 18 * lgItemsR.length + 2 * padY;
-  // Memes echelles que les traces (yTopP / apTop) : pickCorner cherche un coin libre,
-  // il doit donc raisonner sur les hauteurs REELLEMENT dessinees. On lui passe les
-  // deux series, sinon le cadre pourrait se poser sur les stems d'apport.
-  const rainYOf = v => base - Math.min(1, v / yTopP) * rainInnerH;
-  const rainXOf = i => pad.l + ((i + (geo.xOff || 0)) / geo.xSpan) * innerW;
-  const seriesR = [pl.vals];
-  if (ap && apTop > 0) {
-    // Ramene l'apport sur l'echelle de la pluie pour que pickCorner compare des
-    // hauteurs homogenes (il n'accepte qu'une seule fonction de projection).
-    seriesR.push(ap.vals.map(v => (v == null ? null : v / apTop * yTopP)));
-  }
-  const co = pickCorner({ x0: pad.l, y0: topY, w: innerW, h: rainInnerH },
-                        bw, bh, seriesR, rainYOf, rainXOf, xCur);
-  cx.fillStyle = 'rgba(255,255,255,.88)';
-  cx.fillRect(co.x, co.y, bw, bh);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(co.x, co.y, bw, bh);
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
-  for (let k = 0; k < lgItemsR.length; k++) {
-    const yk = co.y + padY + k * 18;
-    const it = lgItemsR[k];
-    if (it.line) {
-      // Echantillon en TRAIT et non en pave : il doit ressembler a la courbe qu'il
-      // designe, sinon rien ne distingue le cumul des barres dans la legende.
-      cx.strokeStyle = it.col;
-      cx.lineWidth = 1.4;
-      cx.beginPath();
-      cx.moveTo(co.x + padX, yk + 3 + swH / 2);
-      cx.lineTo(co.x + padX + swW, yk + 3 + swH / 2);
-      cx.stroke();
-    } else {
-      cx.fillStyle = it.col;
-      cx.fillRect(co.x + padX, yk + 3, swW, swH);
-    }
-    cx.fillStyle = '#333';
-    cx.fillText(it.txt, co.x + padX + swW + 8, yk);
-  }
 
   // --- Notes explicatives, sous le panneau ---
   // Ce sont les explications que portait la legende de la carte : elles ont ete
@@ -4784,6 +4716,34 @@ function modalPxDay(c) {   // px par jour : la fenetre montre 15 jours (donnees 
 let modalStart = null;                   // frame de gauche de la fenetre (null = suit le curseur a l'ouverture)
 let modalWin = { scrollable: false, start: 0, n: 0 };
 let modalWinC = null;                    // centrale « tranchee » passee a drawBigChartCore
+// La modale d'un RESERVOIR reutilise celle d'une centrale (memes panneaux : debits, variations, pluie et apport en bandes,
+// fenetre defilante) : modalIsRes = true et modalIdx = indice du reservoir. Un reservoir est une « centrale sans turbine » :
+// son debit est le DEVERSE (cf. resInstall, deja utilise par « toutes les centrales »). Differences portees par c._res :
+// courbe bleue « Deverse », echelle en paliers 1-2-5 (resDebitScale), legende sans « Debit total » ni « Turbine ».
+let modalIsRes = false;
+function modalC() { return modalIsRes ? resModalC(D.reservoirs[modalIdx]) : D.centrales[modalIdx]; }
+// Sommet minimal de l'axe du deverse (m3/s) : config/vannes.json > detection_reservoirs.echelle_min_m3s, injecte au rendu.
+// Evite qu'un saut de 1 m3/s (Cinconsine, 3 -> 4) paraisse important sur un axe de 0 a 5.
+const RES_ECHELLE_MIN = 20;
+// Graduation de l'axe du deverse de TOUS les graphiques de reservoir (modale, « toutes les centrales ») : config/vannes.json >
+// detection_reservoirs.echelle_pas_m3s (25 par defaut), injecte au rendu. Meme valeur dans le gabarit mobile.
+const RES_ECHELLE_PAS = 25;
+function resDebitScale(maxVal) {         // axe depuis 0, une graduation tous les RES_ECHELLE_PAS m3/s ; hors regle des 200 m3/s (debit total des centrales)
+  const need = Math.max(RES_ECHELLE_MIN, +maxVal || 0) * 1.05;
+  const n = Math.max(1, Math.ceil(need / RES_ECHELLE_PAS));
+  return { step: RES_ECHELLE_PAS, n: n, yMax: RES_ECHELLE_PAS * n };
+}
+function fmtAxisDebit(v, step) { return (step < 1 ? v.toFixed(1).replace('.', ',') : String(Math.round(v))) + ' m³/s'; }
+// Reservoir vu comme une centrale pour la modale : resInstall (debit = deverse, manoeuvres, dernier debit) + apport et zone meteo.
+// Objet STABLE (cache sur le reservoir) : modalChain y memorise sa chaine de variations.
+function resModalC(r) {
+  const k = D.periode + '|' + r.devs.length + '|' + (r.apports || []).length + '|' + (r.man || []).length;
+  if (r._adm && r._admK === k) return r._adm;
+  let mxA = 0; for (const v of (r.apports || [])) if (v != null && v > mxA) mxA = v;
+  r._admK = k;
+  r._adm = Object.assign({}, resInstall(r), { apports: r.apports || null, maxApport: mxA, zoneMeteo: r.zoneMeteo });
+  return r._adm;
+}
 // Filtre : variation minimale (m3/s), par tranche de 50 jusqu'a 2000 ; applique a la variation AFFICHEE (valeur absolue)
 const modalMinSel = document.getElementById('variationMin');
 modalMinSel.add(new Option('Toutes', 0));
@@ -4824,7 +4784,7 @@ modalMinSel.addEventListener('change', () => {
   if (modalIdx < 0) return;
   const raw = (modalWin.keep && modalStart !== null) ? modalWin.keep[Math.min(modalStart, modalWin.keep.length - 1)] : null;
   modalKeepCache.key = '';
-  if (raw != null) { const nk = modalKeep(D.centrales[modalIdx]); const i = nk.findIndex(v => v >= raw); modalStart = i < 0 ? null : i; } else modalStart = null;
+  if (raw != null) { const nk = modalKeep(modalC()); const i = nk.findIndex(v => v >= raw); modalStart = i < 0 ? null : i; } else modalStart = null;
   drawBigChart();
 });
 let modalDrag = null, modalSuppressClick = false;
@@ -4838,7 +4798,7 @@ function modalDayKey(i) { return String(D.timestamps[i] || '').slice(0, 10); }
 // les jours gardes sont cote a cote, toujours de meme largeur). Retourne les indices de frame gardes.
 let modalKeepCache = { key: '', keep: [] };
 function modalKeep(c0) {
-  const chain = modalChain(c0), key = modalIdx + '|' + D.periode + '|' + N + '|' + chain.length + '|' + modalMinSel.value + '|' + variationMode;
+  const chain = modalChain(c0), key = (modalIsRes ? 'R' : 'C') + modalIdx + '|' + D.periode + '|' + N + '|' + chain.length + '|' + modalMinSel.value + '|' + variationMode;
   if (modalKeepCache.key === key) return modalKeepCache.keep;
   const pl = pluieSerie(c0.zoneMeteo), days = new Set();
   for (const it of chain) days.add(modalDayKey(it.f));
@@ -4881,7 +4841,7 @@ function debitScale(maxVal) {
 
 function drawBigChart() {
   if (modalIdx < 0) return;
-  const c0 = D.centrales[modalIdx];
+  const c0 = modalC();
   const scrollable = N > 2;
   if (!scrollable) { modalWin = { scrollable: false, start: 0, n: N }; modalWinC = null; drawBigChartCore(); return; }
   const keep = modalKeep(c0), Nk = keep.length;
@@ -4896,7 +4856,7 @@ function drawBigChart() {
   const pos = new Map(); win.forEach((i, k) => pos.set(i, k));
   const cw = Object.assign({}, c0, {
     debits: sl(c0.debits), turbs: sl(c0.turbs), devs: sl(c0.devs), apports: sl(c0.apports),
-    maxApport: Math.max(mxOfWin(sl(c0.apports)), 1),
+    maxApport: (c0._res && !c0.maxApport) ? 0 : Math.max(mxOfWin(sl(c0.apports)), 1),   // reservoir sans aucune donnee d'apport (Cinconsine) : pas d'axe d'apport
     prevLvl: (() => { let p = null; for (const it of modalChain(c0)) { if (it.f < win[0]) p = it.lT + it.lD; else break; } return p; })(),
     items: modalChain(c0).filter(it => pos.has(it.f)).map(it => Object.assign({}, it, { f: pos.get(it.f) })),
     man: (c0.man || []).filter(m => pos.has(m[0])),
@@ -4938,7 +4898,8 @@ modalCv.addEventListener('mousemove', (ev) => {
   if (!hit) { modalTip.style.display = 'none'; return; }
   const nf = v => Math.round(v).toLocaleString('fr-CA');
   const d = hit.day ? new Date(hit.day + 'T12:00:00Z').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
-  modalTip.innerHTML = '<b>' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b><br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s';
+  const sg = v => (v > 0 ? '+' : v < 0 ? '−' : '') + nf(Math.abs(v));
+  modalTip.innerHTML = '<b>' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b>' + (modalIsRes ? '<br>Variation : ' + sg(hit.delta) + ' m³/s<br>Déversé après : ' + nf(hit.lD) + ' m³/s' : '<br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s');
   modalTip.style.display = 'block';
   modalTip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 220) + 'px';
   modalTip.style.top = (ev.clientY + 14) + 'px';
@@ -4948,14 +4909,14 @@ modalCv.addEventListener('wheel', (ev) => {
   if (modalIdx < 0 || !modalWin.scrollable) return;
   ev.preventDefault();
   const d = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
-  const pxF = D.periode === 'horaire' ? modalPxDay(D.centrales[modalIdx]) / 24 : modalPxDay(D.centrales[modalIdx]);
+  const pxF = D.periode === 'horaire' ? modalPxDay(modalC()) / 24 : modalPxDay(modalC());
   modalScrollBy(d / pxF * (modalCv.width / modalCv.getBoundingClientRect().width));
 }, { passive: false });
 modalCv.addEventListener('mousedown', (ev) => {
   if (ev.button !== 0 || modalIdx < 0 || !modalWin.scrollable) return;
   const rr = modalCv.getBoundingClientRect(), yy = (ev.clientY - rr.top) * (modalCv.height / rr.height);
   if (yy >= modalCv.height - 16) {                      // barre de position : clic = saut, glisser = defilement
-    const hasAp = !!(D.centrales[modalIdx].apports && D.centrales[modalIdx].maxApport);
+    const hasAp = !!(modalC().apports && modalC().maxApport);
     const iw = modalCv.width - 60 - (hasAp ? 78 : 20), Nn = modalWin.N;
     const toStart = cx => ((cx - rr.left) * (modalCv.width / rr.width) - 60) / iw * Nn - modalWin.n / 2;
     modalStart = toStart(ev.clientX); drawBigChart();
@@ -4970,7 +4931,7 @@ window.addEventListener('mousemove', (ev) => {
   const dx = ev.clientX - modalDrag.x0;
   if (!modalDrag.moved && Math.abs(dx) < 4) return;
   modalDrag.moved = true;
-  const pxF = D.periode === 'horaire' ? modalPxDay(D.centrales[modalIdx]) / 24 : modalPxDay(D.centrales[modalIdx]);
+  const pxF = D.periode === 'horaire' ? modalPxDay(modalC()) / 24 : modalPxDay(modalC());
   modalStart = modalDrag.s0 - dx * (modalCv.width / modalCv.getBoundingClientRect().width) / pxF;
   drawBigChart();
 });
@@ -4999,9 +4960,16 @@ function drawModalVariations(cx, c, g) {
     }
   }  items.sort((a, b) => a.x - b.x);
   modalHits = { top: varTop - 4, bot: varTop + varH + 4, list: items.map(it => ({ x: it.x, w: Math.max(it.bw / 2, 7), day: String(D.timestamps[it.d] || '').slice(0, 10), hr: it.hr, lT: it.lT, lD: it.lD, delta: it.delta })) };
-  let mxL = 1; for (const it of items) mxL = Math.max(mxL, it.lT + it.lD);
+  // Centrales : la bande donne le NIVEAU atteint apres la variation (turbine + deverse empiles). Reservoirs (pas de turbine) : la
+  // bande donne l'AMPLEUR de la variation, |delta|, donc une fermeture de 92 et une ouverture de 92 ont la meme hauteur ; le sens est
+  // porte par le triangle et la couleur de la valeur. Echelle propre aux reservoirs : plus grande variation de la fenetre + 30 %
+  // (place pour la valeur et le triangle au-dessus), sans arrondi (le panneau n'a pas de graduations), avec un plancher
+  // (RES_ECHELLE_MIN) pour qu'une petite variation isolee ne paraisse pas importante.
+  const isRv = !!c._res;
+  const barV = it => isRv ? Math.abs(it.delta) : it.lT + it.lD;   // grandeur representee par la hauteur de la bande
+  let mxL = 1; for (const it of items) mxL = Math.max(mxL, barV(it));
   const tick = [50, 100, 200, 250, 500, 1000, 2000].find(t => mxL * 1.4 / t <= 3) || 2000;
-  const yMaxL = Math.ceil(mxL * 1.4 / tick) * tick;
+  const yMaxL = isRv ? Math.max(mxL * 1.3, RES_ECHELLE_MIN) : Math.ceil(mxL * 1.4 / tick) * tick;
   const Y = v => varTop + varH * (1 - v / yMaxL);
   const lastLvl = items.length ? items[items.length - 1].lT + items[items.length - 1].lD : prevLvl;
   const endOn = g.endV != null && (lastLvl == null || Math.round(g.endV) !== Math.round(lastLvl));
@@ -5014,6 +4982,7 @@ function drawModalVariations(cx, c, g) {
   cx.beginPath(); cx.moveTo(pad.l, Y(0)); cx.lineTo(pad.l + innerW, Y(0)); cx.stroke();
   cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 24, innerW, varH + 24 + 34); cx.clip();
   for (const it of items) {
+    if (isRv) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, Y(barV(it)), it.bw, Math.max(1, varH * barV(it) / yMaxL)); continue; }
     cx.fillStyle = SERIES.turbine.line; cx.fillRect(it.x - it.bw / 2, Y(it.lT), it.bw, Math.max(0, varH * it.lT / yMaxL));
     if (it.lD > 0.5) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, Y(it.lT + it.lD), it.bw, Math.max(1, varH * it.lD / yMaxL)); }
   }
@@ -5054,7 +5023,7 @@ function drawModalVariations(cx, c, g) {
   cx.restore(); cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 24, innerW, varH + 24 + 34); cx.clip();   // retour au clip du panneau variations
   let lastX = -1e9;
   for (const it of items) {
-    const up = it.delta >= 0, col = up ? COLO : COLF, y = Math.max(varTop + 22, Y(it.lT + it.lD) - 7);
+    const up = it.delta >= 0, col = up ? COLO : COLF, y = Math.max(varTop + 22, Y(barV(it)) - 7);
     const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
     cx.font = 'bold 10px "Segoe UI",Arial';
     const tw = cx.measureText(txt).width;
@@ -5080,15 +5049,34 @@ function drawModalVariations(cx, c, g) {
 
 function drawBigChartCore() {
   if (modalIdx < 0) return;
-  const c = modalWinC || D.centrales[modalIdx];
+  const c = modalWinC || modalC();
   const arr = c.debits;
-  const w = modalCv.width  = modalCv.clientWidth;
-  const h = modalCv.height = modalCv.clientHeight;
-  const cx = modalCtx;
+  const isR = !!c._res;   // reservoir : memes panneaux qu'une centrale, mais le debit est le DEVERSE (voir modalC)
   // Marge droite elargie quand on a un apport a tracer : contrairement a la
   // sparkline (31 px de haut, aucune place), la modale peut etiqueter un 2e axe —
   // donc on le fait ici, c'est l'endroit ou l'apport se lit quantitativement.
   const hasApport = !!(c.apports && c.maxApport);
+  // Calcules AVANT la mesure du canvas : la legende (rangee HTML au-dessus du graphique) en depend, et sa hauteur doit etre
+  // connue avant de lire clientHeight.
+  const plMod = pluieSerie(c.zoneMeteo);
+  const varOn = !!(c.man || c.items);
+  const stroke = isR ? SERIES.deverse.solid : '#555';   // debit total : gris neutre, sans seuil de couleur ; reservoir : bleu fonce du deverse
+  const turbCol = SERIES.turbine.line;
+  const devCol  = SERIES.deverse.line;
+  {
+    // Legende UNIQUE de la modale, dans l'ordre des panneaux : debits (et variations), puis pluie et apport.
+    // Reservoir : « Deverse » est LA courbe (pas de « Debit total » ni de « Turbine »), donc une seule entree.
+    const hasDevLg = !isR && (!modalWin.scrollable || (c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5));
+    const lg = isR ? [ { col: stroke, txt: 'Déversé' } ] : [ { col: stroke, txt: 'Débit total' }, { col: turbCol, txt: 'Turbiné' } ];
+    if (hasDevLg) lg.push({ col: devCol, txt: 'Déversé' });
+    if (plageHas(c.nom)) lg.push({ zone: true, txt: PLAGE_LABEL });
+    if (modalWin.scrollable && varOn) lg.push({ tri: true });
+    if (!modalWin.scrollable && !isR) lg.push({ note: ((c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5)) ? 'Débit total = turbiné + déversé.' : 'Débit total = turbiné.' });
+    setModalLegend(lg.concat(rainLegendItems(plMod, hasApport ? { vals: c.apports, max: c.maxApport } : null, !!modalWin.scrollable)));
+  }
+  const w = modalCv.width  = modalCv.clientWidth;
+  const h = modalCv.height = modalCv.clientHeight;
+  const cx = modalCtx;
   // b: 42 (et non 36) : un tick peut tenir sur 2 lignes (date + borne horaire
   // '(24:00)' des journees partielles), ce qui demande ~23 px sous l'axe.
   // r: 78 quand il y a un apport — c'est la place de l'axe m3/s de DROITE, qui vit
@@ -5100,8 +5088,7 @@ function drawBigChartCore() {
   // partageant le meme axe X laissent chaque grandeur sur une echelle sans ambiguite,
   // tout en gardant la comparaison temporelle immediate — c'est la convention des
   // hydrogrammes (debit) surmontes d'un hyetogramme (pluie) en hydrologie.
-  // Calcule AVANT pad : la reserve du bas depend de la presence du panneau de pluie.
-  const plMod = pluieSerie(c.zoneMeteo);
+  // plMod est calcule plus haut (avant la mesure du canvas) : la reserve du bas depend de la presence du panneau de pluie.
 
   // b = 42 px pour l'axe X, + 62 px pour les notes sous le panneau de pluie quand
   // ce panneau existe (cf. MODAL_NOTES, rendues par drawRainPanel). Sans cette
@@ -5120,7 +5107,7 @@ function drawBigChartCore() {
   if (c.yRefMax != null) for (const v of c.debits) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const dScale = debitScale(yMaxRaw), yMax = dScale.yMax;   // multiple de 200 m3/s (cf. debitScale)
+  const dScale = isR ? resDebitScale(yMaxRaw) : debitScale(yMaxRaw), yMax = dScale.yMax;   // centrales : multiple de 200 m3/s (cf. debitScale) ; reservoirs : paliers 1-2-5 (resDebitScale)
   // Echelle X : N frames + 3h "tampon" a droite pour laisser de la place aux labels
   const xPad = modalWin.scrollable ? 1 : 3; // frames vides a droite (fenetre defilante : 1 => N colonnes pile, bord a bord)
   const xSpan = (N - 1) + xPad;
@@ -5128,8 +5115,7 @@ function drawBigChartCore() {
   // Hauteur utile totale, puis repartition 2/3 - 1/3 (moins l'espace inter-panneaux).
   const totalH = h - pad.t - pad.b;
   // Panneau des VARIATIONS (ouvertures / fermetures) entre les debits et la pluie : meme axe X.
-  // Vues Heure et Jour seulement, et si le sélecteur n'est pas sur « masquees ».
-  const varOn = !!(c.man || c.items);
+  // Vues Heure et Jour seulement, et si le sélecteur n'est pas sur « masquees ». (varOn est calcule plus haut, pour la legende.)
   const varH = varOn ? 110 : 0, varGap = varOn ? (modalWin.scrollable ? 24 : 18) : 0;    // espace du titre « Variations (m³/s) » (meme taille que le titre « Débits »)
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
@@ -5155,7 +5141,7 @@ function drawBigChartCore() {
   for (let k = 0; k <= dScale.n; k++) {
     const v = k * dScale.step, y = yOf(v);
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    cx.fillText(Math.round(v) + ' m³/s', pad.l - 6, y);
+    cx.fillText(fmtAxisDebit(v, dScale.step), pad.l - 6, y);
   }
   // Titre du panneau (symetrique de celui du panneau pluie en bas). Affiche seulement
   // quand le 2e panneau existe : sans lui il n'y a rien a distinguer, et le titre de
@@ -5163,7 +5149,7 @@ function drawBigChartCore() {
   if (plMod) {
     cx.fillStyle = '#1a1a2e'; cx.font = 'bold ' + (modalWin.scrollable ? 15.6 : 12) + 'px "Segoe UI",Arial';   // vue defilante : titre +30 %
     cx.textAlign = 'left'; cx.textBaseline = 'top';
-    cx.fillText('Débits (m³/s)', pad.l, pad.t + 2);
+    cx.fillText(isR ? 'Déversé (m³/s)' : 'Débits (m³/s)', pad.l, pad.t + 2);
   }
 
   // Ticks X : 5 dates reparties. Les deux extremes sont alignes sur le bord
@@ -5209,11 +5195,7 @@ function drawBigChartCore() {
   if (dCur != null && c.minTotal != null && c.maxTotal != null && (c.maxTotal - c.minTotal) > 0) {
     ratio = (dCur - c.minTotal) / (c.maxTotal - c.minTotal) * 100;
   }
-  const stroke = '#555';   // courbe du debit total : gris neutre, sans seuil de couleur
-
-  // Couleurs des series, tirees de la palette centrale (cf. SERIES).
-  const turbCol = SERIES.turbine.line;
-  const devCol  = SERIES.deverse.line;
+  // (stroke, turbCol et devCol sont definis plus haut, avant la mesure du canvas : la legende les utilise.)
   const drawSeriesBig = (series, color, lw) => {
     cx.beginPath();
     cx.strokeStyle = color; cx.lineWidth = lw;
@@ -5286,83 +5268,10 @@ function drawBigChartCore() {
   // provoque 24-48 h plus tard (cf. point 29 de BESOIN.md).
   drawRainPanel(cx, plMod, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan, xOff, barW: modalWin.scrollable ? 0.6 * Math.max(1.5, (innerW / xSpan) * 0.8) : 0 },
                 hasApport ? { vals: c.apports, max: c.maxApport } : null);
-
-  // Legende dynamique : choisir le coin (HG/HD/BG/BD) qui chevauche le moins
-  // la courbe debit total. Mesure les dimensions du bloc, puis compte combien
-  // de points de la courbe tombent dans chaque coin candidat.
-  const lgGapY = 18, lgSwW = 22, lgSwH = 7, lgPadX = 8, lgPadY = 6;
-  const noteTxt = modalWin.scrollable ? '' : (!modalWin.scrollable || (c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5)) ? 'Débit total = turbiné + déversé.' : 'Débit total = turbiné.';
-  cx.font = '12px "Segoe UI",Arial';
-  const wTotal = cx.measureText('Débit total').width;
-  const wTurb  = cx.measureText('Turbiné').width;
-  // Legende dynamique (vue defilante) : « Déversé » seulement s'il y en a dans la fenetre ; + ligne ▲ ouverture / ▼ fermeture
-  const hasDevLg = !modalWin.scrollable || (c.devs || []).some(v => v > 0.5) || (c.items || []).some(it => it.lD > 0.5);
-  const showTri = modalWin.scrollable && !!varOn;
-  const triTxt1 = '▲ ouverture', triSep = '  ·  ', triTxt2 = '▼ fermeture';
-  const wDev   = hasDevLg ? cx.measureText('Déversé').width : 0;
-  const hasPlageLg = plageHas(c.nom), wPlg = hasPlageLg ? cx.measureText(PLAGE_LABEL).width : 0;
-  const wTri   = showTri ? cx.measureText(triTxt1 + triSep + triTxt2).width - lgSwW - 8 : 0;
-  // Ni apport ni pluie ici : les deux vivent dans le panneau du bas, qui a sa
-  // propre legende. Cette legende-ci ne decrit que les series du panneau des debits.
-  const wAp = 0, wPl = 0;
-  cx.font = 'italic 11px "Segoe UI",Arial';
-  const wNote  = cx.measureText(noteTxt).width;
-  const lgNbLignes = 2 + (hasDevLg ? 1 : 0) + (hasPlageLg ? 1 : 0) + (showTri ? 1 : 0);
-  const lgInnerW = Math.max(wTotal, wTurb, wDev, wAp, wPl, wTri, wPlg) + lgSwW + 8;
-  const boxW = Math.max(lgInnerW, wNote) + 2 * lgPadX;
-  const boxH = lgNbLignes * lgGapY + (noteTxt ? 14 : 0) + 2 * lgPadY; // lignes legende + 1 ligne note (absente en vue defilante)
-  // Coin choisi dynamiquement pour masquer le moins de donnees possible.
-  // On teste les 3 series du panneau (total, turbine, deverse) et non le seul debit
-  // total comme avant : depuis que le deverse est passe en bleu vif, une legende
-  // posee "au-dessus du total" pouvait tomber en plein sur la courbe de deversement.
-  // Le titre du panneau occupant le coin haut-gauche quand il y a 2 panneaux, la
-  // zone de recherche demarre plus bas dans ce cas.
-  const lgTop = plMod ? pad.t + 18 : pad.t;
-  const best = pickCorner({ x0: pad.l, y0: lgTop, w: innerW, h: pad.t + innerH - lgTop },
-                          boxW, boxH, [c.debits, c.turbs, c.devs], yOf, xOf, xCur);
-  // Fond opaque sous le bloc : le choix du coin minimise le chevauchement mais ne
-  // l'elimine pas (avec 4-5 series, tous les coins sont parfois traverses). Sans
-  // fond, le texte de la legende se melait aux courbes et devenait illisible.
-  cx.fillStyle = 'rgba(255,255,255,.88)';
-  cx.fillRect(best.x, best.y, boxW, boxH);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(best.x, best.y, boxW, boxH);
-  // Tracage du bloc.
-  const lgX = best.x + lgPadX;
-  const lgY0 = best.y + lgPadY;
-  const lgTxtX = lgX + lgSwW + 8;
-  cx.font = '12px "Segoe UI",Arial';
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
-  const lgItems = [
-    { col: stroke,  txt: 'Débit total' },
-    { col: turbCol, txt: 'Turbiné' }
-  ];
-  if (hasDevLg) lgItems.push({ col: devCol, txt: 'Déversé' });
-  if (hasPlageLg) lgItems.push({ zone: true, txt: PLAGE_LABEL });
-  if (showTri) lgItems.push({ tri: true });
-  lgItems.forEach((it, li) => {
-    if (it.zone) {
-      drawPlageSwatch(cx, lgX, lgY0 + li*lgGapY + 3, lgSwW, lgSwH);
-      cx.fillStyle = '#333'; cx.fillText(it.txt, lgTxtX, lgY0 + li*lgGapY);
-      return;
-    }
-    if (it.tri) {
-      let xx = lgX, yy = lgY0 + li*lgGapY;
-      cx.fillStyle = '#d9640a'; cx.fillText('▲', xx, yy); xx += cx.measureText('▲ ').width;
-      cx.fillStyle = '#333'; cx.fillText('ouverture', xx, yy); xx += cx.measureText('ouverture' + triSep).width;
-      cx.fillStyle = '#1d5e8c'; cx.fillText('▼', xx, yy); xx += cx.measureText('▼ ').width;
-      cx.fillStyle = '#333'; cx.fillText('fermeture', xx, yy);
-      return;
-    }
-    cx.fillStyle = it.col; cx.fillRect(lgX, lgY0 + li*lgGapY + 3, lgSwW, lgSwH);
-    cx.fillStyle = '#333'; cx.fillText(it.txt, lgTxtX, lgY0 + li*lgGapY);
-  });
-  cx.font = 'italic 11px "Segoe UI",Arial';
-  cx.fillStyle = '#666';
-  if (noteTxt) cx.fillText(noteTxt, lgX, lgY0 + lgNbLignes*lgGapY + 2);
 }
 
 function openModal(k) {
+  modalIsRes = false;
   modalIdx = k; modalStart = null; modal.classList.add('varOn');
   modalMinSel.value = '50'; modalKeepCache.key = '';      // le filtre revient a 50 m3/s a chaque ouverture
   modalTurbIdx = -1; modalResIdx = -1; modalNivResIdx = -1;
@@ -5538,6 +5447,8 @@ function closeInfoModal() {
 
 function closeModal() {
   modal.classList.remove('open');
+  setModalLegend([]);
+  modalIsRes = false;
   modalIdx = -1; modal.classList.remove('varOn');
   modalResIdx = -1;
   modalTurbIdx = -1;
@@ -5545,28 +5456,33 @@ function closeModal() {
   modalStaChartIdx = -1;
 }
 
-// ----- Modale grand graphique pour un RESERVOIR : courbes deversement + apport -----
+// ----- Modale grand graphique pour un RESERVOIR : meme modale qu'une centrale (voir modalC), le debit etant le deverse -----
+// Variations, pluie et apport en bandes, fenetre defilante. Le filtre de variation part de « Toutes » : le deverse d'un
+// reservoir depasse rarement 100 m3/s, un filtre de 50 m3/s (valeur des centrales) cacherait presque toutes les variations.
 function openModalRes(k) {
-  modalResIdx = k;
-  modalIdx = -1; modal.classList.remove('varOn');
-  modalTurbIdx = -1; modalNivResIdx = -1;
+  modalIsRes = true;
+  modalIdx = k; modalStart = null; modal.classList.add('varOn');
+  modalMinSel.value = '0'; modalKeepCache.key = '';
+  modalResIdx = -1; modalTurbIdx = -1; modalNivResIdx = -1;
   modalNote.innerHTML = ''; modalTable.innerHTML = '';
   const r = D.reservoirs[k];
-  modalTitle.textContent = r.nom + ' — déversement & précipitation';
+  modalTitle.textContent = r.nom + ' — déversé';
   // Stats sur le deversement (signal principal du reservoir).
   const s = computeStats(r.devs);
-  const cur = r.devs[frame];
+  // Derniere valeur connue jusqu'au curseur : l'heure courante est souvent vide (publication en retard sur le reste)
+  let cur = null; for (let i = Math.min(frame, r.devs.length - 1); i >= 0; i--) { if (r.devs[i] != null) { cur = r.devs[i]; break; } }
   modalStats.textContent =
     'Déversement courant : ' + fmtInt(cur) + ' m³/s · ' +
     'Min : ' + fmtInt(s.min) + ' · ' +
     'Moy : ' + fmtInt(s.avg) + ' · ' +
     'Max : ' + fmtInt(s.max);
   modal.classList.add('open');
-  requestAnimationFrame(drawBigChartRes);
+  requestAnimationFrame(drawBigChart);
 }
 
 // ----- Modale TURBINES : N icones en grand, charge par groupe (empilement estime) -----
 function openTurbineModal(k) {
+  setModalLegend([]);   // pas de legende pour les icones de turbines (la rangee garde sinon celle de la modale precedente)
   modalTurbIdx = k;
   modalIdx = -1; modal.classList.remove('varOn');
   modalResIdx = -1;
@@ -5704,154 +5620,6 @@ function drawTurbineModal() {
       cx.fillText(pctTxt, curX + iconSz/2, iconTop + iconSz + 4);
       curX += iconSz + gap;
     }
-  });
-}
-
-function drawBigChartRes() {
-  if (modalResIdx < 0) return;
-  const r = D.reservoirs[modalResIdx];
-  const w = modalCv.width  = modalCv.clientWidth;
-  const h = modalCv.height = modalCv.clientHeight;
-  const cx = modalCtx;
-  // b: 42 — cf. note sur les ticks sur 2 lignes dans drawBigChart().
-  // r: 78 des qu'un apport est publie — c'est la place de l'axe m3/s de droite du
-  // panneau du bas (meme valeur que dans drawBigChart, pour que les deux modales
-  // aient des cadres de meme largeur).
-  const hasApportR = !!(r.apports && r.apports.some(v => v != null && v > 0));
-  // Serie de pluie calculee AVANT pad : la reserve du bas depend de sa presence.
-  const plRes = pluieSerie(r.zoneMeteo);
-  // b : meme reserve que la modale centrale pour les notes sous le panneau de pluie.
-  const pad = { l: 60, r: hasApportR ? 78 : 20, t: 10, b: plRes ? 104 : 42 };
-  cx.clearRect(0, 0, w, h);
-
-  // Echelle Y du panneau du haut : DEVERSEMENT seul. L'apport en est exclu depuis
-  // qu'il est descendu dans le panneau du bas — l'y garder etirerait l'axe sur une
-  // serie qui n'y est plus tracee, ecrasant la courbe de deversement quand les deux
-  // grandeurs different d'un ordre de grandeur.
-  let yMin = Infinity, yMax = -Infinity;
-  for (const v of r.devs)    { if (v === null) continue; if (v < yMin) yMin = v; if (v > yMax) yMax = v; }
-  if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) { yMin = 0; yMax = 1; }
-  const yTop = yMax + Math.max(10, yMax * 0.05);
-  const yBot = Math.min(0, yMin);
-
-  // Deux panneaux empiles comme dans la modale centrale : deversement + apport (2/3)
-  // en haut, pluie (1/3) en bas, axe X partage. Cf. commentaire dans drawBigChart().
-  const rainH = plRes ? 0.33 : 0;
-  const rainGap = plRes ? 34 : 0;   // espace pour le titre du panneau du bas
-
-  const xPad = 3;
-  const xSpan = (N - 1) + xPad;
-  const innerW = w - pad.l - pad.r;
-  const totalH = h - pad.t - pad.b;
-  const innerH = Math.round((totalH - rainGap) * (1 - rainH));
-  const rainTop = pad.t + innerH + rainGap;
-  const rainInnerH = Math.max(0, totalH - innerH - rainGap);
-  const xOf = i => pad.l + (i / xSpan) * innerW;
-  const yOf = v => pad.t + (1 - (v - yBot) / Math.max(yTop - yBot, 0.0001)) * innerH;
-
-  // Bande "futur".
-  const xFut = xOf(frame + 1);
-  if (xFut < pad.l + innerW) {
-    cx.fillStyle = 'rgba(150,150,160,.18)';
-    cx.fillRect(xFut, pad.t, pad.l + innerW - xFut, innerH);
-  }
-
-  // Grille horizontale + ticks Y.
-  cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
-  cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
-  cx.textAlign = 'right'; cx.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = pad.t + (g / 5) * innerH;
-    cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    const val = yTop - (g / 5) * (yTop - yBot);
-    cx.fillText(Math.round(val) + ' m³/s', pad.l - 6, y);
-  }
-  // Titre du panneau (symetrique de celui du panneau pluie), si 2 panneaux.
-  if (plRes) {
-    cx.fillStyle = '#1a1a2e'; cx.font = 'bold 12px "Segoe UI",Arial';
-    cx.textAlign = 'left'; cx.textBaseline = 'top';
-    cx.fillText('Débits (m³/s)', pad.l, pad.t + 2);
-  }
-
-  // Ticks X : 5 dates reparties.
-  cx.fillStyle = '#666';
-  cx.textBaseline = 'top';
-  for (let g = 0; g <= 4; g++) {
-    const i = Math.round((g / 4) * (N - 1));
-    // Extremes alignes sur le bord : evite que le dernier libelle (avec suffixe
-    // '— jusqu'a HH:mm' en journee partielle) deborde hors du canvas.
-    cx.textAlign = (g === 0) ? 'left' : (g === 4 ? 'right' : 'center');
-    const xt = (g === 0) ? pad.l : (g === 4 ? pad.l + innerW : xOf(i));
-    drawTickLabel(cx, D.timestamps[i], xt, h - pad.b + 6, '11px "Segoe UI",Arial');
-  }
-
-  // NB : l'apport naturel n'est plus trace ici. Il a rejoint le panneau du bas, aux
-  // cotes de la pluie (cf. drawRainPanel), avec sa propre echelle m3/s a droite : les
-  // deux decrivent l'eau qui ARRIVE dans le reservoir, alors que ce panneau montre
-  // ce qui en SORT (deversement). L'apport y partageait en plus l'echelle du
-  // deversement, ce qui l'ecrasait quand les deux grandeurs differaient d'un ordre.
-
-  // Courbe DEVERSEMENT (bleu, par-dessus).
-  const blueStroke = SERIES.deverse.solid;
-  cx.beginPath();
-  cx.strokeStyle = blueStroke; cx.lineWidth = 2.6;
-  let started = false;
-  for (let i = 0; i < N; i++) {
-    const v = r.devs[i]; if (v === null) { started = false; continue; }
-    const xx = xOf(i), yy = yOf(v);
-    if (!started) { cx.moveTo(xx, yy); started = true; } else { cx.lineTo(xx, yy); }
-  }
-  cx.stroke();
-
-  // Curseur vertical + point sur la frame courante (deversement).
-  const xCur = xOf(frame);
-  cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5;
-  cx.beginPath(); cx.moveTo(xCur, pad.t); cx.lineTo(xCur, pad.t + innerH); cx.stroke();
-  const dCur = r.devs[frame];
-  if (dCur != null) {
-    cx.fillStyle = blueStroke;
-    cx.beginPath(); cx.arc(xCur, yOf(dCur), 4, 0, 2 * Math.PI); cx.fill();
-    cx.fillStyle = '#222'; cx.font = 'bold 12px "Segoe UI",Arial';
-    const txt = Math.round(dCur) + ' m³/s';
-    const txtW = cx.measureText(txt).width;
-    const fitsRight = (xCur + 6 + txtW) <= (pad.l + innerW - 2);
-    cx.textAlign = fitsRight ? 'left' : 'right';
-    cx.textBaseline = 'bottom';
-    cx.fillText(txt, xCur + (fitsRight ? 6 : -6), yOf(dCur) - 4);
-  }
-
-  // ===== PANNEAU DU BAS : PLUIE 24 h + APPORT NATUREL (1/3), axe X partage =====
-  // Les reservoirs n'ont pas de max d'apport pre-calcule cote PowerShell (contrairement
-  // aux centrales, cf. maxApportByC) : on le derive de la serie affichee.
-  let apMaxR = 0;
-  if (r.apports) for (const v of r.apports) { if (v != null && v > apMaxR) apMaxR = v; }
-  drawRainPanel(cx, plRes, { pad, innerW, rainTop, rainInnerH, xCur, xFut, frame, N, xSpan },
-                apMaxR > 0 ? { vals: r.apports, max: apMaxR } : null);
-
-  // Legende du panneau du haut. L'apport n'y figure plus (il est descendu dans le
-  // panneau du bas, avec sa propre legende), pas plus que la pluie : il ne reste que
-  // le deversement.
-  cx.font = '12px "Segoe UI",Arial';
-  const lgResItems = [
-    { col: blueStroke, txt: 'Déversement' }
-  ];
-  const swWr = 22, swHr = 7, pXr = 8, pYr = 6, gapYr = 18;
-  const bwr = Math.max.apply(null, lgResItems.map(it => cx.measureText(it.txt).width))
-            + swWr + 8 + 2 * pXr;
-  const bhr = lgResItems.length * gapYr + 2 * pYr;
-  const lgTopR = plRes ? pad.t + 18 : pad.t;   // sous le titre du panneau, s'il y en a un
-  const coR = pickCorner({ x0: pad.l, y0: lgTopR, w: innerW, h: pad.t + innerH - lgTopR },
-                         bwr, bhr, [r.devs], yOf, xOf, xCur);
-  cx.fillStyle = 'rgba(255,255,255,.88)';
-  cx.fillRect(coR.x, coR.y, bwr, bhr);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(coR.x, coR.y, bwr, bhr);
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
-  lgResItems.forEach((it, li) => {
-    cx.fillStyle = it.col;
-    cx.fillRect(coR.x + pXr, coR.y + pYr + li * gapYr + 3, swWr, swHr);
-    cx.fillStyle = '#333';
-    cx.fillText(it.txt, coR.x + pXr + swWr + 8, coR.y + pYr + li * gapYr);
   });
 }
 
@@ -6027,6 +5795,20 @@ function openModalStation(k) {
 function drawBigChartStation() {
   if (modalStaChartIdx < 0) return;
   const s = serieStation(modalStaChartIdx);
+  // Legende en une rangee au-dessus du graphique (cf. setModalLegend). Les couleurs reprennent exactement celles du trace
+  // (drawStationChart) : une divergence rendrait la legende trompeuse. Posee AVANT la mesure du canvas.
+  {
+    const lg = [];
+    if (s && s.aPluie && Math.max(s.max, s.hMax || 0) > 0) {
+      lg.push({ col: 'rgba(150,175,205,.75)', txt: 'Pluie (mm)' });
+      lg.push({ col: 'rgba(70,110,160,.95)',  txt: 'Cumul 24 h glissantes (mm)', kind: 'line' });
+    }
+    if (s && s.aTemp) {
+      lg.push({ col: STA_TMAX_COL, txt: 'T° maximale (°C)', kind: 'line' });
+      lg.push({ col: STA_TMIN_COL, txt: 'T° minimale (°C)', kind: 'dash' });
+    }
+    setModalLegend(lg);
+  }
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
@@ -6054,60 +5836,18 @@ function drawBigChartStation() {
     }
     cx.textAlign = 'left';
   }
-
-  // --- Legende visuelle, au meme format que celle des modales d'ouvrages ---
-  // Cadre blanc semi-opaque, pastille de couleur puis libelle. Les pastilles reprennent
-  // exactement les couleurs du trace (cf. drawStationChart) : une divergence ici rendrait
-  // la legende trompeuse.
-  const items = [];
-  if (s.aPluie && Math.max(s.max, s.hMax || 0) > 0) {
-    items.push({ col: 'rgba(150,175,205,.75)', txt: 'Pluie (mm)', kind: 'bar' });
-    items.push({ col: 'rgba(70,110,160,.95)',  txt: 'Cumul 24 h glissantes (mm)', kind: 'line' });
-  }
-  if (s.aTemp) {
-    items.push({ col: STA_TMAX_COL, txt: 'T° maximale (°C)', kind: 'line' });
-    items.push({ col: STA_TMIN_COL, txt: 'T° minimale (°C)', kind: 'dash' });
-  }
-  if (!items.length) return;
-
-  cx.font = '12px "Segoe UI",Arial';
-  const swW = 22, swH = 7, pX = 8, pY = 6, gapY = 18;
-  const bw = Math.max.apply(null, items.map(it => cx.measureText(it.txt).width)) + swW + 8 + 2 * pX;
-  const bh = items.length * gapY + 2 * pY;
-  // Coin haut gauche du trace, decale vers l'interieur : les deux axes chiffres occupent
-  // les marges, et le debut de fenetre est la zone la moins chargee en donnees.
-  const lx2 = pad.l + 10, ly2 = pad.t + 8;
-  cx.fillStyle = 'rgba(255,255,255,.88)';
-  cx.fillRect(lx2, ly2, bw, bh);
-  cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-  cx.strokeRect(lx2, ly2, bw, bh);
-  cx.textAlign = 'left'; cx.textBaseline = 'top';
-  items.forEach((it, li) => {
-    const yy = ly2 + pY + li * gapY;
-    if (it.kind === 'bar') {
-      cx.fillStyle = it.col;
-      cx.fillRect(lx2 + pX, yy + 1, swW, swH + 2);
-    } else {
-      // Trait (plein ou tirete) plutot qu'un rectangle : la legende doit montrer la
-      // FORME du trace, pas seulement sa couleur — c'est ce qui distingue min de max.
-      cx.save();
-      if (it.kind === 'dash') cx.setLineDash([3, 2]);
-      cx.strokeStyle = it.col;
-      cx.lineWidth = 2;
-      cx.beginPath();
-      cx.moveTo(lx2 + pX, yy + swH / 2 + 2);
-      cx.lineTo(lx2 + pX + swW, yy + swH / 2 + 2);
-      cx.stroke();
-      cx.restore();
-    }
-    cx.fillStyle = '#333';
-    cx.fillText(it.txt, lx2 + pX + swW + 8, yy);
-  });
 }
 
 function drawBigChartNivRes() {
   if (modalNivResIdx < 0) return;
   const r = D.reservoirs[modalNivResIdx];
+  // Legende en une rangee au-dessus du graphique (cf. setModalLegend), posee AVANT la mesure du canvas.
+  {
+    const lg = [{ col: SERIES.deverse.solid, txt: 'Niveau (m)', kind: 'line' }];
+    if (r.minNiv != null) lg.push({ col: '#c0392b', txt: 'Min historique', kind: 'dash' });
+    if (r.maxNiv != null) lg.push({ col: '#1a6e2a', txt: 'Max historique', kind: 'dash' });
+    setModalLegend(lg);
+  }
   const w = modalCv.width  = modalCv.clientWidth;
   const h = modalCv.height = modalCv.clientHeight;
   const cx = modalCtx;
@@ -6330,39 +6070,6 @@ function drawBigChartNivRes() {
     cx.textBaseline = dessus ? 'bottom' : 'top';
     cx.fillText(txt, tx, ty);
   }
-
-  // --- Legende (coin haut gauche, ou se trouvait la jauge) ---
-  // Meme format que les autres modales : cadre blanc, pastille, libelle.
-  (function () {
-    const items = [{ col: blueStroke, txt: 'Niveau (m)', kind: 'line' }];
-    if (r.minNiv != null) items.push({ col: '#c0392b', txt: 'Min historique', kind: 'dash' });
-    if (r.maxNiv != null) items.push({ col: '#1a6e2a', txt: 'Max historique', kind: 'dash' });
-    cx.save();
-    cx.font = '11px "Segoe UI",Arial';
-    const swW = 20, swH = 7, pX = 8, pY = 6, gapY = 16;
-    const bw2 = Math.max.apply(null, items.map(it => cx.measureText(it.txt).width)) + swW + 8 + 2 * pX;
-    const bh2 = items.length * gapY + 2 * pY;
-    const lx = pad.l + 10, ly = pad.t + 10;
-    cx.fillStyle = 'rgba(255,255,255,.88)';
-    cx.fillRect(lx, ly, bw2, bh2);
-    cx.strokeStyle = '#dde'; cx.lineWidth = 1;
-    cx.strokeRect(lx, ly, bw2, bh2);
-    cx.textAlign = 'left'; cx.textBaseline = 'top';
-    items.forEach((it, li) => {
-      const yy = ly + pY + li * gapY;
-      cx.fillStyle = it.col;
-      if (it.kind === 'line') {
-        cx.fillRect(lx + pX, yy + swH / 2, swW, 2.4);
-      } else if (it.kind === 'dash') {
-        cx.fillRect(lx + pX, yy + swH / 2, 7, 1.6);
-        cx.fillRect(lx + pX + 12, yy + swH / 2, 7, 1.6);
-      }
-      cx.fillStyle = '#333';
-      cx.fillText(it.txt, lx + pX + swW + 8, yy);
-    });
-    cx.restore();
-  })();
-
 }
 // ===== SPARKLINE « DEBITS » (etiquette a cote de la puissance totale) + MODALE « TOUTES LES CENTRALES » =====
 // ⚠ REGLE DE PARITE (voir REGLES.md) : tout changement apporte au graphique de debit total d'UNE centrale (modale
@@ -6535,8 +6242,8 @@ function drawAll() {
       let yr = yRef30(c, lastW);
       for (const v of win) { for (const a of [c.debits, c.turbs, c.devs]) { const x = a && a[v]; if (x != null && x > yr) yr = x; } }   // la fenetre peut depasser 30 jours
       // Centrales : echelle propre a la centrale, par paliers de 200 m3/s (debitScale). Reservoirs : leur courbe est le DEVERSE (pas un
-      // debit total, souvent bien inferieur a 200) : echelle dynamique d'origine, 5 intervalles egaux.
-      c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05); c._allScale = c._res ? null : debitScale(yr);
+      // debit total, souvent bien inferieur a 200) : graduation propre aux reservoirs (resDebitScale, 25 m3/s), comme leur modale.
+      c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05); c._allScale = c._res ? resDebitScale(yr) : debitScale(yr);
     }
     const yMin = 0, yMax = c._allScale ? c._allScale.yMax : c._allYmax,      // axe a partir de 0 m3/s (a 100, des points etaient caches par la zone Variations)
  yOf = v => debTop + (1 - (v - yMin) / (yMax - yMin)) * ALL_DEBH;
@@ -6684,7 +6391,8 @@ allCv.addEventListener('mousemove', (ev) => {
   if (!hit) { modalTip.style.display = 'none'; return; }
   const nf = v => Math.round(v).toLocaleString('fr-CA');
   const d = hit.day ? new Date(hit.day + 'T12:00:00Z').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
-  modalTip.innerHTML = '<b>' + hit.nom + ' · ' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b>' + (hit.res ? '' : '<br>Turbiné : ' + nf(hit.lT) + ' m³/s') + '<br>Déversé : ' + nf(hit.lD) + ' m³/s';
+  const sg = v => (v > 0 ? '+' : v < 0 ? '−' : '') + nf(Math.abs(v));
+  modalTip.innerHTML = '<b>' + hit.nom + ' · ' + d + (hit.hr != null ? ' · ' + hit.hr + ' h' : '') + '</b>' + (hit.res ? '<br>Variation : ' + sg(hit.delta) + ' m³/s<br>Déversé après : ' + nf(hit.lD) + ' m³/s' : '<br>Turbiné : ' + nf(hit.lT) + ' m³/s<br>Déversé : ' + nf(hit.lD) + ' m³/s');
   modalTip.style.display = 'block';
   modalTip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 240) + 'px';
   modalTip.style.top = (ev.clientY + 14) + 'px';
@@ -6718,7 +6426,7 @@ modalCv.addEventListener('click', (ev)=>{
   const t = (xPix - pad.l) / innerW;
   let f = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
   if (modalIdx >= 0 && modalWin.scrollable) {
-    const hasAp = !!(D.centrales[modalIdx].apports && D.centrales[modalIdx].maxApport);
+    const hasAp = !!(modalC().apports && modalC().maxApport);
     const iw = modalCv.width - 60 - (hasAp ? 78 : 20);
     const kk = Math.max(0, Math.min(modalWin.N - 1, modalWin.start + Math.floor(((xPix - 60) / iw) * modalWin.n)));
     f = modalWin.keep[kk];
@@ -6726,7 +6434,6 @@ modalCv.addEventListener('click', (ev)=>{
   if (modalSuppressClick) { modalSuppressClick = false; return; }
   stop(); go(f);
   if (modalIdx >= 0) drawBigChart();
-  else if (modalResIdx >= 0) drawBigChartRes();
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
   else if (modalStaChartIdx >= 0) { refreshModalStationStats(); drawBigChartStation(); }
 });
@@ -6735,7 +6442,6 @@ window.addEventListener('resize', ()=>{
   drawTotalSpark();
   if (allOpen) drawAll();
   if (modalIdx >= 0) drawBigChart();
-  else if (modalResIdx >= 0) drawBigChartRes();
   else if (modalNivResIdx >= 0) drawBigChartNivRes();
   else if (modalTurbIdx >= 0) drawTurbineModal();
   else if (modalStaChartIdx >= 0) drawBigChartStation();

@@ -73,6 +73,20 @@ nav#chips::-webkit-scrollbar{display:none}
 .chip.sel.status-orange  {background:#a05500;border-color:#c07000}
 .chip.sel.status-rouge   {background:#8a1010;border-color:#aa2020}
 
+/* ONGLETS Centrales | Reservoirs (la rangee de puces ci-dessous change avec l'onglet) */
+#tabs{display:flex;margin:10px 12px 0;border:1px solid #3a3a5e;border-radius:10px;overflow:hidden;background:#22223e}
+#tabs button{flex:1;border:0;background:transparent;color:#9ab;font-size:14px;font-weight:600;padding:9px 0;cursor:pointer;
+             display:inline-flex;align-items:center;justify-content:center;gap:6px}
+#tabs button small{font-weight:400;opacity:.7;font-size:12px}
+#tabs button.on{background:#4a6fa5;color:#fff}
+#tabs.res button.on{background:#2f7fb8}
+/* Puces de RESERVOIR : carre arrondi bleu (les centrales restent des pilules rondes), 2 lettres comme les centrales */
+.chip.res{min-width:48px;border-radius:10px;background:#16293f;border-color:#2f5d8a;color:#bcd8ee}
+.chip.res.sel{background:#2f7fb8;border-color:#6fb4e4;color:#fff}
+#chipsCap{display:flex;justify-content:space-between;padding:0 16px 2px;font-size:10px;color:#7f86a6;background:#1a1a2e}
+#label.res{border-left:6px solid #2f7fb8}
+#label .ico img{width:22px;height:22px;display:block}
+
 /* ETIQUETTE */
 section#label{background:#fff;color:#1a1a2e;margin:12px;
               border-radius:10px;padding:14px 16px;
@@ -149,7 +163,12 @@ footer a{color:#bcd;text-decoration:underline}
   <a id="link-full" href="index.html?desktop=1">Version bureau &nearr;</a>
 </header>
 
-<nav id="chips" aria-label="Centrales"></nav>
+<div id="tabs" role="tablist" aria-label="Type d'installation">
+  <button type="button" role="tab" data-t="centrales" class="on">Centrales <small id="tabNC"></small></button>
+  <button type="button" role="tab" data-t="reservoirs">R&eacute;servoirs <small id="tabNR"></small></button>
+</div>
+<nav id="chips" aria-label="Installations"></nav>
+<div id="chipsCap" aria-hidden="true"><span>&#9666; nord</span><span>sud &#9656;</span></div>
 
 <section id="label" class="hidden" aria-live="polite"></section>
 
@@ -177,10 +196,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-08 09:30</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-08 09:59</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.22.1</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.23.0</span>
 </footer>
 
 <script>
@@ -213,11 +232,21 @@ const CODES = {
   '3-178':'CA', '3-180':'RC', '3-82':'RB', '3-83':'TR',
   '3-84':'BM',  '3-85':'LT',  '3-89':'GM', '3-90':'SH', '3-91':'GA'
 };
-// Ordre des chips : SUD -> NORD (La Gabelle, pres du Saint-Laurent, en premier ;
-// Chute-Allard, le plus en amont, en dernier). Inverse du sens de l'eau qui coule.
-const ORDER = ['3-91','3-90','3-89','3-85','3-84','3-83','3-82','3-180','3-178'];
+// Ordre des chips : NORD -> SUD, comme la version riviere (Chute-Allard, le plus en amont, en premier ;
+// La Gabelle, pres du Saint-Laurent, en dernier). Avant v2.23.0 l'ordre etait inverse (sud -> nord).
+const ORDER = ['3-178','3-180','3-82','3-83','3-84','3-85','3-89','3-90','3-91'];
 const FALLBACK_ID = '3-83';   // Trenche, milieu du bassin
 const STORE_KEY   = 'hq-mobile-centrale';
+// Reservoirs : meme principe, 2 lettres, nord -> sud (d'apres la latitude du CEHQ ; Manouane-B n'a pas de latitude publiee,
+// place entre C et A). Cle = nom du reservoir tel que serialise (sans accent : « Mekinac »).
+const RES_ORDER  = ['Gouin','Manouane-C','Manouane-B','Manouane-A','Cinconsine','Mekinac','Matawin'];
+const RES_CODES  = { 'Gouin':'GO', 'Manouane-C':'MC', 'Manouane-B':'MB', 'Manouane-A':'MA', 'Cinconsine':'CI', 'Mekinac':'MK', 'Matawin':'MT' };
+const RES_LABELS = { 'Mekinac':'Mékinac' };
+const RES_FALLBACK = 'Gouin';
+const STORE_KEY_RES = 'hq-mobile-reservoir';
+// L'application s'ouvre TOUJOURS sur l'onglet Centrales (le focus) ; chaque onglet garde sa derniere installation.
+let tab = 'centrales';
+let selResNom = null;
 
 // --- Etat global ---
 let D = null;            // dataset de la vue active { centrales, timestamps, periode, ... }
@@ -261,43 +290,10 @@ const SERIES = {
   // precedent etait trop proche de la pluie, avec qui il partage un panneau).
   apport:  { line: 'rgba(230,120,20,.90)', solid: '#a8560c', label: 'Apport naturel' },
   pluie:   { line: 'rgba(90,150,220,.85)', solid: '#3a6ea5', label: 'Pluie' },
-  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' }
+  neutre:  { line: 'rgba(140,140,140,.95)', solid: '#666',   label: 'N/D' },
+  // Remplissage d'un reservoir (% de la plage d'exploitation) : sarcelle, distincte du bleu du deverse et du vert du turbine.
+  remplissage: { line: 'rgba(13,148,136,.92)', solid: '#0f766e', label: 'Remplissage' }
 };
-
-// Choisit le coin d'une zone ou un bloc (boxW x boxH) masque le moins de donnees.
-// Identique a pickCorner() dans animation.html.tpl — garder les deux alignees.
-function pickCorner(zone, boxW, boxH, series, yOf, xOf, avoidX) {
-  const { x0, y0, w, h } = zone;
-  // 4 coins + 2 centres (haut/bas) : le centre est souvent la zone la plus degagee.
-  const cx0 = x0 + (w - boxW) / 2;
-  const cands = [
-    { x: x0 + 4,             y: y0 + 4 },
-    { x: cx0,                y: y0 + 4 },
-    { x: x0 + w - boxW - 4,  y: y0 + 4 },
-    { x: x0 + 4,             y: y0 + h - boxH - 4 },
-    { x: cx0,                y: y0 + h - boxH - 4 },
-    { x: x0 + w - boxW - 4,  y: y0 + h - boxH - 4 }
-  ];
-  const margin = 8;
-  for (const co of cands) {
-    let score = 0;
-    const bx0 = co.x - margin, bx1 = co.x + boxW + margin;
-    const by0 = co.y - margin, by1 = co.y + boxH + margin;
-    for (const serie of series) {
-      if (!serie) continue;
-      for (let i = 0; i < serie.length; i++) {
-        const v = serie[i];
-        if (v == null) continue;
-        const px = xOf(i), py = yOf(v);
-        if (px >= bx0 && px <= bx1 && py >= by0 && py <= by1) score++;
-      }
-    }
-    co.score = score;
-    co.distX = (avoidX == null) ? 0 : Math.abs((co.x + boxW / 2) - avoidX);
-  }
-  cands.sort((a, b) => (a.score - b.score) || (b.distX - a.distX));
-  return cands[0];
-}
 
 // Epaisseur d'un trait de stem-plot selon la densite de points : evite qu'une serie
 // dense (vue Heure = 48 points, mais Jour = 15 sur un ecran etroit) se lise comme une
@@ -439,6 +435,46 @@ function effectiveAt(arr, i) {
   return { v: null, stale: false };
 }
 function fmtInt(v) { return (v == null) ? '—' : Math.round(v); }
+
+// --- Installation affichee : une centrale OU un reservoir selon l'onglet ---
+// Un reservoir est presente aux graphiques comme une « centrale sans turbine » : son debit total est le DEVERSE (c'est aussi
+// ce que fait render-animation.ps1 pour detecter ses manoeuvres : turbine = 0). Les graphiques Sommaire et Detaille peuvent
+// ainsi etre les memes que ceux des centrales (courbe, variations, pluie et apport en bandes). isRes distingue les rares
+// differences : couleur et libelle de la courbe, echelle Y, legende (ni « Turbine » ni plage visee).
+function nullSeries(n) { return new Array(n).fill(null); }
+function resSubject(r) {
+  const n = D.timestamps.length;
+  let mxA = 0; for (const v of (r.apports || [])) if (v != null && v > mxA) mxA = v;
+  return {
+    isRes: true, id: 'res:' + r.nom, nom: RES_LABELS[r.nom] || r.nom,
+    debits: r.devs, turbs: nullSeries(n), devs: r.devs,
+    apports: r.apports, maxApport: mxA || null, zoneMeteo: r.zoneMeteo,
+    man: r.man, dFin: r.dFin, raw: r
+  };
+}
+function resIndex() { return D.reservoirs ? D.reservoirs.findIndex(r => r.nom === selResNom) : -1; }
+function curSubj() {
+  if (tab === 'reservoirs') { const k = resIndex(); if (k >= 0) return resSubject(D.reservoirs[k]); }
+  return D.centrales[selectedIdx];
+}
+// Remplissage (% de la plage d'exploitation) : MEME calcul que resFillPct() du bureau. Le niveau publie est une cote absolue,
+// donc comparer 418 m a 161 m ne dit rien : on le ramene au marnage. null si le marnage est inconnu.
+function resFillPct(r, niv) {
+  if (niv == null || r.fillZero == null || r.fillSpan == null || r.fillSpan <= 0) return null;
+  return Math.max(0, Math.min(110, (niv - r.fillZero) / r.fillSpan * 100));
+}
+// Echelle du deverse d'un reservoir (m3/s) : les paliers de 200 des centrales ecraseraient une courbe qui plafonne a 20-100.
+// L'axe part de 0 et une graduation tombe tous les RES_ECHELLE_PAS m3/s (25 par defaut). Hors regle des 200 m3/s (qui vise le
+// debit total des CENTRALES). Meme valeur dans le gabarit bureau (modale du reservoir et « toutes les centrales »).
+// PLANCHER au sommet (RES_ECHELLE_MIN) : sans lui, un deverse de 3 a 4 m3/s (Cinconsine) donnerait un axe de 0 a 5 et un saut de
+// 1 m3/s occuperait 1/5 de la hauteur, alors que la detection ne l'estime pas significatif.
+const RES_ECHELLE_MIN = 20;   // config/vannes.json > detection_reservoirs.echelle_min_m3s (injecte au rendu)
+const RES_ECHELLE_PAS = 25;   // config/vannes.json > detection_reservoirs.echelle_pas_m3s (injecte au rendu)
+function resDebitScale(maxVal) {
+  const need = Math.max(RES_ECHELLE_MIN, +maxVal || 0) * 1.05;
+  const n = Math.max(1, Math.ceil(need / RES_ECHELLE_PAS));
+  return { step: RES_ECHELLE_PAS, n: n, yMax: RES_ECHELLE_PAS * n };
+}
 // Echelle du DEBIT TOTAL (m3/s), MEME regle pour tous les graphiques de debit total, bureau et mobile : l'axe part de 0 et son
 // maximum est un MULTIPLE DE 200 (dynamique : il suit les donnees, mais par paliers de 200 au lieu de valeurs quelconques comme
 // 454 ou 1 187). Graduations tous les `step` m3/s : 200 normalement ; 400, 600... quand il y en aurait plus de 8, pour garder
@@ -478,6 +514,11 @@ function trimView(view, n) {
       c.man = c.man.filter(m => m[0] >= start).map(m => [m[0] - start].concat(m.slice(1)));
     }
   });
+  // Reservoirs : memes series alignees sur timestamps (niveaux, deverse, apport) et memes manoeuvres.
+  (view.reservoirs || []).forEach(r => {
+    ['niveaux','devs','apports'].forEach(k => { if (Array.isArray(r[k])) r[k] = r[k].slice(start); });
+    if (Array.isArray(r.man)) r.man = r.man.filter(m => m[0] >= start).map(m => [m[0] - start].concat(m.slice(1)));
+  });
   // Meme raison pour la meteo, indexee [frame][zone] et donc alignee sur timestamps.
   if (view.meteo && Array.isArray(view.meteo.frames)) {
     view.meteo.frames = view.meteo.frames.slice(start);
@@ -510,6 +551,17 @@ function mergeHoraire(prev, curr) {
       });
     })
   };
+  // Reservoirs : meme fusion, appariee par NOM (pas d'identifiant HQ dans le JSON des reservoirs).
+  if (curr.reservoirs) {
+    const off = prev.timestamps.length;
+    merged.reservoirs = curr.reservoirs.map(cr => {
+      const pr = (prev.reservoirs || []).find(p => p.nom === cr.nom);
+      const pad = pr ? null : new Array(off).fill(null);
+      const j = k => (pr ? (pr[k] || new Array(off).fill(null)) : pad).concat(cr[k] || []);
+      const man = ((pr && pr.man) || []).concat((cr.man || []).map(m => [m[0] + off].concat(m.slice(1))));
+      return Object.assign({}, cr, { niveaux: j('niveaux'), devs: j('devs'), apports: j('apports'), man: man });
+    });
+  }
   // Meteo : concatener aussi les frames, sinon la serie de pluie est plus courte
   // que timestamps apres la fusion et se retrouve decalee. Si le mois precedent
   // n'a pas de meteo, on rembourre avec des frames nulles de la bonne longueur.
@@ -583,6 +635,11 @@ async function init() {
     if (selectedIdx < 0) selectedIdx = views.horaire.centrales.findIndex(c => c.id === FALLBACK_ID);
     if (selectedIdx < 0) selectedIdx = 0;
 
+    // Dernier reservoir consulte (onglet Reservoirs) ; repli sur Gouin. L'onglet actif, lui, est toujours Centrales a l'ouverture.
+    let savedRes = null; try { savedRes = localStorage.getItem(STORE_KEY_RES); } catch (e) {}
+    const resNoms = (views.horaire.reservoirs || []).map(r => r.nom);
+    selResNom = resNoms.includes(savedRes) ? savedRes : (resNoms.includes(RES_FALLBACK) ? RES_FALLBACK : (resNoms[0] || null));
+
     // Vue Heure seule : plus de selecteur de periode (les vues Jour et Semaine ne sont plus offertes sur mobile).
     setPeriode('horaire');
 
@@ -655,6 +712,29 @@ function setPeriode(key) {
 function buildChips() {
   const nav = document.getElementById('chips');
   nav.innerHTML = '';
+  document.getElementById('tabNC').textContent = D.centrales.length;
+  document.getElementById('tabNR').textContent = (D.reservoirs || []).length;
+  document.getElementById('tabs').classList.toggle('res', tab === 'reservoirs');
+  document.querySelectorAll('#tabs button').forEach(b => {
+    b.classList.toggle('on', b.dataset.t === tab);
+    b.setAttribute('aria-selected', b.dataset.t === tab ? 'true' : 'false');
+  });
+  if (tab === 'reservoirs') {
+    // Onglet Reservoirs : carres bleus, 2 lettres, nord -> sud. Un reservoir inconnu de RES_ORDER est ajoute en fin.
+    const noms = (D.reservoirs || []).map(r => r.nom);
+    const ordR = RES_ORDER.filter(n => noms.includes(n)).concat(noms.filter(n => !RES_ORDER.includes(n)));
+    ordR.forEach(nom => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip res';
+      btn.dataset.nom = nom;
+      btn.textContent = RES_CODES[nom] || nom.slice(0, 2).toUpperCase();
+      btn.setAttribute('aria-label', RES_LABELS[nom] || nom);
+      btn.addEventListener('click', () => selectRes(nom));
+      nav.appendChild(btn);
+    });
+    return;
+  }
   // On respecte l'ordre amont->aval defini dans ORDER, en ne gardant que celles presentes.
   const byId = {};
   D.centrales.forEach((c, i) => { byId[c.id] = i; });
@@ -678,13 +758,63 @@ function buildChips() {
 function selectIdx(idx) {
   selectedIdx = idx;
   bigScrollReset = true;
+  sumReset = true;
   const c = D.centrales[idx];
-  localStorage.setItem(STORE_KEY, c.id);
+  try { localStorage.setItem(STORE_KEY, c.id); } catch (e) {}
   render();
 }
+function selectRes(nom) {
+  selResNom = nom;
+  bigScrollReset = true;
+  sumReset = true;
+  try { localStorage.setItem(STORE_KEY_RES, nom); } catch (e) {}
+  render();
+}
+// Bascule d'onglet. Le filtre de variation est propre a chaque type : 50 m3/s pour les centrales (comme avant) ; « Toutes »
+// pour les reservoirs, dont le deverse depasse rarement 100 m3/s (un filtre de 50 cacherait presque toutes leurs variations).
+function setTab(t) {
+  if (t === tab || !D) return;
+  tab = t;
+  varMinSel.value = (t === 'reservoirs') ? '0' : '50';
+  bigScrollReset = true;
+  sumReset = true;
+  buildChips();
+  render();
+  const sel = document.querySelector('.chip.sel');
+  if (sel) sel.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
+}
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.t)));
 
 // --- Render etiquette + graphique ---
+// Fiche d'un reservoir : seulement deux attributs pour l'instant (deverse, remplissage), memes icones que le bureau.
+function renderRes() {
+  const r = D.reservoirs[resIndex()];
+  document.querySelectorAll('.chip').forEach(btn => btn.classList.toggle('sel', btn.dataset.nom === r.nom));
+  const lab = document.getElementById('label');
+  lab.classList.remove('status-vert','status-jaune','status-orange','status-rouge');
+  lab.classList.add('res');
+  const eDev = effectiveAt(r.devs, frame);
+  const eNiv = effectiveAt(r.niveaux, frame);
+  const pct = resFillPct(r, eNiv.v);
+  // Marnage inconnu : repli sur le niveau en metres (comme l'etiquette du bureau).
+  const fillTxt = pct != null
+    ? '<span class="val">' + Math.round(pct) + '</span><span class="unit">% de remplissage</span>'
+    : '<span class="val">' + (eNiv.v != null ? String(eNiv.v.toFixed(2)).replace('.', ',') : '—') + '</span><span class="unit">m (niveau)</span>';
+  lab.innerHTML =
+    '<div class="row"><div class="nom">' + escapeHtml(RES_LABELS[r.nom] || r.nom) + '</div></div>' +
+    '<div class="line' + (eDev.stale ? ' stale' : '') + '">' +
+      '<span class="ico"><img src="assets/icons/deverse.png" alt=""></span>' +
+      '<span class="val">' + fmtInt(eDev.v) + '</span><span class="unit">m³/s déversé</span>' +
+    '</div>' +
+    '<div class="line' + (eNiv.stale ? ' stale' : '') + '">' +
+      '<span class="ico"><img src="assets/icons/niveau.png" alt=""></span>' + fillTxt +
+    '</div>';
+  drawActive();
+}
+
 function render() {
+  if (tab === 'reservoirs' && resIndex() >= 0) { renderRes(); return; }
+  document.getElementById('label').classList.remove('res');
   const c = D.centrales[selectedIdx];
   const i = frame;
   const debCur = c.debits[i];
@@ -821,9 +951,12 @@ function varChain(c, mn, mode) {
   return out;
 }
 
+// Libelle d'un palier de l'axe des debits : entier, sauf palier inferieur a 1 m3/s (petits deversements de reservoir).
+function fmtAxisDebit(v, step) { return (step < 1 ? v.toFixed(1).replace('.', ',') : String(Math.round(v))) + ' m³/s'; }
 function drawBigChart() {
-  if (selectedIdx < 0 || !D) return;
-  const c = D.centrales[selectedIdx];
+  if (!D || (tab === 'centrales' && selectedIdx < 0)) return;
+  const c = curSubj();
+  if (!c) return;
   const arr = c.debits;
   // Panneau Variations. Le conteneur est agrandi AVANT toute mesure de hauteur.
   const varOnM = Array.isArray(c.man);
@@ -964,15 +1097,14 @@ function drawBigChart() {
   ax.fillStyle = '#fff';
   ax.fillRect(0, 0, pad.l, h);
   ax.fillRect(viewW - pad.r, 0, pad.r, h);
-  // Decalage du canvas defilant quand il est cale sur la fin (position d'ouverture) :
-  // sert a placer les legendes de #axisCv d'apres les donnees alors visibles.
+  // Decalage maximal du canvas defilant : position d'ouverture, cale sur la fin (donnees recentes).
   const maxScroll = Math.max(0, cssW - viewW);
-  const xOfView = i => xOf(i) - maxScroll;
 
   // Deux panneaux empiles : DEBITS (2/3) en haut, PLUIE (1/3) en bas, axe X partage.
   // Meme structure que la modale du template bureau (hydrogramme + hyetogramme) :
   // la pluie est en mm, la superposer aux debits imposerait une echelle croisee.
   const plM = pluieSerie(c.zoneMeteo);
+  const rainLgRow = [];   // entrees de legende pluie / apport : ajoutees a la rangee HTML (#debitLegend) en fin de fonction
   const rainH = plM ? (splitM ? 0.40 : 0.33) : 0;
   const rainGap = plM ? (varOnM ? 32 : 26) : 0;   // plus serre qu'au bureau : hauteur ecran limitee (32 : l'heure des variations passe dans cet espace)
   const varH = varOnM ? 96 : 0, varGap = varOnM ? 22 : 0;
@@ -984,7 +1116,7 @@ function drawBigChart() {
   for (const v of c.debits) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const dScale = debitScale(yMaxRaw), yMax = dScale.yMax;   // multiple de 200 m3/s (plancher 200), cf. debitScale
+  const dScale = c.isRes ? resDebitScale(yMaxRaw) : debitScale(yMaxRaw), yMax = dScale.yMax;   // centrales : multiple de 200 m3/s (plancher 200), cf. debitScale ; reservoirs : paliers 1-2-5
   const totalH = h - pad.t - pad.b;
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
@@ -1005,7 +1137,7 @@ function drawBigChart() {
   for (let k = 0; k <= dScale.n; k++) {
     const v = k * dScale.step, y = yOf(v);
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    ax.fillText(Math.round(v) + ' m³/s', pad.l - 6, y);
+    ax.fillText(fmtAxisDebit(v, dScale.step), pad.l - 6, y);
   }
   // Pointilles verticaux entre les jours (vues Heure et Jour) : a mi-chemin entre le dernier point d'un jour et le
   // premier du suivant. Un meme jeu de x pour les trois panneaux (debits, variations, pluie), trace entre y0 et y1.
@@ -1130,7 +1262,7 @@ function drawBigChart() {
 
   // Couleur de la courbe debit total = statut courant (ratio min/max).
   const dCur = arr[frame];
-  const stroke = '#555';   // courbe du debit total : gris neutre, sans seuil de couleur (comme le bureau)
+  const stroke = c.isRes ? SERIES.deverse.solid : '#555';   // debit total : gris neutre, sans seuil de couleur (comme le bureau) ; reservoir : bleu fonce du deverse (comme sa modale au bureau)
   const turbCol = SERIES.turbine.line;
   const devCol  = SERIES.deverse.line;
 
@@ -1262,15 +1394,21 @@ function drawBigChart() {
       }
     }
     cx.restore();
-    let mxL = 1; for (const it of items) mxL = Math.max(mxL, it.lT + it.lD);
+    // Centrales : la bande donne le NIVEAU atteint apres la variation (turbine + deverse empiles). Reservoirs (pas de turbine) : la
+    // bande donne l'AMPLEUR de la variation, |delta| (une fermeture de 92 et une ouverture de 92 ont la meme hauteur ; le sens est
+    // porte par le triangle et la couleur de la valeur). Echelle des reservoirs : plus grande variation de la fenetre + 30 %, sans
+    // arrondi (pas de graduations dans ce panneau), avec un plancher RES_ECHELLE_MIN. Meme regle que le gabarit bureau.
+    const barV = it => c.isRes ? Math.abs(it.delta) : it.lT + it.lD;   // grandeur representee par la hauteur de la bande
+    let mxL = 1; for (const it of items) mxL = Math.max(mxL, barV(it));
     const tickL = [50, 100, 200, 250, 500, 1000, 2000].find(t => mxL * 1.4 / t <= 3) || 2000;
-    const yMaxL = Math.ceil(mxL * 1.4 / tickL) * tickL;
+    const yMaxL = c.isRes ? Math.max(mxL * 1.3, RES_ECHELLE_MIN) : Math.ceil(mxL * 1.4 / tickL) * tickL;
     const YL = v => varTop + varH * (1 - v / yMaxL);
     cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
     cx.beginPath(); cx.moveTo(pad.l, YL(0)); cx.lineTo(pad.l + innerW, YL(0)); cx.stroke();
     drawDaySeps(varTop, varTop + varH);
     cx.save(); cx.beginPath(); cx.rect(pad.l, varTop - 18, innerW, varH + 18 + 16); cx.clip();
     for (const it of items) {
+      if (c.isRes) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, YL(barV(it)), it.bw, Math.max(1, varH * barV(it) / yMaxL)); continue; }
       cx.fillStyle = SERIES.turbine.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT), it.bw, Math.max(0, varH * it.lT / yMaxL));
       if (it.lD > 0.5) { cx.fillStyle = SERIES.deverse.line; cx.fillRect(it.x - it.bw / 2, YL(it.lT + it.lD), it.bw, Math.max(1, varH * it.lD / yMaxL)); }
     }
@@ -1278,7 +1416,7 @@ function drawBigChart() {
     // suivante est decalee vers le haut sur une autre rangee (3 rangees), au lieu d'etre omise.
     const lastXr = [-1e9, -1e9, -1e9]; let lastXh = -1e9;
     for (const it of items) {
-      const up = it.delta >= 0, yb = Math.max(varTop + 26, YL(it.lT + it.lD) - 5);
+      const up = it.delta >= 0, yb = Math.max(varTop + 26, YL(barV(it)) - 5);
       const txt = (it.delta > 0 ? '+' : '−') + Math.abs(Math.round(it.delta));
       cx.font = 'bold 4px "Segoe UI",Arial';
       const tw = cx.measureText(txt).width;
@@ -1479,57 +1617,18 @@ function drawBigChart() {
       cx.fillStyle = SERIES.apport.line;
       for (const [d, v] of apDay) { const hh = Math.min(1, v / yTopA) * apInnerH; cx.fillRect(dayCtr.get(d) - BWD / 2, aBase - hh, BWD, hh); }
     }
-    if (!varOnM) {   // avec les variations : plus de legende pour la pluie (le titre du graphique suffit)
-    // Legende encadree, coin choisi dynamiquement pour ne pas couvrir les series.
-    ax.font = '6px "Segoe UI",Arial';
-    // Une entree par FORME (barres / courbe / stem), suffixee du cote de l'axe quand
-    // les deux echelles coexistent — sinon rien ne dit laquelle lire pour quelle
-    // serie. Suffixes abreges ('g.' / 'd.') : la largeur d'ecran est limitee.
-    const sfxLm = apInRain ? ' (mm)' : '';
-    const lgM = [];
-    if (plM.hVals) {
-      lgM.push({ c: SERIES.pluie.line,  t: 'Pluie tombée' + sfxLm });
-      if (!varOnM) lgM.push({ c: SERIES.pluie.solid, t: 'Cumul 24 h' + sfxLm, line: true });   // pas de cumul avec les variations (comme au bureau)
-    } else {
-      lgM.push({ c: SERIES.pluie.line, t: 'Pluie 24 h' + sfxLm });
-    }
-    if (apInRain) lgM.push({ c: SERIES.apport.line, t: 'Apport naturel (m³/s)' });
-    const swW2 = 18, swH2 = 6, pX = 6, pY = 5;
-    let lgWm = 0;
-    for (const it of lgM) lgWm = Math.max(lgWm, ax.measureText(it.t).width);
-    const bw = lgWm + swW2 + 6 + 2 * pX;
-    const bh = 9 * lgM.length + 2 * pY;
-    const rYOf = v => base - Math.min(1, v / yTopM) * rainInnerH;
-    // Les deux series sont passees a pickCorner (l'apport ramene sur l'echelle de la
-    // pluie) pour que le cadre evite aussi les stems d'apport.
-    const seriesM = [plM.vals];
-    if (hasApportM && apTopM > 0) seriesM.push(c.apports.map(v => (v == null ? null : v / apTopM * yTopM)));
-    // Legendes sur #axisCv (fixes) : coin choisi d'apres la portion visible a
-    // l'ouverture, c.-a-d. le graphe cale sur la fin (xOfView).
-    const coP = pickCorner({ x0: pad.l, y0: topY, w: innerWView, h: rainInnerH },
-                           bw, bh, seriesM, rYOf, xOfView, null);
-    ax.fillStyle = 'rgba(255,255,255,.85)';
-    ax.fillRect(coP.x, coP.y, bw, bh);
-    ax.strokeStyle = '#dde'; ax.lineWidth = 1;
-    ax.strokeRect(coP.x, coP.y, bw, bh);
-    ax.textAlign = 'left'; ax.textBaseline = 'top';
-    for (let k = 0; k < lgM.length; k++) {
-      const yk = coP.y + pY + k * 9;
-      const itM = lgM[k];
-      if (itM.line) {
-        // Echantillon en TRAIT : il doit ressembler a la courbe qu'il designe.
-        ax.strokeStyle = itM.c; ax.lineWidth = 1.3;
-        ax.beginPath();
-        ax.moveTo(coP.x + pX, yk + 1 + swH2 / 2);
-        ax.lineTo(coP.x + pX + swW2, yk + 1 + swH2 / 2);
-        ax.stroke();
+    if (!varOnM) {   // avec les variations : pas de legende pour la pluie (le titre du panneau suffit)
+      // Sans panneau Variations : la legende de la pluie et de l'apport rejoint la RANGEE HTML au-dessus du graphique (voir
+      // #debitLegend plus bas), comme celle des debits : plus de cadre dessine dans le graphique. Une entree par FORME (barres /
+      // courbe / stem), suffixee du cote de l'axe quand les deux echelles coexistent.
+      const sfxLm = apInRain ? ' (mm)' : '';
+      if (plM.hVals) {
+        rainLgRow.push({ c: SERIES.pluie.line,  t: 'Pluie tombée' + sfxLm });
+        rainLgRow.push({ c: SERIES.pluie.solid, t: 'Cumul 24 h' + sfxLm, line: true });
       } else {
-        ax.fillStyle = itM.c;
-        ax.fillRect(coP.x + pX, yk + 1, swW2, swH2);
+        rainLgRow.push({ c: SERIES.pluie.line, t: 'Pluie 24 h' + sfxLm });
       }
-      ax.fillStyle = '#333';
-      ax.fillText(itM.t, coP.x + pX + swW2 + 6, yk);
-    }
+      if (apInRain) rainLgRow.push({ c: SERIES.apport.line, t: 'Apport naturel (m³/s)' });
     }
   }
 
@@ -1538,7 +1637,7 @@ function drawBigChart() {
   if (plM) {
     ax.fillStyle = '#1a1a2e'; ax.font = 'bold 11px "Segoe UI",Arial';
     ax.textAlign = 'left'; ax.textBaseline = 'top';
-    ax.fillText('Débits (m³/s)', pad.l, pad.t + 1);
+    ax.fillText(c.isRes ? 'Déversé (m³/s)' : 'Débits (m³/s)', pad.l, pad.t + 1);
   }
 
   // Legende du panneau des debits : rangee HTML horizontale FIXE, sous le selecteur de
@@ -1548,11 +1647,14 @@ function drawBigChart() {
   // le panneau du bas, qui a sa propre legende.
   {
     const sw = (col, txt) => '<span class="lg"><span class="sw" style="background:' + col + '"></span>' + txt + '</span>';
-    let lg = sw(stroke, 'Débit total') + sw(turbCol, 'Turbiné');
+    // Reservoir : une seule courbe, le deverse (pas de turbine, donc ni « Debit total » ni « Turbine »)
+    let lg = c.isRes ? sw(stroke, 'Déversé') : sw(stroke, 'Débit total') + sw(turbCol, 'Turbiné');
     // Avec les variations : « Déversé » seulement s'il y en a, + ligne ▲ ouverture / ▼ fermeture (comme au bureau)
-    if (!varOnM || (c.devs || []).some(v => v > 0.5)) lg += sw(devCol, 'Déversé');
+    if (!c.isRes && (!varOnM || (c.devs || []).some(v => v > 0.5))) lg += sw(devCol, 'Déversé');
     if (plageHas(c.nom)) lg += '<span class="lg"><span class="sw zone"></span>' + PLAGE_LABEL + '</span>';
     if (varOnM) lg += '<span class="lg"><span style="color:#d9640a">▲</span> ouverture · <span style="color:#1d5e8c">▼</span> fermeture</span>';
+    // Sans panneau Variations : pluie et apport rejoignent la meme rangee (ils avaient un cadre dans le graphique)
+    for (const it of rainLgRow) lg += '<span class="lg"><span class="sw"' + (it.line ? ' style="height:3px;background:' + it.c + '"' : ' style="background:' + it.c + '"') + '></span>' + it.t + '</span>';
     document.getElementById('debitLegend').innerHTML = lg;
   }
 
@@ -1584,15 +1686,27 @@ function niceStep(raw) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
 }
 function drawSummary() {
-  if (!D || selectedIdx < 0) return;
-  const c = D.centrales[selectedIdx], arr = c.debits || [], n = D.timestamps.length;
+  if (!D || (tab === 'centrales' && selectedIdx < 0)) return;
+  const c = curSubj();
+  if (!c) return;
+  const arr = c.debits || [], n = D.timestamps.length;
+  const lineCol = c.isRes ? SERIES.deverse.solid : SUM.line;   // reservoir : bleu fonce du deverse (comme le Detaille)
   const viewW = sumBox.clientWidth, boxH = sumBox.clientHeight;
   if (!viewW || !boxH || !n) return;
   const H = boxH - 12;                                  // 12 px du bas : barre de defilement
   const cx = sumCv.getContext('2d');
-  // Marges : memes regles que le Detaille (marge gauche d'apres le libelle le plus large « 0000 m³/s » a 8 px)
+  // Reservoir : 2e courbe, le REMPLISSAGE (% de la plage d'exploitation, meme calcul que la fiche), sur un axe a DROITE de 0 a
+  // 100 % (graduation 25 ; 125 % si le reservoir depasse son marnage habituel, ex. Mekinac). Un pourcentage de niveau, pas de volume.
+  let fillArr = null, fillTop = 100;
+  if (c.isRes && c.raw && c.raw.fillZero != null && c.raw.fillSpan > 0) {
+    fillArr = c.raw.niveaux.map(v => resFillPct(c.raw, v));
+    for (const v of fillArr) if (v != null && v > 100) { fillTop = 125; break; }
+  }
+  // Marges : memes regles que le Detaille (marge gauche d'apres le libelle le plus large « 0000 m³/s » a 8 px) ; a droite, la place
+  // des libelles « 100 % » quand le remplissage est trace
   cx.font = '8px "Segoe UI",Arial';
-  const padL = Math.ceil(cx.measureText('0000 m³/s').width) + 8, padR = 8, padT = 8, padB = 30;
+  const padL = Math.ceil(cx.measureText('0000 m³/s').width) + 8, padT = 8, padB = 30;
+  const padR = fillArr ? Math.ceil(cx.measureText('125 %').width) + 10 : 8;
   const plotW = viewW - padL - padR, plotH = H - padT - padB;
   // Temps de chaque point. Un horodatage repete (heure doublee au passage a l'heure normale) est ignore ;
   // msF = temps « comble » (le point ignore reprend celui d'avant) pour les trace indexes par frame.
@@ -1617,11 +1731,12 @@ function drawSummary() {
   // donc fixe pendant le defilement.
   let yMaxRaw = 1;
   ['debits', 'turbs', 'devs'].forEach(k => { for (const v of (c[k] || [])) if (v != null && v > yMaxRaw) yMaxRaw = v; });
-  const dScale = debitScale(yMaxRaw), yMin = 0, yMax = dScale.yMax;
+  const dScale = c.isRes ? resDebitScale(yMaxRaw) : debitScale(yMaxRaw), yMin = 0, yMax = dScale.yMax;
   const xOf = t => padL + (t - t0) * pxPerMs, yOf = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
   // Legende : meme rangee HTML que le Detaille, limitee a ce que le Sommaire trace (debit total + plage visee)
   document.getElementById('debitLegend').innerHTML =
-    '<span class="lg"><span class="sw" style="background:#555"></span>Débit total</span>' +
+    '<span class="lg"><span class="sw" style="background:' + lineCol + '"></span>' + (c.isRes ? 'Déversé' + (fillArr ? ' (éch. gauche)' : '') : 'Débit total') + '</span>' +
+    (fillArr ? '<span class="lg"><span class="sw" style="height:3px;background:' + SERIES.remplissage.line + '"></span>Remplissage (%, éch. droite)</span>' : '') +
     (plageHas(c.nom) ? '<span class="lg"><span class="sw zone"></span>' + PLAGE_LABEL + '</span>' : '');
   // Canvas
   const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -1633,7 +1748,16 @@ function drawSummary() {
   for (let k = 0; k <= dScale.n; k++) {
     const v = k * dScale.step, y = yOf(v);
     cx.strokeStyle = SUM.grid; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(padL + plotW, y); cx.stroke();
-    cx.fillStyle = SUM.text; cx.fillText(Math.round(v) + ' m³/s', padL - 6, y);
+    cx.fillStyle = SUM.text; cx.fillText(fmtAxisDebit(v, dScale.step), padL - 6, y);
+  }
+  // Axe de DROITE : remplissage en %, teinte de sa courbe (pas de grille propre : elle suit celle du deverse)
+  if (fillArr) {
+    cx.textAlign = 'left'; cx.textBaseline = 'middle';
+    for (let p = 0; p <= fillTop; p += 25) {
+      const y = padT + (1 - p / fillTop) * plotH;
+      cx.strokeStyle = SERIES.remplissage.line; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(padL + plotW, y); cx.lineTo(padL + plotW + 3, y); cx.stroke();
+      cx.fillStyle = SERIES.remplissage.solid; cx.fillText(p + ' %', padL + plotW + 5, y);
+    }
   }
   // Plage visee de la saison (zone verte pale), derriere la courbe, comme le Detaille
   drawPlageDebit(cx, c.nom, n, k => D.timestamps[k], k => xOf(msF[k]), yOf, padL, padL + plotW, padT, padT + plotH);
@@ -1647,9 +1771,33 @@ function drawSummary() {
     cx.strokeStyle = SUM.tick; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(x, padT + plotH); cx.lineTo(x, padT + plotH + 4); cx.stroke();
     cx.fillText(String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + String(d.getUTCDate()).padStart(2, '0'), x, padT + plotH + 8);
   }
+  // Courbe du REMPLISSAGE (reservoir), en arriere-plan de la courbe du deverse, interrompue aux valeurs manquantes ; valeur finale ecrite
+  if (fillArr) {
+    const yF = v => padT + (1 - v / fillTop) * plotH;
+    cx.save(); cx.beginPath(); cx.rect(padL, padT, plotW, plotH); cx.clip();
+    cx.strokeStyle = SERIES.remplissage.line; cx.lineWidth = 2; cx.lineJoin = 'round'; cx.beginPath();
+    let penF = false, lastF = -1;
+    for (let i = 0; i < n; i++) {
+      if (ms[i] == null) continue;
+      const v = fillArr[i];
+      if (v == null) { penF = false; continue; }
+      const x = xOf(ms[i]), y = yF(v);
+      if (penF) cx.lineTo(x, y); else { cx.moveTo(x, y); penF = true; }
+      lastF = i;
+    }
+    cx.stroke();
+    if (lastF >= 0) {
+      const x = xOf(ms[lastF]), y = yF(fillArr[lastF]), txt = Math.round(fillArr[lastF]) + ' %';
+      cx.fillStyle = SERIES.remplissage.solid; cx.beginPath(); cx.arc(x, y, 3, 0, 6.3); cx.fill();
+      cx.font = 'bold 8px "Segoe UI",Arial'; cx.textAlign = 'right'; cx.textBaseline = 'bottom';
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, Math.min(x + 8, padL + plotW - 2), y - 6);
+      cx.fillStyle = SERIES.remplissage.solid; cx.fillText(txt, Math.min(x + 8, padL + plotW - 2), y - 6);
+    }
+    cx.restore();
+  }
   // Courbe du debit total (meme gris et meme epaisseur que le Detaille), interrompue aux valeurs manquantes
   cx.save(); cx.beginPath(); cx.rect(padL, padT, plotW, plotH); cx.clip();
-  cx.strokeStyle = SUM.line; cx.lineWidth = 2.4; cx.lineJoin = 'round'; cx.beginPath();
+  cx.strokeStyle = lineCol; cx.lineWidth = 2.4; cx.lineJoin = 'round'; cx.beginPath();
   let pen = false;
   for (let i = 0; i < n; i++) {
     if (ms[i] == null) continue;
@@ -1674,7 +1822,7 @@ function drawSummary() {
       cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, x, below ? y + 6 : y - 6);
       cx.fillStyle = '#222'; cx.fillText(txt, x, below ? y + 6 : y - 6);
     };
-    for (const it of items) { cx.fillStyle = SUM.line; cx.beginPath(); cx.arc(it.x, yOf(it.lv), 3, 0, 6.3); cx.fill(); }
+    for (const it of items) { cx.fillStyle = lineCol; cx.beginPath(); cx.arc(it.x, yOf(it.lv), 3, 0, 6.3); cx.fill(); }
     const ext = new Map();
     for (const it of items) {
       const e = ext.get(it.day);
@@ -1697,7 +1845,7 @@ function drawSummary() {
     if (c.dFin != null && (lastLv == null || Math.round(c.dFin) !== Math.round(lastLv)) && endX <= padL + plotW + 1) {
       const y = yOf(c.dFin), txt = String(Math.round(c.dFin)), tw = cx.measureText(txt).width;
       const pv = items.length ? items[items.length - 1] : null, close = !!pv && (endX - pv.x) < tw + 4;
-      cx.fillStyle = SUM.line; cx.beginPath(); cx.arc(endX, y, 3, 0, 6.3); cx.fill();
+      cx.fillStyle = lineCol; cx.beginPath(); cx.arc(endX, y, 3, 0, 6.3); cx.fill();
       cx.textAlign = 'right'; cx.textBaseline = close ? 'top' : 'bottom';
       const lbX = Math.min(endX + 8, padL + plotW - 2);
       cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txt, lbX, close ? y + 6 : y - 6);
@@ -1706,9 +1854,10 @@ function drawSummary() {
     cx.restore();
   }
 }
-// Bascule Sommaire | Detaille (memorisee sur l'appareil ; le Sommaire est la vue par defaut)
+// Bascule Sommaire | Detaille. Le Sommaire est TOUJOURS la vue par defaut : a l'ouverture ET a chaque retour dans
+// l'application (voir resetToSummary plus bas). Le choix n'est donc plus memorise ; l'ancienne clef est purgee.
 let viewMode = 'sommaire';
-try { const sv = localStorage.getItem('hq-mobile-vue'); if (sv === 'detail' || sv === 'sommaire') viewMode = sv; } catch (e) {}
+try { localStorage.removeItem('hq-mobile-vue'); } catch (e) {}
 function applyViewMode() {
   document.getElementById('chartWrap').classList.toggle('mode-sum', viewMode === 'sommaire');
   document.querySelectorAll('#viewTog button').forEach(b => b.classList.toggle('on', b.dataset.v === viewMode));
@@ -1717,7 +1866,6 @@ function drawActive() { if (viewMode === 'sommaire') drawSummary(); else drawBig
 document.querySelectorAll('#viewTog button').forEach(b => b.addEventListener('click', () => {
   if (viewMode === b.dataset.v) return;
   viewMode = b.dataset.v;
-  try { localStorage.setItem('hq-mobile-vue', viewMode); } catch (e) {}
   applyViewMode();
   if (viewMode === 'detail') bigScrollReset = true;
   if (D) drawActive();
@@ -1735,6 +1883,17 @@ sumScroll.addEventListener('scroll', () => {
 }, { passive: true });
 if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (viewMode === 'sommaire' && D) drawSummary(); }).observe(sumBox);
 applyViewMode();
+// Retour dans l'application (onglet re-affiche, focus rendu, reprise d'une PWA gelee / bfcache) : on revient au Sommaire.
+// Memes declencheurs que le re-fetch automatique (une PWA ne declenche pas toujours 'visibilitychange').
+function resetToSummary() {
+  if (document.visibilityState === 'hidden' || viewMode === 'sommaire') return;
+  viewMode = 'sommaire';
+  applyViewMode();
+  if (D) drawActive();
+}
+document.addEventListener('visibilitychange', resetToSummary);
+window.addEventListener('focus', resetToSummary);
+window.addEventListener('pageshow', resetToSummary);
 
 // Redessine sur rotation / resize
 let resizeTimer = null;
