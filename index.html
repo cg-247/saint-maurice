@@ -478,9 +478,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.22.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.22.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:09</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:44</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -3156,6 +3156,7 @@ function draw(i) {
       // Garder 0 comme borne basse si toutes les series sont positives — sinon
       // les courbes deverse (souvent ~0) seraient ecrasees au bas de l'axe.
       if (yMinC > 0) yMinC = 0;
+      yMaxC = debitScale(yMaxC).yMax;   // sommet de l'axe = multiple de 200 m3/s, comme les autres graphiques de debit total
       if (plotH > 6 && plotW > 10 && yMaxC > yMinC) {
         const range = yMaxC - yMinC;
         const yOf = v => plotY + plotH - ((v - yMinC) / Math.max(range, 1)) * plotH;
@@ -4864,6 +4865,20 @@ function yRef30(c0, last) {
   return m;
 }
 
+// Echelle du DEBIT TOTAL (m3/s), MEME regle pour tous les graphiques de debit total, bureau et mobile : l'axe part de 0 et son
+// maximum est un MULTIPLE DE 200 (dynamique : il suit les donnees, mais par paliers de 200 au lieu de valeurs quelconques comme
+// 454 ou 1 187). Graduations tous les `step` m3/s : 200 normalement ; 400, 600... quand il y en aurait plus de 8, pour garder
+// une grille lisible (yMax reste un multiple de `step`, donc de 200). Marge de 5 % au-dessus du maximum pour les etiquettes.
+// L'echelle est dynamique et PROPRE A CHAQUE CENTRALE (son propre maximum), arrondie par paliers de 200 m3/s.
+// ⚠ Garder alignee dans animation.html.tpl et animation-mobile.html.tpl (fichiers separes, sans module partage).
+function debitScale(maxVal) {
+  const need = Math.max(1, +maxVal || 0) * 1.05;
+  let step = 200;
+  while (Math.ceil(need / step) > 8) step += 200;
+  const n = Math.max(1, Math.ceil(need / step));
+  return { step: step, n: n, yMax: step * n };
+}
+
 function drawBigChart() {
   if (modalIdx < 0) return;
   const c0 = D.centrales[modalIdx];
@@ -5105,7 +5120,7 @@ function drawBigChartCore() {
   if (c.yRefMax != null) for (const v of c.debits) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const yMax = yMaxRaw + Math.max(50, yMaxRaw * 0.05);
+  const dScale = debitScale(yMaxRaw), yMax = dScale.yMax;   // multiple de 200 m3/s (cf. debitScale)
   // Echelle X : N frames + 3h "tampon" a droite pour laisser de la place aux labels
   const xPad = modalWin.scrollable ? 1 : 3; // frames vides a droite (fenetre defilante : 1 => N colonnes pile, bord a bord)
   const xSpan = (N - 1) + xPad;
@@ -5133,14 +5148,14 @@ function drawBigChartCore() {
     cx.fillRect(xFut, pad.t, pad.l + innerW - xFut, innerH);
   }
 
-  // Grille horizontale (5 lignes) + ticks Y
+  // Grille horizontale + ticks Y : une ligne tous les `step` m3/s (200 normalement), cf. debitScale()
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
   cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial';
   cx.textAlign = 'right'; cx.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = pad.t + (g / 5) * innerH;
+  for (let k = 0; k <= dScale.n; k++) {
+    const v = k * dScale.step, y = yOf(v);
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+    cx.fillText(Math.round(v) + ' m³/s', pad.l - 6, y);
   }
   // Titre du panneau (symetrique de celui du panneau pluie en bas). Affiche seulement
   // quand le 2e panneau existe : sans lui il n'y a rien a distinguer, et le titre de
@@ -6519,9 +6534,11 @@ function drawAll() {
     if (c._allYk !== yk) {
       let yr = yRef30(c, lastW);
       for (const v of win) { for (const a of [c.debits, c.turbs, c.devs]) { const x = a && a[v]; if (x != null && x > yr) yr = x; } }   // la fenetre peut depasser 30 jours
-      c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05);
+      // Centrales : echelle propre a la centrale, par paliers de 200 m3/s (debitScale). Reservoirs : leur courbe est le DEVERSE (pas un
+      // debit total, souvent bien inferieur a 200) : echelle dynamique d'origine, 5 intervalles egaux.
+      c._allYk = yk; c._allYmax = yr + Math.max(50, yr * 0.05); c._allScale = c._res ? null : debitScale(yr);
     }
-    const yMin = 0, yMax = c._allYmax,      // axe a partir de 0 m3/s (a 100, des points etaient caches par la zone Variations)
+    const yMin = 0, yMax = c._allScale ? c._allScale.yMax : c._allYmax,      // axe a partir de 0 m3/s (a 100, des points etaient caches par la zone Variations)
  yOf = v => debTop + (1 - (v - yMin) / (yMax - yMin)) * ALL_DEBH;
     const dCur = c.debits ? c.debits[frame] : null;
     let ratio = null; if (dCur != null && c.minTotal != null && c.maxTotal != null && c.maxTotal > c.minTotal) ratio = (dCur - c.minTotal) / (c.maxTotal - c.minTotal) * 100;
@@ -6552,10 +6569,12 @@ function drawAll() {
       cx.fillRect(xFut, debTop, ALL_PADL + innerW - xFut, ALL_DEBH);
     }
     cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1; cx.fillStyle = '#666'; cx.font = '11px "Segoe UI",Arial'; cx.textAlign = 'right'; cx.textBaseline = 'middle';
-    for (let g = 0; g <= 5; g++) {
-      const y = debTop + (g / 5) * ALL_DEBH;
+    const scAll = c._allScale, nLines = scAll ? scAll.n : 5;
+    const lblEvery = (ALL_DEBH / nLines) < 13 ? 2 : 1;   // panneau bas : si les graduations se touchent (8 lignes), un libelle sur deux ; le sommet reste etiquete
+    for (let g = 0; g <= nLines; g++) {
+      const v = scAll ? g * scAll.step : yMin + (yMax - yMin) * (g / 5), y = yOf(v);
       cx.beginPath(); cx.moveTo(ALL_PADL, y); cx.lineTo(ALL_PADL + innerW, y); cx.stroke();
-      cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', ALL_PADL - 6, y);
+      if ((nLines - g) % lblEvery === 0) cx.fillText(Math.round(v) + ' m³/s', ALL_PADL - 6, y);
     }
     if (pos.has(frame)) { cx.strokeStyle = 'rgba(200,40,40,.85)'; cx.lineWidth = 1.5; cx.beginPath(); cx.moveTo(xCur, debTop); cx.lineTo(xCur, debBot); cx.stroke(); }
     const ts0 = D.timestamps, N0 = N, f0 = frame, mh0 = modalHits;

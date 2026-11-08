@@ -177,10 +177,10 @@ footer a{color:#bcd;text-decoration:underline}
 <div id="status">Chargement des donn&eacute;es&hellip;</div>
 
 <footer>
-  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:09</span><br>
+  <span id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-07 21:44</span><br>
   <a id="link-readme" href="https://github.com/cg-247/saint-maurice#readme" target="_blank" rel="noopener">D&eacute;tails &amp; sources</a>
   &middot; <a href="mailto:charlesgauthier247@gmail.com?subject=Saint-Maurice%20%E2%80%94%20commentaire">Commentaires</a>
-  &middot; <span title="Version de la PWA install&eacute;e">v2.22.0</span>
+  &middot; <span title="Version de la PWA install&eacute;e">v2.22.1</span>
 </footer>
 
 <script>
@@ -439,6 +439,18 @@ function effectiveAt(arr, i) {
   return { v: null, stale: false };
 }
 function fmtInt(v) { return (v == null) ? '—' : Math.round(v); }
+// Echelle du DEBIT TOTAL (m3/s), MEME regle pour tous les graphiques de debit total, bureau et mobile : l'axe part de 0 et son
+// maximum est un MULTIPLE DE 200 (dynamique : il suit les donnees, mais par paliers de 200 au lieu de valeurs quelconques comme
+// 454 ou 1 187). Graduations tous les `step` m3/s : 200 normalement ; 400, 600... quand il y en aurait plus de 8, pour garder
+// une grille lisible (yMax reste un multiple de `step`, donc de 200). Marge de 5 % au-dessus du maximum pour les etiquettes.
+// ⚠ Garder alignee dans animation.html.tpl et animation-mobile.html.tpl (fichiers separes, sans module partage).
+function debitScale(maxVal) {
+  const need = Math.max(1, +maxVal || 0) * 1.05;
+  let step = 200;
+  while (Math.ceil(need / step) > 8) step += 200;
+  const n = Math.max(1, Math.ceil(need / step));
+  return { step: step, n: n, yMax: step * n };
+}
 function computeStats(arr) {
   let mn = Infinity, mx = -Infinity, sum = 0, n = 0;
   for (const v of arr) { if (v == null) continue; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; n++; }
@@ -965,14 +977,14 @@ function drawBigChart() {
   const rainGap = plM ? (varOnM ? 32 : 26) : 0;   // plus serre qu'au bureau : hauteur ecran limitee (32 : l'heure des variations passe dans cet espace)
   const varH = varOnM ? 96 : 0, varGap = varOnM ? 22 : 0;
 
-  // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse) + 5 %.
+  // Echelle Y : max combine sur les 3 series (debit total, turbine, deverse), arrondi par paliers de 200 m3/s (debitScale).
   // Echelle DYNAMIQUE : max de la periode chargee (30 jours en vue Heure), et non le max historique de la centrale
   // (c.maxTotal) qui aplatissait la courbe du mois quand une crue plus forte existe ailleurs dans l'historique.
   let yMaxRaw = 1;
   for (const v of c.debits) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.turbs) { if (v != null && v > yMaxRaw) yMaxRaw = v; }
   for (const v of c.devs)  { if (v != null && v > yMaxRaw) yMaxRaw = v; }
-  const yMax = Math.max(200, yMaxRaw + Math.max(50, yMaxRaw * 0.05));   // plancher : l'axe (qui part de 100 avec les variations) garde une etendue
+  const dScale = debitScale(yMaxRaw), yMax = dScale.yMax;   // multiple de 200 m3/s (plancher 200), cf. debitScale
   const totalH = h - pad.t - pad.b;
   const innerH = Math.round((totalH - rainGap - varH - varGap) * (1 - rainH));
   const varTop = pad.t + innerH + varGap;
@@ -985,15 +997,15 @@ function drawBigChart() {
   const yMin = 0;   // l'axe debute a 0 m3/s (comme au bureau) : a 100, des points etaient caches par la zone Variations
   const yOf = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
-  // Grille horizontale + ticks Y (5 lignes)
+  // Grille horizontale + ticks Y : une ligne tous les `step` m3/s (200 normalement), cf. debitScale()
   // (grille sur le canvas defilant, libelles sur #axisCv, fixe)
   cx.strokeStyle = '#e3e6ef'; cx.lineWidth = 1;
   ax.fillStyle = '#666'; ax.font = '8px "Segoe UI",Arial';
   ax.textAlign = 'right'; ax.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = pad.t + (g / 5) * innerH;
+  for (let k = 0; k <= dScale.n; k++) {
+    const v = k * dScale.step, y = yOf(v);
     cx.beginPath(); cx.moveTo(pad.l, y); cx.lineTo(pad.l + innerW, y); cx.stroke();
-    ax.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', pad.l - 6, y);
+    ax.fillText(Math.round(v) + ' m³/s', pad.l - 6, y);
   }
   // Pointilles verticaux entre les jours (vues Heure et Jour) : a mi-chemin entre le dernier point d'un jour et le
   // premier du suivant. Un meme jeu de x pour les trois panneaux (debits, variations, pluie), trace entre y0 et y1.
@@ -1601,11 +1613,11 @@ function drawSummary() {
   if (sumAnchor.atEnd) sumScroll.scrollLeft = maxScroll;
   else if (sumAnchor.t0 != null) sumScroll.scrollLeft = Math.max(0, Math.min(maxScroll, (sumAnchor.t0 - first) * pxPerMs));
   const t0 = first + Math.min(sumScroll.scrollLeft, maxScroll) / pxPerMs, t1 = t0 + winMs;
-  // Echelle Y : MEME regle que le Detaille (de 0 a max des 3 series sur la periode chargee + 5 %, plancher 200),
+  // Echelle Y : MEME regle que le Detaille (de 0 a max des 3 series sur la periode chargee, par paliers de 200 m3/s : debitScale),
   // donc fixe pendant le defilement.
   let yMaxRaw = 1;
   ['debits', 'turbs', 'devs'].forEach(k => { for (const v of (c[k] || [])) if (v != null && v > yMaxRaw) yMaxRaw = v; });
-  const yMin = 0, yMax = Math.max(200, yMaxRaw + Math.max(50, yMaxRaw * 0.05));
+  const dScale = debitScale(yMaxRaw), yMin = 0, yMax = dScale.yMax;
   const xOf = t => padL + (t - t0) * pxPerMs, yOf = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
   // Legende : meme rangee HTML que le Detaille, limitee a ce que le Sommaire trace (debit total + plage visee)
   document.getElementById('debitLegend').innerHTML =
@@ -1616,12 +1628,12 @@ function drawSummary() {
   sumCv.style.width = viewW + 'px'; sumCv.style.height = H + 'px';
   sumCv.width = Math.round(viewW * dpr); sumCv.height = Math.round(H * dpr);
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  // Grille horizontale + graduations Y (5 intervalles, libelles « NNN m³/s »), comme le Detaille
+  // Grille horizontale + graduations Y (une ligne tous les `step` m3/s, libelles « NNN m³/s »), comme le Detaille
   cx.font = '8px "Segoe UI",Arial'; cx.textAlign = 'right'; cx.textBaseline = 'middle';
-  for (let g = 0; g <= 5; g++) {
-    const y = padT + (g / 5) * plotH;
+  for (let k = 0; k <= dScale.n; k++) {
+    const v = k * dScale.step, y = yOf(v);
     cx.strokeStyle = SUM.grid; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(padL + plotW, y); cx.stroke();
-    cx.fillStyle = SUM.text; cx.fillText(Math.round(yMin + (yMax - yMin) * (1 - g / 5)) + ' m³/s', padL - 6, y);
+    cx.fillStyle = SUM.text; cx.fillText(Math.round(v) + ' m³/s', padL - 6, y);
   }
   // Plage visee de la saison (zone verte pale), derriere la courbe, comme le Detaille
   drawPlageDebit(cx, c.nom, n, k => D.timestamps[k], k => xOf(msF[k]), yOf, padL, padL + plotW, padT, padT + plotH);
