@@ -493,9 +493,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.23.1</span>
+    <span title="Version de la PWA install&eacute;e">v2.23.2</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-09 10:44</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-09 11:53</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
@@ -5015,8 +5015,12 @@ function drawModalVariations(cx, c, g) {
   for (const it of items) {
     const lv = it.lT + it.lD, yy = yOfDebit(lv);
     cx.fillStyle = colDebit; cx.beginPath(); cx.arc(it.x, yy, 3, 0, 6.3); cx.fill();
-    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(Math.round(lv), it.x, yy - 6);
-    cx.fillStyle = '#222'; cx.fillText(Math.round(lv), it.x, yy - 6);
+    // Etiquette centree sur le point, mais ramenee a l'interieur de la zone de trace : le clip coupe tout ce qui depasse du
+    // bord droit (ex. « 583 » du dernier point devenait « 58 »). Le point, lui, reste a sa vraie position.
+    const txtV = String(Math.round(lv)), hwV = cx.measureText(txtV).width / 2;
+    const lxV = Math.max(pad.l + 1 + hwV, Math.min(it.x, pad.l + innerW - 1 - hwV));
+    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeText(txtV, lxV, yy - 6);
+    cx.fillStyle = '#222'; cx.fillText(txtV, lxV, yy - 6);
   }
   if (endOn) {   // point final = debit reel ; etiquette sous le point si elle toucherait celle du dernier niveau
     const yy = yOfDebit(g.endV), txt = String(Math.round(g.endV)), tw = cx.measureText(txt).width;
