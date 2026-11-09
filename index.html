@@ -4,38 +4,46 @@
 <meta charset="UTF-8">
 <title>Saint-Maurice</title>
 <script>
-// Redirection mobile : si la largeur de l'ecran fait <=768px, on bascule vers la page
-// mobile. L'utilisateur peut forcer le desktop via le lien "Version bureau" depuis
-// la page mobile, qui ajoute ?desktop=1 -> on memorise ce choix dans localStorage et
-// on ne redirige plus.
+// Redirection mobile : sur un telephone (ecran physique <=768px), on bascule vers la page
+// mobile. L'utilisateur peut consulter la version bureau via le lien "Version bureau"
+// de la page mobile (?desktop=1), MAIS ce choix n'est plus memorise : il ne vaut que
+// pour la page affichee. Des que l'utilisateur quitte l'application puis y revient
+// (changement d'application, reouverture), on le ramene au mobile.
 //
-// Detection mobile : on calcule la largeur en CSS pixels independamment du navigateur.
-// - iOS Safari sans <meta viewport> : innerWidth = 980 (virtuel), screen.width = CSS pixels reels.
-// - Android Chrome sans <meta viewport> : screen.width = pixels physiques (ex. 1080 sur Galaxy S),
-//   il faut diviser par devicePixelRatio pour obtenir les CSS pixels (ex. 1080/2.625 = 411).
-// On prend le minimum des deux methodes apres normalisation -> fiable sur iOS et Android.
+// Detection : TAILLE D'ECRAN PHYSIQUE en CSS pixels, min(screen.width, screen.height)
+// (insensible a l'orientation). screen.* est deja en CSS pixels sur iOS et Android
+// modernes : ne PAS diviser par devicePixelRatio (un bureau a 200 % de mise a
+// l'echelle serait pris pour un telephone). innerWidth n'est pas utilise : en mode
+// « version bureau » d'iOS il vaut 980 meme sur un iPhone.
 (function () {
   try {
-    var params = new URLSearchParams(location.search);
-    var STORE = 'hq-prefer-desktop';
-    if (params.has('desktop')) {
-      localStorage.setItem(STORE, '1');
-      return; // pas de redirection cette fois, et plus jamais (tant que la clef existe)
+    // Nettoyage de l'ancien drapeau permanent (utilisateurs restes bloques en bureau).
+    try { localStorage.removeItem('hq-prefer-desktop'); } catch (e) {}
+    function estTelephone() {
+      var s = Math.min(screen.width || 9999, screen.height || 9999);
+      return s <= 768;
     }
-    if (localStorage.getItem(STORE) === '1') return;
-    var dpr = window.devicePixelRatio || 1;
-    var sw  = (screen.width  || 9999) / dpr;
-    var iw  = (window.innerWidth || 9999) / dpr;
-    var w   = Math.min(sw, iw);
-    if (w > 768) return;
-    // En local on a animation-centrales.html (mobile = animation-mobile.html),
-    // sur GitHub Pages on a index.html (mobile = mobile.html). Le serveur local
-    // sert animation-centrales.html aussi via "/" (path qui se termine par "/"),
-    // d'ou la double condition.
-    var p = location.pathname;
-    var isLocal = p.endsWith('animation-centrales.html') || (location.hostname === 'localhost' && p.endsWith('/'));
-    location.replace(isLocal ? 'animation-mobile.html' : 'mobile.html');
-  } catch (e) { /* localStorage indisponible (mode prive ?) : pas de redirection */ }
+    function versMobile() {
+      // En local on a animation-centrales.html (mobile = animation-mobile.html),
+      // sur GitHub Pages on a index.html (mobile = mobile.html). Le serveur local
+      // sert animation-centrales.html aussi via "/" (path qui se termine par "/"),
+      // d'ou la double condition.
+      var p = location.pathname;
+      var isLocal = p.endsWith('animation-centrales.html') || (location.hostname === 'localhost' && p.endsWith('/'));
+      location.replace(isLocal ? 'animation-mobile.html' : 'mobile.html');
+    }
+    var choixBureau = new URLSearchParams(location.search).has('desktop');
+    if (!estTelephone()) return;
+    if (!choixBureau) { versMobile(); return; }
+    // Bureau choisi sur telephone : on y reste tant que la page reste au premier plan.
+    // Au retour dans l'application (visibilitychange / pageshow depuis le cache), retour au mobile.
+    var etaitCachee = false;
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') etaitCachee = true;
+      else if (etaitCachee) versMobile();
+    });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) versMobile(); });
+  } catch (e) { /* pas de redirection */ }
 })();
 
 // Zone sure iOS (encoche + "home indicator") pour la version BUREAU consultee sur
@@ -485,9 +493,9 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.23.0</span>
+    <span title="Version de la PWA install&eacute;e">v2.23.1</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-08 17:28</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-09 07:00</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
