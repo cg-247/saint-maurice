@@ -197,6 +197,7 @@ body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;ju
 #modal-all-var{font-size:13px;color:#333;margin:2px 0 6px;flex:0 0 auto}
 #modal-all-var select{font-size:13px;padding:1px 4px;margin-left:4px}
 #modal-all-var label{margin-right:22px}
+#allEvtInfo{display:inline-block;margin-right:22px;font-size:12px;color:#5a4a9a;vertical-align:middle}   /* pic de l'evenement selectionne */
 #modal-all-var input[type=checkbox]{vertical-align:middle;margin-right:4px}
 #modal-all-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;font-size:12px;color:#333;margin:0 0 6px;flex:0 0 auto}   /* legende fixe des graphiques de debit, sous les selecteurs de variation */
 #modal-all-legend .lg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
@@ -493,16 +494,19 @@ select{padding:2px 5px;font-size:11px;line-height:1.1;height:22px;
   <div id="topRight">
     <a id="link-mobile" href="mobile.html" title="Version pour cellulaire">📱 Mobile</a>
     &middot;
-    <span title="Version de la PWA install&eacute;e">v2.23.2</span>
+    <span title="Version de la PWA install&eacute;e">v2.24.0</span>
   </div>
-  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-11 11:32</div>
+  <div id="generatedAt">Mise &agrave; jour&nbsp;: 2026-11-11 13:53</div>
 </div>
 <div id="modal-all">
   <div id="modal-all-card">
     <button id="modal-all-close" type="button" aria-label="Fermer">&times;</button>
     <div id="modal-all-title">D&eacute;bit total (nord &rarr; sud)<span id="modal-all-date"></span></div>
     <div id="modal-all-var">
-      <select id="allVariationSel" hidden><option value="manoeuvre" selected>Par heure</option></select>
+      <label>&Eacute;v&eacute;nement :
+        <select id="allEvtSel"></select>
+      </label>
+      <span id="allEvtInfo"></span>      <select id="allVariationSel" hidden><option value="manoeuvre" selected>Par heure</option></select>
       <label>Variation affich&eacute;e des centrales :
         <select id="allVariationMin"></select>
       </label>
@@ -6118,6 +6122,54 @@ const allResMinSel = document.getElementById('allResMin'), allResChk = document.
 allResMinSel.add(new Option('Toutes', 0));
 for (let v = 50; v <= 2000; v += 50) allResMinSel.add(new Option('≥ ' + v.toLocaleString('fr-CA') + ' m³/s', v));
 allResMinSel.value = '0';          // filtre propre aux reservoirs : « Toutes » les variations a l'ouverture, non conserve
+// ----- Evenements importants de la riviere (config/metadata/evenements-saint-maurice.json, injecte au rendu) -----
+// Selecteur de la modale « toutes les centrales » : « Date courante » (defaut) puis les evenements du plus recent au plus ancien
+// (d'apres le debut). Choisir un evenement centre la fenetre sur son milieu et trace, sur chaque installation touchee, une zone
+// verticale sur SA plage (debut -> fin) ; les installations non touchees recoivent une zone grise hachuree sur la plage d'ensemble.
+// « Date courante » retire les zones et recentre sur la barre rouge.
+const EVENEMENTS = [{"id":"crue-printaniere-2026","nom":"Crue printanière 2026","debut":"2026-04-13 13:00","fin":"2026-05-30 06:00","resume":"Crue longue (17 jours à plus de 2 000 m³/s à La Gabelle), pic de 2 864 m³/s le 1er mai. Grand-Mère n'atteint pas 2 800 (max 2 670).","inst":{"Cinconsine":{"d":"2026-04-15 00:00","f":"2026-05-11 18:00"},"Matawin":{"d":"2026-04-19 08:00","f":"2026-05-12 23:00"},"Mekinac":{"d":"2026-04-16 10:00","f":"2026-05-08 01:00"},"Chute-Allard":{"d":"2026-04-18 02:00","f":"2026-05-04 06:00"},"Rapides-des-Coeurs":{"d":"2026-04-19 08:00","f":"2026-05-03 16:00"},"Rapide-Blanc":{"d":"2026-04-20 01:00","f":"2026-05-11 14:00"},"Trenche":{"d":"2026-04-20 01:00","f":"2026-05-09 19:00"},"Beaumont":{"d":"2026-04-17 19:00","f":"2026-05-11 19:00"},"La Tuque":{"d":"2026-04-17 11:00","f":"2026-05-12 18:00"},"Grand-Mere":{"d":"2026-04-14 10:00","f":"2026-05-26 17:00"},"Shawinigan":{"d":"2026-04-14 10:00","f":"2026-05-30 06:00"},"La Gabelle":{"d":"2026-04-13 13:00","f":"2026-05-18 16:00"}}},{"id":"crue-aout-2026","nom":"Crue d'août 2026","debut":"2026-04-13 06:00","fin":"2026-05-15 00:00","resume":"Crue rapide après une forte pluie des 2 et 3 août : environ 85 mm en 24 h à la zone Rapide-Blanc. Pic de 3 494 m³/s à La Gabelle (maximum de l'historique) ; Grand-Mère à 3 276 m³/s, au-dessus de 2 800.","inst":{"Cinconsine":{"d":"2026-04-17 18:00","f":"2026-05-11 19:00"},"Matawin":{"d":"2026-04-13 07:00","f":"2026-05-12 14:00"},"Mekinac":{"d":"2026-04-17 18:00","f":"2026-05-07 13:00"},"Chute-Allard":{"d":"2026-04-18 01:00","f":"2026-05-05 20:00"},"Rapides-des-Coeurs":{"d":"2026-04-18 01:00","f":"2026-05-04 06:00"},"Rapide-Blanc":{"d":"2026-04-16 13:00","f":"2026-05-11 21:00"},"Trenche":{"d":"2026-04-16 13:00","f":"2026-05-11 20:00"},"Beaumont":{"d":"2026-04-16 13:00","f":"2026-05-11 19:00"},"La Tuque":{"d":"2026-04-16 13:00","f":"2026-05-11 19:00"},"Grand-Mere":{"d":"2026-04-13 06:00","f":"2026-05-14 23:00"},"Shawinigan":{"d":"2026-04-13 08:00","f":"2026-05-14 14:00"},"La Gabelle":{"d":"2026-04-13 14:00","f":"2026-05-15 00:00"}}}];
+const EVT_LISTE = EVENEMENTS.slice().sort((a, b) => String(b.debut).localeCompare(String(a.debut)));
+const allEvtSel = document.getElementById('allEvtSel'), allEvtInfo = document.getElementById('allEvtInfo');
+let allEvt = null, allEvtTok = 0;      // evenement selectionne (null = aucun) ; jeton : ignore une selection depassee par la suivante
+const evtJour = s => new Date(String(s).slice(0, 10) + 'T12:00:00Z').toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+allEvtSel.add(new Option('Date courante', ''));
+for (const e of EVT_LISTE) allEvtSel.add(new Option(e.nom + ' — ' + evtJour(e.debut) + ' → ' + evtJour(e.fin), e.id));
+allEvtSel.value = '';
+// Charge TOUS les mois horaires avant de centrer la fenetre (le prechargement d'arriere-plan le ferait de toute facon). Raison : la
+// position de la fenetre est un indice ; chaque mois ajoute apres coup en tete des donnees la deplacerait vers une date plus ancienne.
+async function allEnsureData() {
+  const manque = () => !!manifest && manifest.months.some(m => !loadedMonths.has(m.month));
+  for (let t = 0; t < 120 && manque(); t++) {
+    if (isFetching) { await new Promise(r => setTimeout(r, 150)); continue; }   // chargement en cours : on attend
+    const before = loadedMonths.size;
+    await maybeLoadPreviousMonth();
+    if (loadedMonths.size === before && !isFetching) break;                     // rien de plus a charger
+  }
+}
+function allCenterOnFrame(f) {          // centre la fenetre sur la frame f (ou le premier jour affiche apres elle) ; drawAll borne la position
+  const keep = allKeep(); if (!keep.length) return;
+  let i = keep.findIndex(v => v >= f); if (i < 0) i = keep.length - 1;
+  allStart = i - Math.floor((allWin.n || 1) / 2);
+  drawAll();
+}
+function evtInfo() {
+  allEvtInfo.textContent = allEvt ? Object.keys(allEvt.inst).length + ' installation(s) touchée(s) · hachuré = non touchée' : '';
+  allEvtInfo.title = allEvt ? (allEvt.resume || '') : '';
+}
+allEvtSel.addEventListener('change', async () => {
+  const tok = ++allEvtTok, ev = EVT_LISTE.find(e => e.id === allEvtSel.value) || null;
+  allEvt = ev;
+  evtInfo();
+  await allEnsureData();
+  if (tok !== allEvtTok || !allOpen) return;
+  let f = frame;                        // centre = milieu de l'evenement (plus petit debut -> plus grande fin des installations touchees)
+  if (ev) {
+    const ds = Object.values(ev.inst).map(r => D.timestamps.indexOf(r.d)).filter(i => i >= 0), fs = Object.values(ev.inst).map(r => D.timestamps.indexOf(r.f)).filter(i => i >= 0);
+    f = ds.length && fs.length ? Math.round((Math.min(...ds) + Math.max(...fs)) / 2) : D.timestamps.indexOf(ev.debut);
+  }
+  if (f < 0) { drawAll(); return; }     // pic hors des donnees chargees : on redessine sans deplacer
+  allCenterOnFrame(f);
+});
 const ALL_HEAD = 30, ALL_DEBH = 92, ALL_VARH = 92, ALL_PH = 24 + ALL_DEBH + 24 + ALL_VARH + 36, ALL_BAR = 14, ALL_PADL = 60, ALL_PADR = 20;
 let allDrag = null, allSuppressClick = false, allHits = [], allNoteTxt = '', allCurX = null;
 const ALL_GRAB = 7;                    // tolerance (px canvas) pour saisir la barre rouge
@@ -6191,6 +6243,7 @@ function allRecalc() {                 // changement de mode ou de filtre : on r
   drawAll();
 }
 function openAll() {
+  allEvtTok++; allEvt = null; allEvtSel.value = ''; allEvtInfo.textContent = ''; allEvtInfo.title = '';   // evenement : jamais conserve, « Date courante » a l'ouverture
   allOpen = true; allStart = null; allScrollY = 0; allMinSel.value = '50'; allResMinSel.value = '0'; allResChk.checked = true; allResMinLbl.style.display = '';
   allModalEl.classList.add('open');
   requestAnimationFrame(drawAll);
@@ -6227,6 +6280,15 @@ function drawAll() {
   allScrollY = Math.max(0, Math.min(Math.max(0, contentH - bodyH), allScrollY));
   const COLO = '#d9640a', COLF = '#1d5e8c';
   const hits = [];
+  // Evenement selectionne : colonnes de la fenetre comprises entre son debut et sa fin (les jours masques n'ont pas de colonne).
+  const evBand = (d, f) => {
+    const fD = D.timestamps.indexOf(d), fF = D.timestamps.indexOf(f);
+    if (fD < 0 || fF < 0) return null;
+    let k0 = -1, k1 = -1;
+    for (let k = 0; k < Wn; k++) { if (k0 < 0 && win[k] >= fD) k0 = k; if (win[k] <= fF) k1 = k; }
+    return (k0 >= 0 && k1 >= k0) ? { x0: xOf(k0), x1: xOf(k1 + 1) } : null;
+  };
+  const evAll = allEvt ? evBand(allEvt.debut, allEvt.fin) : null;      // plage d'ensemble (sert aux installations non touchees)
 
   cx.save(); cx.beginPath(); cx.rect(0, bodyTop, w, bodyH); cx.clip();
   // reperes de jours (pointilles, sur toute la hauteur)
@@ -6237,12 +6299,46 @@ function drawAll() {
     cx.beginPath(); cx.moveTo(xd, bodyTop); cx.lineTo(xd, bodyBot); cx.stroke();
   }
   cx.setLineDash([]);
+  // Evenement : zone des installations touchees, UN ruban continu par serie d'installations consecutives. Les bords (debut a gauche, fin
+  // a droite) restent verticaux dans chaque panneau et se raccordent a ceux du panneau voisin par une petite courbe (S) au passage de
+  // l'un a l'autre ; une installation non touchee interrompt le ruban.
+  if (allEvt) {
+    const pan = cs.map((c, ci) => { const r = allEvt.inst[c.nom], b = r ? evBand(r.d, r.f) : null; return b ? { b: b, t: bodyTop + ci * ALL_PH - allScrollY } : null; });
+    const K = 12;                          // demi-hauteur de la transition (px) de part et d'autre de la limite entre deux panneaux
+    cx.fillStyle = 'rgba(120,90,200,.12)'; cx.strokeStyle = 'rgba(120,90,200,.6)'; cx.lineWidth = 1;
+    for (let i = 0; i < pan.length; i++) {
+      if (!pan[i] || (i > 0 && pan[i - 1])) continue;                  // debut d'une serie
+      let j = i; while (j + 1 < pan.length && pan[j + 1]) j++;
+      const pathL = () => {                // bord gauche (debut), de haut en bas
+        cx.moveTo(pan[i].b.x0 + .5, pan[i].t);
+        for (let k = i; k < j; k++) { const yB = pan[k + 1].t, xa = pan[k].b.x0 + .5, xb = pan[k + 1].b.x0 + .5; cx.lineTo(xa, yB - K); cx.bezierCurveTo(xa, yB, xb, yB, xb, yB + K); }
+        cx.lineTo(pan[j].b.x0 + .5, pan[j].t + ALL_PH - 1);
+      };
+      const pathR = (mv) => {              // bord droit (fin), de bas en haut
+        const xe = pan[j].b.x1 - .5, ye = pan[j].t + ALL_PH - 1; if (mv) cx.moveTo(xe, ye); else cx.lineTo(xe, ye);
+        for (let k = j; k > i; k--) { const yB = pan[k].t, xa = pan[k].b.x1 - .5, xb = pan[k - 1].b.x1 - .5; cx.lineTo(xa, yB + K); cx.bezierCurveTo(xa, yB, xb, yB, xb, yB - K); }
+        cx.lineTo(pan[i].b.x1 - .5, pan[i].t);
+      };
+      cx.beginPath(); pathL(); pathR(false); cx.closePath(); cx.fill();
+      cx.beginPath(); pathL(); cx.stroke();
+      cx.beginPath(); pathR(true); cx.stroke();
+    }
+  }
   // Meme look que la modale d'une centrale (panneaux Debits puis Variations), sans le panneau Pluie / apport.
   // Le panneau Variations est dessine par drawModalVariations (partage avec la modale d'une centrale) : on lui
   // presente les indices de la FENETRE (timestamps, N et frame substitues le temps de l'appel).
   cs.forEach((c, ci) => {
     const top = bodyTop + ci * ALL_PH - allScrollY;
     if (top + ALL_PH < bodyTop || top > bodyBot) return;
+    if (allEvt) {                         // installation non touchee : zone grise hachuree (les touchees : ruban trace plus haut)
+      if (!allEvt.inst[c.nom] && evAll) {  // sur la plage d'ensemble
+        cx.save(); cx.beginPath(); cx.rect(evAll.x0, top, evAll.x1 - evAll.x0, ALL_PH - 1); cx.clip();
+        cx.fillStyle = 'rgba(130,130,130,.07)'; cx.fillRect(evAll.x0, top, evAll.x1 - evAll.x0, ALL_PH - 1);
+        cx.strokeStyle = 'rgba(130,130,130,.35)'; cx.lineWidth = 1; cx.beginPath();
+        for (let xx = evAll.x0 - ALL_PH; xx < evAll.x1; xx += 9) { cx.moveTo(xx, top + ALL_PH - 1); cx.lineTo(xx + ALL_PH - 1, top); }
+        cx.stroke(); cx.restore();
+      }
+    }
     const full = chains[ci];
     let prevLvl = null; for (const it of full) { if (it.f < win[0]) prevLvl = it.lT + it.lD; else break; }
     const chW = full.filter(it => pos.has(it.f)).map(it => Object.assign({}, it, { f: pos.get(it.f) }));
